@@ -1,0 +1,26 @@
+# --- Data guard: memory store NEVER goes in git (secrets immutability / compliance) ---
+memory/
+*.md.local
+.index/
+
+# --- Node / TS ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.eslintcache
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Obsidian (if a vault ever sits alongside) ---
+.obsidian/
