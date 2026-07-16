@@ -1,0 +1,27 @@
+{
+  "name": "mnemosyne",
+  "version": "0.0.0",
+  "description": "Persistent, human-like memory for LLM agents. File-based, local-first, agent-agnostic.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsc && node dist/bin/migrate.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ulid": "^2.3.0",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.9"
+  }
+}
