@@ -24,7 +24,7 @@ to remember versus to forget. That duality is the whole system.
 
 ---
 
-> **Status:** design closed, implementation not started. See [`docs/plan.md`](docs/plan.md)
-> and [`docs/tasks.md`](docs/tasks.md).
+> **Status:** Fase 0 (data model + migration) complete; Fase 1 (retrieval) not started.
+> See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay→archive subsystem: *lethe*.
