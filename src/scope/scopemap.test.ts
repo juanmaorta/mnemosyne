@@ -1,6 +1,6 @@
 // src/scope/scopemap.test.ts
 import { describe, expect, test } from "vitest";
-import { parseScopeMap, resolveScope } from "./scopemap.js";
+import { parseScopeMap, resolveScope, resolveScopeStrict } from "./scopemap.js";
 
 const HOME = "/Users/j";
 
@@ -35,5 +35,24 @@ describe("resolveScope", () => {
   });
   test("resolveScope_does_not_match_on_partial_path_segment", () => {
     expect(resolveScope([{ prefix: "/a/foo", scope: "x" }], "/a/foobar")).toBe("personal");
+  });
+});
+
+describe("resolveScopeStrict (write-side, fail-closed)", () => {
+  const entries = [
+    { prefix: "/Users/j/Projects", scope: "personal" },
+    { prefix: "/Users/j/Projects/acme", scope: "acme" },
+  ];
+  test("resolveScopeStrict_picks_longest_prefix", () => {
+    expect(resolveScopeStrict(entries, "/Users/j/Projects/acme/repo")).toBe("acme");
+  });
+  test("resolveScopeStrict_matches_general_prefix_when_specific_absent", () => {
+    expect(resolveScopeStrict(entries, "/Users/j/Projects/misc")).toBe("personal");
+  });
+  test("resolveScopeStrict_returns_null_when_unmapped", () => {
+    expect(resolveScopeStrict(entries, "/tmp/elsewhere")).toBeNull();
+  });
+  test("resolveScopeStrict_does_not_match_on_partial_path_segment", () => {
+    expect(resolveScopeStrict([{ prefix: "/a/foo", scope: "x" }], "/a/foobar")).toBeNull();
   });
 });

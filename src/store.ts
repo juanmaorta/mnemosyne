@@ -12,6 +12,19 @@ import { ulid } from "ulid";
  *
  * Scope = folder (Syncthing routing) + `scope` frontmatter field (authoritative).
  */
+/**
+ * Default scope: the lenient read fallback and the migration default. NOT a list
+ * of known scopes — scopes are extensible user data (a string + a folder), so no
+ * specific scope name (e.g. a client's) ever appears as a constant in the engine.
+ */
+export const DEFAULT_SCOPE = "personal";
+
+/** Machine-local directory→scope map (never synced); see `.stignore` in Phase 4. */
+export const SCOPEMAP_FILE = ".scopemap";
+
+/** Machine-local owner policy (never synced); see `.stignore` in Phase 4. */
+export const OWNER_FILE = ".owner";
+
 export interface StorePaths {
   readonly root: string;
   scopeDir(scope: string): string;
@@ -20,6 +33,8 @@ export interface StorePaths {
   readonly indexDir: string;
   readonly indexDb: string;
   readonly indexMd: string;
+  readonly scopeMap: string;
+  readonly ownerPolicy: string;
 }
 
 /** A scope maps to a directory name; reject anything that could escape the root. */
@@ -44,6 +59,8 @@ export function storePaths(root: string): StorePaths {
     indexDir: join(root, ".index"),
     indexDb: join(root, ".index", "store.db"),
     indexMd: join(root, "INDEX.md"),
+    scopeMap: join(root, SCOPEMAP_FILE),
+    ownerPolicy: join(root, OWNER_FILE),
   };
 }
 

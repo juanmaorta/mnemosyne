@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { argv, exit } from "node:process";
 import { runMigration } from "../migrate-run.js";
+import { DEFAULT_SCOPE } from "../store.js";
 
 /**
  * Fase 0 migration CLI.
@@ -20,7 +21,7 @@ async function main(): Promise<void> {
 
   const summary = await runMigration(scope ? { sourceDir, destRoot, scope } : { sourceDir, destRoot });
   console.log(
-    `Migrated ${summary.notes} note(s) and ${summary.facts} fact(s) into ${destRoot}/${scope ?? "personal"}.`,
+    `Migrated ${summary.notes} note(s) and ${summary.facts} fact(s) into ${destRoot}/${scope ?? DEFAULT_SCOPE}.`,
   );
   if (summary.skipped.length > 0) {
     console.log(`Skipped ${summary.skipped.length} existing destination(s): ${summary.skipped.join(", ")}`);

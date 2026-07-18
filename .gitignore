@@ -24,3 +24,10 @@ coverage/
 
 # --- Obsidian (if a vault ever sits alongside) ---
 .obsidian/
+
+
+# APM dependencies
+apm_modules/
+apm.yml
+apm.lock.yaml
+.claude

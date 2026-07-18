@@ -44,6 +44,20 @@ const REJECT_RULES: RejectRule[] = [
 
 const ASSIGNMENT_RE = /\b(password|passwd|api[_-]?key|secret|token)\s*[=:]\s*(\S+)/gi;
 
+export function isSecretShaped(rawValue: string): boolean {
+  let v = rawValue;
+  let quoted = false;
+  if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+    v = v.slice(1, -1);
+    quoted = true;
+  }
+  if (quoted && v.length >= 6) return true;
+  const hasDigit = /[0-9]/.test(v);
+  const hasSymbol = /[^A-Za-z0-9]/.test(v);
+  if (v.length >= 12 && (hasDigit || hasSymbol)) return true;
+  return v.length >= 8 && /[A-Za-z]/.test(v) && hasDigit;
+}
+
 function lineOf(text: string, index: number): number {
   let line = 1;
   for (let i = 0; i < index && i < text.length; i++) {
@@ -78,7 +92,7 @@ export function scanForSecrets(text: string): SecretFinding[] {
       pattern: `assignment:${key}`,
       line: lineOf(text, a.index),
       masked: maskSecret(value, false),
-      severity: "reject",
+      severity: isSecretShaped(value) ? "reject" : "warn",
     });
   }
 

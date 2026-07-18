@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { migrateLegacy } from "./migrate.js";
-import { storePaths } from "./store.js";
+import { storePaths, DEFAULT_SCOPE } from "./store.js";
 
 export interface MigrationOptions {
   sourceDir: string;
@@ -45,7 +45,7 @@ function toLocalIso(date: Date): string {
  * Refuses to overwrite existing destinations (flag "wx") so re-runs are safe.
  */
 export async function runMigration(opts: MigrationOptions): Promise<MigrationSummary> {
-  const scope = opts.scope ?? "personal";
+  const scope = opts.scope ?? DEFAULT_SCOPE;
   const paths = storePaths(opts.destRoot);
   await mkdir(paths.scopeDir(scope), { recursive: true });
   await mkdir(paths.factsDir(scope), { recursive: true });

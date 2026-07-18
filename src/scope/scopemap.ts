@@ -1,6 +1,7 @@
 // src/scope/scopemap.ts
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_SCOPE, storePaths } from "../store.js";
 
 export interface ScopeMapEntry {
   prefix: string;
@@ -30,18 +31,26 @@ export function parseScopeMap(text: string, home: string): ScopeMapEntry[] {
   return entries;
 }
 
-export function resolveScope(entries: ScopeMapEntry[], cwd: string, fallback = "personal"): string {
+function bestMatch(entries: ScopeMapEntry[], cwd: string): ScopeMapEntry | undefined {
   let best: ScopeMapEntry | undefined;
   for (const e of entries) {
     if (cwd === e.prefix || cwd.startsWith(`${e.prefix}/`)) {
       if (!best || e.prefix.length > best.prefix.length) best = e;
     }
   }
-  return best?.scope ?? fallback;
+  return best;
+}
+
+export function resolveScope(entries: ScopeMapEntry[], cwd: string, fallback = DEFAULT_SCOPE): string {
+  return bestMatch(entries, cwd)?.scope ?? fallback;
+}
+
+export function resolveScopeStrict(entries: ScopeMapEntry[], cwd: string): string | null {
+  return bestMatch(entries, cwd)?.scope ?? null;
 }
 
 export function scopeMapPath(root: string): string {
-  return join(root, ".scopemap");
+  return storePaths(root).scopeMap;
 }
 
 export function loadScopeMap(path: string, home: string): ScopeMapEntry[] {

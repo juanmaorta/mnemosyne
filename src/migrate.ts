@@ -1,14 +1,11 @@
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
 import { EngramSchema, FACT_TYPES, type Engram } from "./schema.js";
-import { factFilename, newFactId } from "./store.js";
+import { factFilename, newFactId, DEFAULT_SCOPE } from "./store.js";
 
 const LEGACY_PREFIXES = ["feedback", "user", "project", "reference"] as const;
 
 /** Default importance for migrated engrams; dreaming re-scores globally later. */
 const DEFAULT_IMPORTANCE = 5;
-
-/** Default scope when the caller doesn't specify one (Fase 0 — plan.md). */
-const DEFAULT_SCOPE = "personal";
 
 export interface LegacyInput {
   /** Raw legacy markdown (frontmatter + body). */

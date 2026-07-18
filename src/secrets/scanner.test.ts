@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { scanForSecrets, hasRejectFinding, type SecretFinding } from "./scanner.js";
+import { scanForSecrets, hasRejectFinding, isSecretShaped, type SecretFinding } from "./scanner.js";
 
 function patterns(fs: SecretFinding[]): string[] {
   return fs.map((f) => f.pattern);
@@ -101,5 +101,44 @@ describe("scanForSecrets — warn-level entropy", () => {
   test("scanForSecrets_does_not_flag_normal_prose", () => {
     const fs = scanForSecrets("the quick brown fox jumps over the lazy dog again and again");
     expect(fs).toEqual([]);
+  });
+});
+
+describe("isSecretShaped", () => {
+  test("isSecretShaped_false_for_short_prose_word", () => {
+    expect(isSecretShaped("valid")).toBe(false);
+    expect(isSecretShaped("don't")).toBe(false);
+  });
+  test("isSecretShaped_true_for_quoted_value", () => {
+    expect(isSecretShaped('"s3cr3t"')).toBe(true);
+  });
+  test("isSecretShaped_true_for_long_or_mixed_alnum", () => {
+    expect(isSecretShaped("AbCd1234wxyz")).toBe(true); // mixed, >=8
+    expect(isSecretShaped("0123456789abcd")).toBe(true); // >=12, has digit
+  });
+  test("isSecretShaped_true_for_exactly_8_letter_and_digit", () => {
+    expect(isSecretShaped("Abcd1234")).toBe(true); // exactly 8, letter+digit -> isolates the >=8 branch
+  });
+  test("isSecretShaped_false_for_8_letters_no_digit", () => {
+    expect(isSecretShaped("abcdefgh")).toBe(false); // 8, no digit
+  });
+  test("isSecretShaped_false_for_long_pure_alpha_prose_word", () => {
+    expect(isSecretShaped("authentication")).toBe(false); // 14, pure alpha -> the regression this fix closes
+  });
+});
+
+describe("assignment severity", () => {
+  test("scan_prose_assignment_is_warn_not_reject", () => {
+    const f = scanForSecrets("the access token: valid");
+    expect(hasRejectFinding(f)).toBe(false);
+    expect(f.some((x) => x.pattern === "assignment:token" && x.severity === "warn")).toBe(true);
+  });
+  test("scan_real_assignment_is_reject", () => {
+    const f = scanForSecrets("api_key=AbCd1234wxyz");
+    expect(hasRejectFinding(f)).toBe(true);
+  });
+  test("scan_prose_after_trigger_word_does_not_reject", () => {
+    const f = scanForSecrets("the access token: authentication");
+    expect(hasRejectFinding(f)).toBe(false);
   });
 });

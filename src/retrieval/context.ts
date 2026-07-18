@@ -7,6 +7,7 @@ export interface ContextEntry {
   scope: string;
   description: string;
   score: number;
+  created: string;
 }
 
 const CONTEXT_WEIGHTS = { recency: 1, importance: 1, relevance: 0 };
@@ -16,13 +17,13 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
   const rows = db
     .prepare(
       `select e.slug as slug, e.scope as scope, e.description as description, e.importance as importance,
-              h.last_access as lastAccess, h.access_count as accessCount
+              e.created as created, h.last_access as lastAccess, h.access_count as accessCount
        from engrams e
        left join hot_state h on h.scope = e.scope and h.slug = e.slug
        where e.scope = ?`,
     )
     .all(scope) as {
-    slug: string; scope: string; description: string; importance: number;
+    slug: string; scope: string; description: string; importance: number; created: string;
     lastAccess: string | null; accessCount: number | null;
   }[];
 
@@ -31,6 +32,7 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
       slug: r.slug,
       scope: r.scope,
       description: r.description,
+      created: r.created,
       score: blendedScore(
         {
           recency: r.accessCount && r.accessCount > 0 ? recencyScore(nowMs, Date.parse(r.lastAccess as string)) : 1,
@@ -40,7 +42,7 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
         CONTEXT_WEIGHTS,
       ),
     }))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || b.created.localeCompare(a.created) || a.slug.localeCompare(b.slug));
 }
 
 function lineFor(e: ContextEntry): string {
@@ -62,11 +64,13 @@ export function selectWithinBudget(entries: ContextEntry[], budgetTokens: number
 export function formatContextDigest(included: ContextEntry[], scope: string, omitted: number): string {
   const lines = [`# Memory — scope: ${scope} (ambient)`];
   if (included.length === 0) {
-    lines.push("_(no memory in this scope yet)_");
+    lines.push(omitted > 0
+      ? `_(${omitted} memories; none fit the token budget)_`
+      : "_(no memory in this scope yet)_");
   } else {
     for (const e of included) lines.push(lineFor(e));
+    if (omitted > 0) lines.push(`… +${omitted} more — use \`mneme search "<topic>"\``);
   }
-  if (omitted > 0) lines.push(`… +${omitted} more — use \`mneme search "<topic>"\``);
   lines.push(`This is the ${scope} ambient view; \`mneme search\` recalls across all your scopes.`);
   return lines.join("\n");
 }

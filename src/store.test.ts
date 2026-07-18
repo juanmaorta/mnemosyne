@@ -20,6 +20,10 @@ describe("storePaths", () => {
     expect(paths.indexMd).toBe("/home/u/memory/INDEX.md");
   });
 
+  test("owner policy file is a root-level machine-local location", () => {
+    expect(paths.ownerPolicy).toBe("/home/u/memory/.owner");
+  });
+
   test("rejects a scope that would escape the store root", () => {
     expect(() => paths.scopeDir("../etc")).toThrow();
     expect(() => paths.factsDir("a/b")).toThrow();
