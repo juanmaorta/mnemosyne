@@ -116,7 +116,12 @@ only in the local index — the `.md` files are never mutated by retrieval.
 
 ---
 
-> **Status:** Fase 0 (data model + migration) and Fase 1 (retrieval + scoring + CLI) complete.
+> **Status:** Fase 0 (data model + migration), Fase 1 (retrieval + scoring + CLI),
+> Fase 2A (read integration — `SessionStart` digest hook + `.scopemap`), and Fase 2B
+> (write integration — `mneme add` with fail-closed scope, owner policy, and secret
+> scanner) complete. Next: Fase 3 (observability, instrumentation & benchmarking — make
+> the system measurable, explainable and regression-tested before adding more machinery),
+> then Fase 4 (nightly dreaming/consolidation).
 > See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay→archive subsystem: *lethe*.
