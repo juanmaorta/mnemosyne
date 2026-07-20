@@ -119,6 +119,27 @@ describe("reindex", () => {
     expect(row.slug).toBe("kefir-notes");
   });
 
+  test("reindex_scoped_does_not_prune_other_scopes", async () => {
+    // A scoped reindex walks only the given scope, so `seen` never contains
+    // other scopes' paths. The prune phase must NOT treat those unseen paths
+    // as deleted files — otherwise a scoped reindex (e.g. the SessionStart
+    // `mneme context` hook) wipes every other scope from the index.
+    const root = store(); // personal/yogurtera
+    mkdirSync(join(root, "acme"), { recursive: true });
+    const [tf, tc] = note("acme", "backend", "auth gateway notes");
+    writeFileSync(join(root, "acme", tf), tc);
+
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder() }); // full: both scopes
+    expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 2 });
+
+    // Scoped reindex of personal only — acme must survive untouched.
+    const stats = await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+    expect(stats.deleted).toBe(0);
+    expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 2 });
+    expect(db.prepare("select count(*) as n from engrams where scope = ?").get("acme")).toEqual({ n: 1 });
+  });
+
   test("reindex_scope_change_at_same_path_does_not_orphan_old_row", async () => {
     // Scope is a directory-mapped field (walk.ts assigns EngramFile.scope from
     // the folder), but the ENGRAM ROW's scope column comes from frontmatter

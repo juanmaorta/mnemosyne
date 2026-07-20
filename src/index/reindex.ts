@@ -1,6 +1,7 @@
 // src/index/reindex.ts
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
 import type { Db } from "./db.js";
 import type { EmbeddingClient } from "../embeddings.js";
 import { listEngramFiles, type EngramFile } from "./walk.js";
@@ -154,7 +155,15 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   }
 
   // Prune rows whose files vanished. Count `deleted` per file (path), not per row.
-  const known = db.prepare("select path from file_state").all() as { path: string }[];
+  // A SCOPED reindex only walked the given scopes, so `seen` never contains other
+  // scopes' paths — the prune candidate set must be narrowed to the reindexed
+  // scopes, or a scoped run (e.g. the SessionStart `mneme context` hook) would
+  // wipe every other scope from the index. A full reindex (no `scopes`) prunes
+  // globally, as before. Trailing `sep` keeps `acme` from matching `acme-x`.
+  const prefixes = scopes?.map((s) => join(root, s) + sep);
+  const known = (db.prepare("select path from file_state").all() as { path: string }[]).filter(
+    (r) => !prefixes || prefixes.some((p) => r.path.startsWith(p)),
+  );
   const prune = db.transaction(() => {
     for (const { path } of known) {
       if (seen.has(path)) continue;
