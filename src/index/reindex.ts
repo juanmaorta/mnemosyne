@@ -9,6 +9,7 @@ import { needsReindex, type FileState } from "./fileState.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { EngramSchema, type Engram } from "../schema.js";
 import { toBlob } from "./vecBlob.js";
+import { systemClock, type Clock } from "../clock.js";
 
 export interface ReindexStats {
   indexed: number;
@@ -22,6 +23,8 @@ export interface ReindexDeps {
   db: Db;
   embedder: EmbeddingClient;
   scopes?: string[];
+  /** Defaults to the system clock; injected by tests and the bench harness. */
+  clock?: Clock;
 }
 
 /** Batch size for embedding round-trips — keeps request bodies bounded on large stores. */
@@ -63,7 +66,7 @@ interface PendingItem {
 }
 
 export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
-  const { db, embedder, root, scopes } = deps;
+  const { db, embedder, root, scopes, clock = systemClock } = deps;
   const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0 };
   const files = listEngramFiles(root, scopes);
   const seen = new Set(files.map((f) => f.path));
@@ -104,7 +107,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   }
 
   // Phase 3: upsert each pending item, keyed by path.
-  const now = new Date().toISOString();
+  const now = clock.nowIso();
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i]!;
     const vec = vectors[i]!;

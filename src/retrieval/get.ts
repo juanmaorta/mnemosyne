@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Db } from "../index/db.js";
 import { recordAccess } from "../hotstate.js";
+import type { Clock } from "../clock.js";
 
 export interface EngramDoc { slug: string; scope: string; path: string; content: string }
 
@@ -25,8 +26,8 @@ export function getEngram(db: Db, slug: string, scope?: string): EngramDoc {
 }
 
 /** Reads the engram and records a `get` access event, reinforcing its hot state. */
-export function getEngramAndRecord(db: Db, root: string, slug: string, scope?: string): EngramDoc {
+export function getEngramAndRecord(db: Db, root: string, slug: string, clock: Clock, scope?: string): EngramDoc {
   const doc = getEngram(db, slug, scope);
-  recordAccess(db, root, doc.scope, doc.slug, new Date().toISOString());
+  recordAccess(db, root, doc.scope, doc.slug, clock.nowIso());
   return doc;
 }

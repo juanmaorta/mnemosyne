@@ -11,6 +11,7 @@ import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath } from "./
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
 import { appendEvalLog } from "./eval/log.js";
+import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
 import { hookSnippet, mergeSessionStartHook, SESSION_START_COMMAND } from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -43,7 +44,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true } }, allowPositionals: true });
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        const stats = await reindex({ root, db, embedder: embedder(), ...(values.scope ? { scopes: values.scope } : {}) });
+        const stats = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
         out(`indexed ${stats.indexed}, skipped ${stats.skipped}, deleted ${stats.deleted}, errors ${stats.errors}`);
         return 0;
       }
@@ -53,10 +54,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        await reindex({ root, db, embedder: embedder(), ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
-        const hits = await search({ db, root, embedder: embedder() }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) });
+        await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
+        const hits = await search({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) });
         for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
-        appendEvalLog(root, { ts: new Date().toISOString(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
+        appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
         return 0;
       }
       case "context": {
@@ -71,11 +72,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           const parsedBudget = Number(values.budget ?? process.env.MNEMOSYNE_CONTEXT_BUDGET);
           const budget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : 1000;
           const db = openIndex(root);
-          try { await reindex({ root, db, embedder: embedder(), scopes: [scope] }); } catch { /* serve existing index */ }
-          const ranked = rankContext(db, root, scope, Date.now());
+          try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { /* serve existing index */ }
+          const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
           out(formatContextDigest(included, scope, omitted));
-          appendEvalLog(root, { ts: new Date().toISOString(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
+          appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
         } catch {
           out(formatContextDigest([], scope, 0)); // never break session start
         }
@@ -87,7 +88,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (!slug) { err("usage: mneme get <slug> [--scope s]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        out(getEngramAndRecord(db, root, slug, values.scope).content);
+        out(getEngramAndRecord(db, root, slug, systemClock, values.scope).content);
         return 0;
       }
       case "install-hook": {
@@ -153,7 +154,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const root = resolveRoot(values.root);
         try {
           const res = addMemory(
-            { root, cwd: process.cwd(), home: homedir(), now: new Date().toISOString().slice(0, 19) },
+            { root, cwd: process.cwd(), home: homedir(), now: systemClock.nowIso().slice(0, 19) },
             {
               content, type: type as EngramType,
               ...(values.scope ? { scope: values.scope } : {}),

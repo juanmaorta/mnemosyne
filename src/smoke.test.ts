@@ -7,6 +7,7 @@ import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
 import { search } from "./retrieval/search.js";
 import { createOllamaClient } from "./embeddings.js";
+import { systemClock } from "./clock.js";
 
 const run = process.env.MNEMOSYNE_SMOKE === "1" ? describe : describe.skip;
 
@@ -24,7 +25,7 @@ run("real Ollama smoke", () => {
     const embedder = createOllamaClient();
     const db = openDb(":memory:");
     await reindex({ root, db, embedder });
-    const hits = await search({ db, root, embedder }, { query: "yogurt fermentation" });
+    const hits = await search({ db, root, embedder, clock: systemClock }, { query: "yogurt fermentation" });
 
     expect(hits[0]!.slug).toBe("yogurt");
   }, 30_000);

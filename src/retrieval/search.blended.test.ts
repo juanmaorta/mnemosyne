@@ -6,6 +6,7 @@ import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { search } from "./search.js";
+import { systemClock } from "../clock.js";
 
 function note(root: string, slug: string, importance: number, body: string) {
   mkdirSync(join(root, "personal"), { recursive: true });
@@ -23,7 +24,7 @@ describe("blended search", () => {
     const db = openDb(join(root, ".index", "store.db"));
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
-    const hits = await search({ db, root, embedder: createFakeEmbedder() },
+    const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock },
       { query: "yogurt maker control", weights: { recency: 0, importance: 1, relevance: 1 } });
 
     expect(hits[0]!.slug).toBe("high");
@@ -52,7 +53,7 @@ describe("blended search", () => {
     // never-accessed → hot_state.last_access is seeded from `created`. Old
     // default weights {1,1,1} + created-seeded recency let the freshly
     // "created" but off-topic router note outrank the older, on-topic one.
-    const hits = await search({ db, root, embedder: createFakeEmbedder() },
+    const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock },
       { query: "yogurt maker control" });
 
     expect(hits[0]!.slug).toBe("yogurtera");

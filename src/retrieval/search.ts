@@ -4,17 +4,21 @@ import { blendedScore, recencyScore, importanceNorm, type Weights } from "../sco
 import { materializeHotState } from "../hotstate.js";
 import { listScopes } from "../index/walk.js";
 import { toBlob } from "../index/vecBlob.js";
+import type { Clock } from "../clock.js";
 
 export interface SearchHit { slug: string; scope: string; score: number; snippet: string }
-export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient }
+export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient; clock: Clock }
 export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights }
 
 export async function search(deps: SearchDeps, opts: SearchOptions): Promise<SearchHit[]> {
-  const { db, root, embedder } = deps;
+  const { db, root, embedder, clock } = deps;
   const k = opts.k ?? 10;
   const scopes = opts.scopes ?? listScopes(root);
   if (scopes.length === 0) return [];
-  materializeHotState(db, root, scopes, Date.now());
+  // One clock read for the whole query: hot-state materialization and the
+  // recency term must agree on "now", or a slow embed call would skew scoring.
+  const now = clock.now();
+  materializeHotState(db, root, scopes, now);
   const [q] = await embedder.embed([opts.query]);
   const rows = db.prepare(
     `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
@@ -28,7 +32,6 @@ export async function search(deps: SearchDeps, opts: SearchOptions): Promise<Sea
     { slug: string; scope: string; snippet: string; importance: number; relevance: number;
       lastAccess: string | null; accessCount: number | null }[];
 
-  const now = Date.now();
   return rows
     .map((r) => ({
       slug: r.slug, scope: r.scope, snippet: r.snippet,
