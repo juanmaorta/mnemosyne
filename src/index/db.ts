@@ -41,7 +41,32 @@ export function applySchema(db: Db): void {
       hash TEXT NOT NULL,
       indexed_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+}
+
+export function setMeta(db: Db, key: string, value: string): void {
+  db.prepare("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, value);
+}
+
+export function getMeta(db: Db, key: string): string | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+/**
+ * Drop and recreate the vector table at the CURRENT embedding dimension.
+ *
+ * `CREATE VIRTUAL TABLE IF NOT EXISTS` never redimensions an existing table, so
+ * a release that changes EMBEDDING_DIM would leave every existing store with a
+ * table at the old width and every insert failing. Recreating is safe because
+ * the index is disposable by design — `reindex` re-embeds everything.
+ */
+export function resetVectorIndex(db: Db): void {
+  db.exec(`DROP TABLE IF EXISTS vec_engrams; CREATE VIRTUAL TABLE vec_engrams USING vec0(embedding float[${EMBEDDING_DIM}]);`);
 }
 
 export function openDb(dbPath: string): Db {

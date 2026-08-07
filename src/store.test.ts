@@ -20,6 +20,13 @@ describe("storePaths", () => {
     expect(paths.indexMd).toBe("/home/u/memory/INDEX.md");
   });
 
+  test("telemetry lives in a durable dir, separate from the disposable index", () => {
+    // .index/ is rebuilt by `reindex`; .telemetry/ must survive that, so they
+    // can never be the same directory.
+    expect(paths.telemetryDir).toBe("/home/u/memory/.telemetry");
+    expect(paths.telemetryDir).not.toBe(paths.indexDir);
+  });
+
   test("owner policy file is a root-level machine-local location", () => {
     expect(paths.ownerPolicy).toBe("/home/u/memory/.owner");
   });

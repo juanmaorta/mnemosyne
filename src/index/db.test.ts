@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { openDb, applySchema } from "./db.js";
+import { openDb, applySchema, getMeta, setMeta, resetVectorIndex } from "./db.js";
+import { EMBEDDING_DIM } from "../embeddings.js";
 
 describe("openDb", () => {
   test("openDb_creates_all_tables_and_loads_vec", () => {
@@ -16,6 +17,40 @@ describe("openDb", () => {
   test("applySchema_is_idempotent", () => {
     const db = openDb(":memory:");
     expect(() => applySchema(db)).not.toThrow(); // second application on same handle
+  });
+
+  test("meta_stores_and_upserts_key_values", () => {
+    const db = openDb(":memory:");
+    expect(getMeta(db, "embedding_id")).toBeUndefined();
+    setMeta(db, "embedding_id", "nomic-embed-text/dim768");
+    expect(getMeta(db, "embedding_id")).toBe("nomic-embed-text/dim768");
+    setMeta(db, "embedding_id", "other/dim768");
+    expect(getMeta(db, "embedding_id")).toBe("other/dim768");
+  });
+
+  test("resetVectorIndex_rebuilds_the_table_at_the_current_dimension", () => {
+    // A shipped change to EMBEDDING_DIM leaves existing DBs holding a vec table
+    // at the OLD width: `CREATE VIRTUAL TABLE IF NOT EXISTS` never redimensions
+    // it, so every insert would fail. Simulate that stale table and prove the
+    // reset restores a usable index.
+    const db = openDb(":memory:");
+    db.exec("DROP TABLE vec_engrams; CREATE VIRTUAL TABLE vec_engrams USING vec0(embedding float[4]);");
+    const wide = Buffer.from(Float32Array.from(new Array(EMBEDDING_DIM).fill(0.1)).buffer);
+    expect(() => db.prepare("insert into vec_engrams(rowid, embedding) values (1, ?)").run(wide)).toThrow();
+
+    resetVectorIndex(db);
+
+    expect(() => db.prepare("insert into vec_engrams(rowid, embedding) values (1, ?)").run(wide)).not.toThrow();
+  });
+
+  test("resetVectorIndex_drops_existing_vectors", () => {
+    const db = openDb(":memory:");
+    const blob = Buffer.from(Float32Array.from(new Array(EMBEDDING_DIM).fill(0.1)).buffer);
+    db.prepare("insert into vec_engrams(rowid, embedding) values (1, ?)").run(blob);
+
+    resetVectorIndex(db);
+
+    expect((db.prepare("select count(*) as n from vec_engrams").get() as { n: number }).n).toBe(0);
   });
 
   test("vec_table_accepts_768_dim_vector", () => {

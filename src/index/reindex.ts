@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
-import type { Db } from "./db.js";
+import { getMeta, setMeta, resetVectorIndex, type Db } from "./db.js";
 import type { EmbeddingClient } from "../embeddings.js";
 import { listEngramFiles, type EngramFile } from "./walk.js";
 import { needsReindex, type FileState } from "./fileState.js";
@@ -16,6 +16,8 @@ export interface ReindexStats {
   skipped: number;
   deleted: number;
   errors: number;
+  /** True when the stored embedding model differed and the index was rebuilt. */
+  embeddingMismatch: boolean;
 }
 
 export interface ReindexDeps {
@@ -67,7 +69,22 @@ interface PendingItem {
 
 export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   const { db, embedder, root, scopes, clock = systemClock } = deps;
-  const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0 };
+
+  // Vectors produced by different models are not comparable: mixing them would
+  // silently corrupt every cosine distance with no error to notice. A changed
+  // fingerprint therefore invalidates the whole index — safe, because the index
+  // is disposable and this function rebuilds it. Recreating the vector table
+  // (not just clearing file_state) also covers a shipped EMBEDDING_DIM change,
+  // which `CREATE VIRTUAL TABLE IF NOT EXISTS` would otherwise never apply.
+  const previousEmbeddingId = getMeta(db, "embedding_id");
+  const embeddingMismatch = previousEmbeddingId !== undefined && previousEmbeddingId !== embedder.id;
+  if (embeddingMismatch) {
+    db.prepare("DELETE FROM file_state").run();
+    resetVectorIndex(db);
+  }
+  setMeta(db, "embedding_id", embedder.id);
+
+  const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0, embeddingMismatch };
   const files = listEngramFiles(root, scopes);
   const seen = new Set(files.map((f) => f.path));
 

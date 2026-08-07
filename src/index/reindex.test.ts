@@ -2,9 +2,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, statSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { openDb } from "./db.js";
+import { openDb, getMeta } from "./db.js";
 import { reindex } from "./reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
+import type { EmbeddingClient } from "../embeddings.js";
 
 function note(scope: string, slug: string, body: string): [string, string] {
   const fm = ["---", `name: ${slug}`, `description: ${slug} desc`, `scope: ${scope}`,
@@ -36,6 +37,43 @@ describe("reindex", () => {
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
     const stats = await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
     expect(stats).toMatchObject({ indexed: 0, skipped: 1 });
+  });
+
+  test("reindex_stamps_the_embedding_model_id", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    const embedder = createFakeEmbedder();
+
+    const stats = await reindex({ root, db, embedder, scopes: ["personal"] });
+
+    expect(stats.embeddingMismatch).toBe(false);
+    expect(getMeta(db, "embedding_id")).toBe(embedder.id);
+  });
+
+  test("reindex_reembeds_everything_when_the_embedding_model_changes", async () => {
+    // Vectors from two models are not comparable — a silent mix would corrupt
+    // every cosine distance without any error surfacing.
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+    expect(getMeta(db, "embedding_id")).toBe("fake-bow/dim768");
+
+    const otherModel: EmbeddingClient = { ...createFakeEmbedder(), id: "other-model/dim768" };
+    const stats = await reindex({ root, db, embedder: otherModel, scopes: ["personal"] });
+
+    expect(stats.embeddingMismatch).toBe(true);
+    expect(stats.indexed).toBe(1); // re-embedded, not skipped as unchanged
+    expect(stats.skipped).toBe(0);
+    expect(getMeta(db, "embedding_id")).toBe("other-model/dim768");
+    // Exactly one vector: the stale one was dropped, not left orphaned.
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
+  });
+
+  test("reindex_does_not_report_mismatch_on_a_fresh_index", async () => {
+    // No previous stamp is not a mismatch — it is a first run.
+    const root = store();
+    const stats = await reindex({ root, db: openDb(":memory:"), embedder: createFakeEmbedder(), scopes: ["personal"] });
+    expect(stats.embeddingMismatch).toBe(false);
   });
 
   test("reindex_prunes_rows_for_deleted_files", async () => {

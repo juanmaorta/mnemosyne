@@ -2,6 +2,12 @@ export const EMBEDDING_DIM = 768;
 
 export interface EmbeddingClient {
   embed(texts: string[]): Promise<number[][]>;
+  /**
+   * Model+dimension fingerprint, stamped into the index. Vectors from two
+   * different models are not comparable, so a change here has to invalidate
+   * every embedding rather than silently degrade every cosine distance.
+   */
+  readonly id: string;
 }
 
 export interface OllamaConfig {
@@ -20,6 +26,7 @@ export function createOllamaClient(
 ): EmbeddingClient {
   const { host, model } = { ...DEFAULT_CONFIG, ...config };
   return {
+    id: `${model}/dim${EMBEDDING_DIM}`,
     async embed(texts) {
       let res: Response;
       try {

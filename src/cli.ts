@@ -45,6 +45,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const root = resolveRoot(values.root);
         const db = openIndex(root);
         const stats = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
+        if (stats.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         out(`indexed ${stats.indexed}, skipped ${stats.skipped}, deleted ${stats.deleted}, errors ${stats.errors}`);
         return 0;
       }
@@ -54,7 +55,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
+        const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
+        if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         const hits = await search({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) });
         for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
         appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });

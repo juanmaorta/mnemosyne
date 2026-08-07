@@ -32,6 +32,13 @@ export interface StorePaths {
   readonly archiveDir: string;
   readonly indexDir: string;
   readonly indexDb: string;
+  /**
+   * Durable, machine-local telemetry. Deliberately a sibling of `.index/`, not
+   * a child: `reindex` may rebuild the index from scratch at any time, and the
+   * event log has to outlive that. Lives at the store root, outside the
+   * per-scope folders Syncthing replicates, so it never leaves this machine.
+   */
+  readonly telemetryDir: string;
   readonly indexMd: string;
   readonly scopeMap: string;
   readonly ownerPolicy: string;
@@ -58,6 +65,7 @@ export function storePaths(root: string): StorePaths {
     archiveDir: join(root, "archive"),
     indexDir: join(root, ".index"),
     indexDb: join(root, ".index", "store.db"),
+    telemetryDir: join(root, ".telemetry"),
     indexMd: join(root, "INDEX.md"),
     scopeMap: join(root, SCOPEMAP_FILE),
     ownerPolicy: join(root, OWNER_FILE),
