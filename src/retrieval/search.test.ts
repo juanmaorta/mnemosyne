@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
-import { search } from "./search.js";
+import { search, searchExplain } from "./search.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { fixedClock, systemClock } from "../clock.js";
 import { recordAccess } from "../hotstate.js";
@@ -72,6 +72,60 @@ describe("search", () => {
     expect(fresh[0]!.slug).toBe("yogurtera");
     expect(stale[0]!.slug).toBe("yogurtera");
     expect(fresh[0]!.score).toBeGreaterThan(stale[0]!.score);
+  });
+
+  test("each_hit_carries_its_signal_breakdown_rank_and_threshold", async () => {
+    const { db, root } = await indexed();
+    const hits = await search(
+      { db, root, embedder: createFakeEmbedder(), clock: fixedClock(1_700_000_000_000) },
+      { query: "yogurt maker control", k: 3 },
+    );
+
+    expect(hits.map((h) => h.rank)).toEqual([0, 1, 2]);
+    expect(hits[0]!.signals.relevanceCosine).toBeGreaterThanOrEqual(0);
+    // Threshold is the cut line: the score of the last included hit.
+    expect(hits.at(-1)!.threshold).toBeCloseTo(hits.at(-1)!.score, 10);
+    expect(hits.every((h) => h.threshold === hits[0]!.threshold)).toBe(true);
+    expect(hits.every((h) => h.included)).toBe(true);
+
+    // The score must be recomputable from the exposed signals alone —
+    // that is the whole point of the breakdown.
+    const w = hits[0]!.weights, s = hits[0]!.signals, total = w.recency + w.importance + w.relevance;
+    expect(hits[0]!.score).toBeCloseTo(
+      (w.recency * s.recencyNorm + w.importance * s.importanceNorm + w.relevance * s.relevanceCosine) / total,
+      10,
+    );
+  });
+
+  test("searchExplain_returns_all_candidates_flagged_included_or_discarded", async () => {
+    const { db, root } = await indexed(); // 3 engrams across two scopes
+    const res = await searchExplain(
+      { db, root, embedder: createFakeEmbedder(), clock: fixedClock(1_700_000_000_000) },
+      { query: "yogurt maker control", k: 2 },
+    );
+
+    expect(res.candidates.length).toBeGreaterThan(2); // discarded ones are kept
+    expect(res.candidates.filter((c) => c.included)).toHaveLength(2);
+    expect(res.candidates.every((c, i) => c.rank === i)).toBe(true);
+    expect(res.query).toBe("yogurt maker control");
+    expect(res.k).toBe(2);
+
+    // Everything below the cut line is flagged out, and the cut line is real:
+    // no discarded candidate outscores an included one.
+    const discarded = res.candidates.filter((c) => !c.included);
+    expect(discarded.length).toBeGreaterThan(0);
+    for (const d of discarded) expect(d.score).toBeLessThanOrEqual(res.candidates[1]!.score);
+  });
+
+  test("search_returns_exactly_the_included_candidates_of_searchExplain", async () => {
+    const { db, root } = await indexed();
+    const deps = { db, root, embedder: createFakeEmbedder(), clock: fixedClock(1_700_000_000_000) };
+    const opts = { query: "yogurt maker control", k: 2 };
+
+    const hits = await search(deps, opts);
+    const res = await searchExplain(deps, opts);
+
+    expect(hits).toEqual(res.candidates.filter((c) => c.included));
   });
 
   test("search_is_deterministic_under_a_frozen_clock", async () => {
