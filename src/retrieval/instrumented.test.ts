@@ -44,7 +44,10 @@ describe("searchInstrumented", () => {
 
     expect(queries).toHaveLength(1);
     expect(candidates).toHaveLength(3); // every candidate, not just the top-k
-    expect(queries[0]).toMatchObject({ k: 2, candidateSetSize: 3, scopes: ["personal"] });
+    expect(queries[0]).toMatchObject({ k: 2, candidateSetSize: 3, scopes: ["personal"], resultCount: 2 });
+    // Duration comes off the monotonic seam — 0 under a frozen clock, which is
+    // what keeps recorded latencies deterministic in tests and benchmarks.
+    expect(queries[0]!.durationMs).toBe(0);
     expect(candidates.filter((c) => c.included)).toHaveLength(2);
   });
 

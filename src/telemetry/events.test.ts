@@ -43,6 +43,7 @@ describe("telemetry event log", () => {
     const counting: Clock = {
       now: () => T0,
       nowIso: () => { isoReads++; return new Date(T0).toISOString(); },
+      monotonicMs: () => 0,
     };
 
     emitEvents(root, counting, [

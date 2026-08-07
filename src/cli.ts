@@ -5,6 +5,11 @@ import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
 import { searchInstrumented } from "./retrieval/instrumented.js";
 import { newCorrId } from "./telemetry/corr.js";
+import { computeStats } from "./observability/stats.js";
+import { formatExplain } from "./observability/explain.js";
+import { traceEngram, formatTrace } from "./observability/trace.js";
+import { searchExplain } from "./retrieval/search.js";
+import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
 import { getEngramAndRecord } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
@@ -52,13 +57,23 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "search": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" } }, allowPositionals: true });
         const query = positionals.join(" ").trim();
         if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
         const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
+        const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) };
+        if (values.explain) {
+          // Diagnostic path: still instrumented, so an explained search is not
+          // a hole in the log — then rendered candidate-by-candidate.
+          const corrIdX = newCorrId(systemClock);
+          const deps = { db, root, embedder: embedder(), clock: systemClock };
+          await searchInstrumented(deps, searchOpts, corrIdX);
+          out(formatExplain(await searchExplain(deps, searchOpts), values.all ? { limit: null } : {}));
+          return 0;
+        }
         const corrId = newCorrId(systemClock);
         const hits = await searchInstrumented({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) }, corrId);
         for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
@@ -96,6 +111,34 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         } catch {
           out(formatContextDigest([], scope, 0)); // never break session start
         }
+        return 0;
+      }
+      case "explain": {
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, all: { type: "boolean" } }, allowPositionals: true });
+        const query = positionals.join(" ").trim();
+        if (!query) { err("usage: mneme explain \"<query>\" [--scope s] [-k N]"); return 1; }
+        const root = resolveRoot(values.root);
+        const db = openIndex(root);
+        await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
+        const deps = { db, root, embedder: embedder(), clock: systemClock };
+        const opts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) };
+        await searchInstrumented(deps, opts, newCorrId(systemClock));
+        out(formatExplain(await searchExplain(deps, opts), values.all ? { limit: null } : {}));
+        return 0;
+      }
+      case "trace": {
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" } }, allowPositionals: true });
+        const slug = positionals[0];
+        if (!slug) { err("usage: mneme trace <slug>"); return 1; }
+        const root = resolveRoot(values.root);
+        out(formatTrace(traceEngram(root, slug), slug));
+        return 0;
+      }
+      case "stats": {
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, json: { type: "boolean" } }, allowPositionals: true });
+        const root = resolveRoot(values.root);
+        const stats = computeStats(openIndex(root), root);
+        out(values.json ? JSON.stringify(stats, null, 2) : formatStats(stats));
         return 0;
       }
       case "get": {
@@ -190,7 +233,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, get, reindex, scan, scope, install-hook, add.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, reindex, scan, scope, install-hook, add.`);
         return 1;
     }
   } catch (e) {

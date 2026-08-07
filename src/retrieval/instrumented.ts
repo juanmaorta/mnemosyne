@@ -27,7 +27,11 @@ export async function searchInstrumented(
   opts: SearchOptions,
   corrId: string,
 ): Promise<SearchHit[]> {
+  // Measured on the monotonic seam, not the wall clock: this is the number
+  // `mneme stats` turns into p50/p95, and it must not move when NTP does.
+  const startedAt = deps.clock.monotonicMs();
   const res = await searchExplain(deps, opts);
+  const durationMs = deps.clock.monotonicMs() - startedAt;
 
   // Query and candidates go out as ONE append sharing a single timestamp: they
   // are one logical event, and this runs on the retrieval hot path.
@@ -40,6 +44,8 @@ export async function searchInstrumented(
       k: res.k,
       weights: res.weights,
       candidateSetSize: res.candidates.length,
+      durationMs,
+      resultCount: res.candidates.filter((c) => c.included).length,
     },
     ...res.candidates.map((c): TelemetryInput => ({
       kind: "retrieval.candidate",
