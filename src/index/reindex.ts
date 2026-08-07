@@ -3,9 +3,10 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { getMeta, setMeta, resetVectorIndex, type Db } from "./db.js";
-import type { EmbeddingClient } from "../embeddings.js";
+import { EMBEDDING_DIM, type EmbeddingClient } from "../embeddings.js";
 import { listEngramFiles, type EngramFile } from "./walk.js";
 import { needsReindex, type FileState } from "./fileState.js";
+import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { EngramSchema, type Engram } from "../schema.js";
 import { toBlob } from "./vecBlob.js";
@@ -65,6 +66,8 @@ interface PendingItem {
   body: string;
   hash: string;
   curr: { mtime: number; size: number };
+  /** Absent = never indexed. Distinguishes a new file from a modified one. */
+  prev: FileState | undefined;
 }
 
 export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
@@ -94,7 +97,8 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   for (const file of files) {
     const st = statSync(file.path);
     const curr = { mtime: Math.floor(st.mtimeMs), size: st.size };
-    if (!needsReindex(fileStateOf(db, file.path), curr)) {
+    const prev = fileStateOf(db, file.path);
+    if (!needsReindex(prev, curr)) {
       stats.skipped++;
       continue;
     }
@@ -108,7 +112,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       continue;
     }
     const hash = createHash("sha256").update(raw).digest("hex");
-    pending.push({ file, engram, body, hash, curr });
+    pending.push({ file, engram, body, hash, curr, prev });
   }
 
   // Phase 2: batch-embed all pending texts in chunks. A batch failure (e.g.
@@ -125,6 +129,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
 
   // Phase 3: upsert each pending item, keyed by path.
   const now = clock.nowIso();
+  const indexedEvents: TelemetryInput[] = [];
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i]!;
     const vec = vectors[i]!;
@@ -169,6 +174,16 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       // rethrows, so prior state is left intact when we catch below.
       upsert();
       stats.indexed++;
+      indexedEvents.push({
+        kind: "engram.indexed",
+        scope: engram.scope,
+        slug: engram.name,
+        embeddingId: embedder.id,
+        dim: EMBEDDING_DIM,
+        // `hash` means the bytes changed; `mtime` means only the stat did
+        // (a touch, or a Syncthing round-trip) yet we re-embedded anyway.
+        reason: item.prev === undefined ? "new" : item.prev.hash !== hash ? "hash" : "mtime",
+      });
     } catch {
       stats.errors++;
     }
@@ -193,5 +208,9 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     }
   });
   prune();
+  // One append for the whole run: a full reindex touches every engram in the
+  // store, so per-event writes would put hundreds of syscalls in a command the
+  // SessionStart hook runs.
+  emitEvents(root, clock, indexedEvents);
   return stats;
 }

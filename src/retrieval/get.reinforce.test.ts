@@ -8,6 +8,7 @@ import { createFakeEmbedder } from "../embeddings.fake.js";
 import { getEngramAndRecord } from "./get.js";
 import { getHotState } from "../hotstate.js";
 import { fixedClock } from "../clock.js";
+import { readTelemetry } from "../telemetry/events.js";
 
 describe("getEngramAndRecord", () => {
   test("get_records_an_access_event_reinforcing_strength", async () => {
@@ -26,5 +27,11 @@ describe("getEngramAndRecord", () => {
     expect(hot.accessCount).toBe(1);
     // The access is stamped from the injected clock, not the wall clock.
     expect(hot.lastAccess).toBe("2026-07-01T12:00:00.000Z");
+
+    const ev = readTelemetry(root).find((e) => e.kind === "access.reinforced")!;
+    expect(ev).toMatchObject({ scope: "personal", slug: "yogurtera", accessCountAfter: 1 });
+    expect(ev.strengthAfter as number).toBeGreaterThan(ev.strengthBefore as number);
+    // The event carries the access instant, not a second clock reading.
+    expect(ev.ts).toBe("2026-07-01T12:00:00.000Z");
   });
 });

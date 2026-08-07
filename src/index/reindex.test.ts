@@ -6,6 +6,8 @@ import { openDb, getMeta } from "./db.js";
 import { reindex } from "./reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import type { EmbeddingClient } from "../embeddings.js";
+import { readTelemetry } from "../telemetry/events.js";
+import { fixedClock } from "../clock.js";
 
 function note(scope: string, slug: string, body: string): [string, string] {
   const fm = ["---", `name: ${slug}`, `description: ${slug} desc`, `scope: ${scope}`,
@@ -74,6 +76,42 @@ describe("reindex", () => {
     const root = store();
     const stats = await reindex({ root, db: openDb(":memory:"), embedder: createFakeEmbedder(), scopes: ["personal"] });
     expect(stats.embeddingMismatch).toBe(false);
+  });
+
+  test("reindex_emits_engram_indexed_with_the_reason", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    const clock = fixedClock(Date.parse("2026-08-07T10:00:00.000Z"));
+
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"], clock });
+
+    const first = readTelemetry(root).filter((e) => e.kind === "engram.indexed");
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({
+      scope: "personal", slug: "yogurtera", embeddingId: "fake-bow/dim768", dim: 768, reason: "new",
+    });
+
+    // Rewrite with different bytes → the reason becomes `hash`, not `new`.
+    const path = join(root, "personal", "yogurtera.md");
+    const [, changed] = note("personal", "yogurtera", "completely different sourdough content");
+    writeFileSync(path, changed);
+    const future = new Date(statSync(path).mtimeMs + 5000);
+    utimesSync(path, future, future);
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"], clock });
+
+    const all = readTelemetry(root).filter((e) => e.kind === "engram.indexed");
+    expect(all).toHaveLength(2);
+    expect(all[1]!.reason).toBe("hash");
+  });
+
+  test("reindex_emits_nothing_for_skipped_files", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    const embedder = createFakeEmbedder();
+    await reindex({ root, db, embedder, scopes: ["personal"] });
+    await reindex({ root, db, embedder, scopes: ["personal"] }); // all skipped
+
+    expect(readTelemetry(root).filter((e) => e.kind === "engram.indexed")).toHaveLength(1);
   });
 
   test("reindex_prunes_rows_for_deleted_files", async () => {

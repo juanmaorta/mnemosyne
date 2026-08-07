@@ -7,9 +7,20 @@ import { storePaths, newFactId, factFilename } from "../store.js";
 import { loadScopeMap, scopeMapPath, resolveScopeStrict } from "../scope/scopemap.js";
 import { loadOwnerPolicy, ownsScope } from "../scope/owner.js";
 import { scanForSecrets, hasRejectFinding, type SecretFinding } from "../secrets/scanner.js";
+import { createHash } from "node:crypto";
+import { emitEvent } from "../telemetry/events.js";
+import { systemClock, type Clock } from "../clock.js";
 
 export type EngramType = "feedback" | "reference" | "project" | "user";
-export interface AddDeps { root: string; cwd: string; home: string; now: string }
+export interface AddDeps {
+  root: string;
+  cwd: string;
+  home: string;
+  /** Stamped into the engram's `created` frontmatter. */
+  now: string;
+  /** Stamps telemetry only; defaults to the system clock. */
+  clock?: Clock;
+}
 export interface AddOptions {
   content: string;
   type: EngramType;
@@ -58,7 +69,7 @@ function deriveDescription(content: string): string {
 }
 
 export function addMemory(deps: AddDeps, opts: AddOptions): AddResult {
-  const { root, cwd, home, now } = deps;
+  const { root, cwd, home, now, clock = systemClock } = deps;
 
   // Gate 1: scope (fail-closed — never defaults to personal on write).
   const scope = opts.scope ?? resolveScopeStrict(loadScopeMap(scopeMapPath(root), home), cwd);
@@ -90,6 +101,22 @@ export function addMemory(deps: AddDeps, opts: AddOptions): AddResult {
   const body = opts.content.endsWith("\n") ? opts.content : `${opts.content}\n`;
   const fileContent = serializeFrontmatter(engram, body);
 
+  /**
+   * Records that an engram was written, never WHAT was written: only a content
+   * hash, so the log can correlate and dedupe without becoming a second copy of
+   * the store. `origin` is always "agent" here — hand edits bypass addMemory
+   * entirely and surface later as `engram.indexed` with reason mtime/hash.
+   */
+  const emitCreated = (): void => emitEvent(root, clock, {
+    kind: "engram.created",
+    scope,
+    type: opts.type,
+    importance: engram.importance,
+    origin: "agent",
+    contentHash: createHash("sha256").update(fileContent).digest("hex").slice(0, 16),
+    scannerVerdict: findings.length > 0 ? "warn" : "clean",
+  });
+
   const isFact = (FACT_TYPES as readonly string[]).includes(opts.type);
   if (isFact) {
     const dir = paths.factsDir(scope);
@@ -97,6 +124,7 @@ export function addMemory(deps: AddDeps, opts: AddOptions): AddResult {
     const seedMs = Date.parse(now);
     const path = join(dir, factFilename(newFactId(Number.isNaN(seedMs) ? undefined : seedMs)));
     writeFileSync(path, fileContent);
+    emitCreated();
     return { path, scope, slug, kind: "fact" };
   }
 
@@ -109,5 +137,6 @@ export function addMemory(deps: AddDeps, opts: AddOptions): AddResult {
     if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new NoteExistsError(path);
     throw e;
   }
+  emitCreated();
   return { path, scope, slug, kind: "note" };
 }

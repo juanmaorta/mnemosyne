@@ -2,6 +2,8 @@ import type { Db } from "./index/db.js";
 import { appendEvent, getMachineId, readEvents, eventKey } from "./events.js";
 import { reinforce, retention, INITIAL_STRENGTH } from "./scoring.js";
 import { storePaths } from "./store.js";
+import { emitEvent } from "./telemetry/events.js";
+import { fixedClock } from "./clock.js";
 
 /**
  * Hot state — derived (strength, last_access, access_count, retention) — lives
@@ -67,6 +69,23 @@ export function getHotState(db: Db, scope: string, slug: string): HotState | und
 /** Appends a `get` event for (scope, slug), then re-materializes that scope's hot state. */
 export function recordAccess(db: Db, root: string, scope: string, slug: string, nowIso: string): void {
   const machineId = getMachineId(storePaths(root).indexDir);
+  const before = getHotState(db, scope, slug);
   appendEvent(root, scope, machineId, { slug, ts: nowIso, kind: "get" });
   materializeHotState(db, root, [scope], Date.parse(nowIso));
+  const after = getHotState(db, scope, slug);
+
+  // Strength before AND after: reinforcement is the mechanism that decides what
+  // survives decay, so a scorecard needs the delta, not just the end state.
+  // Stamped with the access instant itself rather than a fresh clock read, so
+  // the event and the access it describes can never disagree.
+  if (after) {
+    emitEvent(root, fixedClock(Date.parse(nowIso)), {
+      kind: "access.reinforced",
+      scope,
+      slug,
+      strengthBefore: before?.strength ?? INITIAL_STRENGTH,
+      strengthAfter: after.strength,
+      accessCountAfter: after.accessCount,
+    });
+  }
 }

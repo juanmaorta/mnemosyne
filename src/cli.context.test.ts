@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";
 import { runCli } from "./cli.js";
+import { readTelemetry } from "./telemetry/events.js";
 
 beforeAll(() => { process.env.MNEMOSYNE_FAKE_EMBED = "1"; });
 
@@ -32,6 +33,28 @@ describe("runCli context", () => {
     const code = await runCli(["context", "--root", "/no/such/store", "--scope", "personal"], (s) => lines.push(s));
     expect(code).toBe(0); // MUST NOT break session start
     expect(lines.join("\n")).toContain("mneme search"); // still emits a valid digest+hint
+  });
+
+  test("cli_context_emits_retrieval_injected_with_what_the_budget_cut", async () => {
+    const root = storeWith("yogurtera");
+    await runCli(["context", "--root", root, "--scope", "personal"], () => {});
+
+    const ev = readTelemetry(root).find((e) => e.kind === "retrieval.injected")!;
+    expect(ev).toMatchObject({ scope: "personal", droppedForBudget: 0 });
+    expect(ev.injectedSlugs).toEqual(["yogurtera"]);
+    expect(ev.corrId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  });
+
+  test("cli_context_records_the_engrams_dropped_for_budget", async () => {
+    const root = storeWith("yogurtera");
+    // Budget of 1 token starves the digest: nothing is injected, and the log
+    // has to say so — a scorecard reading only the ranking would never see it.
+    await runCli(["context", "--root", root, "--scope", "personal", "--budget", "1"], () => {});
+
+    const ev = readTelemetry(root).find((e) => e.kind === "retrieval.injected")!;
+    expect(ev.injectedSlugs).toEqual([]);
+    expect(ev.droppedForBudget).toBe(1);
+    expect(ev.budget).toBe(1);
   });
 
   test("cli_context_respects_budget", async () => {

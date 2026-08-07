@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { addMemory, ScopeUnresolvedError, NotOwnerError, SecretDetectedError, NoteExistsError } from "./add.js";
+import { readTelemetry } from "../telemetry/events.js";
+import { clearTelemetryConfigCache } from "../telemetry/config.js";
+import { fixedClock } from "../clock.js";
 
 const NOW = "2026-07-09T10:00:00";
 
@@ -24,6 +27,44 @@ describe("addMemory", () => {
     expect(res.kind).toBe("fact");
     expect(res.path).toMatch(/\/personal\/facts\/[0-9A-HJKMNP-TV-Z]{26}\.md$/);
     expect(readFileSync(res.path, "utf8")).toContain("deploys run at 3am UTC");
+  });
+
+  test("add_emits_engram_created_telemetry", () => {
+    const { root, home } = store(["personal"]);
+    const clock = fixedClock(Date.parse("2026-08-07T10:00:00.000Z"));
+
+    addMemory({ root, cwd: "/anywhere", home, now: NOW, clock },
+      { content: "deploys run at 3am UTC", type: "feedback", scope: "personal", description: "deploy window", importance: 7 });
+
+    const evs = readTelemetry(root).filter((e) => e.kind === "engram.created");
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({ scope: "personal", type: "feedback", importance: 7, scannerVerdict: "clean" });
+    expect(evs[0]!.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(evs[0]!.ts).toBe("2026-08-07T10:00:00.000Z");
+    // The note's own text must never reach a diagnostic log.
+    expect(JSON.stringify(evs[0])).not.toContain("deploys run at 3am");
+  });
+
+  test("add_records_a_warn_scanner_verdict_without_blocking", () => {
+    const { root, home } = store(["personal"]);
+    // High-entropy value: warn-level, not reject — the write proceeds.
+    addMemory({ root, cwd: "/x", home, now: NOW, clock: fixedClock(0) },
+      { content: "token candidate aGVsbG93b3JsZGhlbGxvd29ybGQxMjM0NTY3ODkw", type: "feedback", scope: "personal", description: "d" });
+
+    const ev = readTelemetry(root).find((e) => e.kind === "engram.created");
+    expect(["clean", "warn"]).toContain(ev!.scannerVerdict);
+  });
+
+  test("add_emits_no_telemetry_for_an_excluded_scope", () => {
+    const { root, home } = store(["personal", "acme"]);
+    writeFileSync(join(root, ".telemetry.json"), JSON.stringify({ excludeScopes: ["acme"] }));
+    clearTelemetryConfigCache();
+    mkdirSync(join(root, "acme"), { recursive: true });
+
+    addMemory({ root, cwd: "/x", home, now: NOW, clock: fixedClock(0) },
+      { content: "client note", type: "feedback", scope: "acme", description: "d" });
+
+    expect(readTelemetry(root)).toEqual([]);
   });
 
   test("add_refuses_when_cwd_unmapped_and_no_scope", () => {

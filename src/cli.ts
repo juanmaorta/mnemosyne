@@ -3,7 +3,9 @@ import { storePaths, DEFAULT_SCOPE } from "./store.js";
 import { resolveRoot } from "./config.js";
 import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
-import { search } from "./retrieval/search.js";
+import { searchInstrumented } from "./retrieval/instrumented.js";
+import { newCorrId } from "./telemetry/corr.js";
+import { emitEvent } from "./telemetry/events.js";
 import { getEngramAndRecord } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
@@ -57,7 +59,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const db = openIndex(root);
         const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
-        const hits = await search({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) });
+        const corrId = newCorrId(systemClock);
+        const hits = await searchInstrumented({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) }, corrId);
         for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
         appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
         return 0;
@@ -78,6 +81,17 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
           out(formatContextDigest(included, scope, omitted));
+          // What the agent actually saw this session, and what the budget cut.
+          // Injection is the point where memory becomes behaviour, so a scorecard
+          // that only measured ranking would miss the truncation entirely.
+          emitEvent(root, systemClock, {
+            kind: "retrieval.injected",
+            corrId: newCorrId(systemClock),
+            scope,
+            budget,
+            injectedSlugs: included.map((e) => e.slug),
+            droppedForBudget: omitted,
+          });
           appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
         } catch {
           out(formatContextDigest([], scope, 0)); // never break session start

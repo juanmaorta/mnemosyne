@@ -1,0 +1,58 @@
+import { createHash } from "node:crypto";
+import { searchExplain, type SearchDeps, type SearchOptions, type SearchHit } from "./search.js";
+import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
+
+/**
+ * Queries are hashed, never stored. A query is user text that can name people,
+ * clients or secrets, and a diagnostic log is not the place for it. The hash
+ * still supports what observability needs: spotting repeated queries and
+ * correlating them across sessions.
+ */
+function queryHash(q: string): string {
+  return createHash("sha256").update(q).digest("hex").slice(0, 16);
+}
+
+/**
+ * `search` plus the telemetry that makes a ranking decision reconstructable:
+ * one `retrieval.query` and one `retrieval.candidate` per candidate considered
+ * — discarded ones included, since "why did X lose to Y" is unanswerable
+ * without them.
+ *
+ * The score is deliberately NOT stored: it is re-derivable from `signals` and
+ * the `weights` on the correlated query event, and a stored copy could drift
+ * from the formula that produced it.
+ */
+export async function searchInstrumented(
+  deps: SearchDeps,
+  opts: SearchOptions,
+  corrId: string,
+): Promise<SearchHit[]> {
+  const res = await searchExplain(deps, opts);
+
+  // Query and candidates go out as ONE append sharing a single timestamp: they
+  // are one logical event, and this runs on the retrieval hot path.
+  const events: TelemetryInput[] = [
+    {
+      kind: "retrieval.query",
+      corrId,
+      queryHash: queryHash(opts.query),
+      scopes: res.scopes,
+      k: res.k,
+      weights: res.weights,
+      candidateSetSize: res.candidates.length,
+    },
+    ...res.candidates.map((c): TelemetryInput => ({
+      kind: "retrieval.candidate",
+      corrId,
+      slug: c.slug,
+      scope: c.scope,
+      rank: c.rank,
+      included: c.included,
+      threshold: c.threshold,
+      signals: c.signals,
+    })),
+  ];
+  emitEvents(deps.root, deps.clock, events);
+
+  return res.candidates.filter((c) => c.included);
+}

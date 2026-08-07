@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { storePaths } from "../store.js";
 import { ALGO_VERSION } from "../version.js";
 import type { Clock } from "../clock.js";
+import { loadTelemetryConfig } from "./config.js";
 
 export type TelemetryKind =
   | "engram.created" | "engram.indexed" | "retrieval.query" | "retrieval.candidate"
@@ -53,11 +54,33 @@ function dayOf(filename: string): string | undefined {
 export function emitEvents(root: string, clock: Clock, evs: TelemetryInput[]): void {
   if (evs.length === 0) return;
   try {
+    const config = loadTelemetryConfig(root);
+    if (!config.enabled) return;
+    const admitted = evs.map((ev) => applyScopePolicy(ev, config.excludeScopes)).filter((ev): ev is TelemetryInput => ev !== undefined);
+    if (admitted.length === 0) return;
+
     mkdirSync(storePaths(root).telemetryDir, { recursive: true });
     const ts = clock.nowIso();
-    const lines = evs.map((ev) => `${JSON.stringify({ ts, algoVersion: ALGO_VERSION, ...ev })}\n`).join("");
+    const lines = admitted.map((ev) => `${JSON.stringify({ ts, algoVersion: ALGO_VERSION, ...ev })}\n`).join("");
     appendFileSync(dayFile(root, ts), lines);
   } catch { /* swallow — see contract above */ }
+}
+
+/**
+ * Enforce scope exclusions centrally, so no call site can forget them: an
+ * event naming an excluded scope is dropped, and a multi-scope event is
+ * narrowed to the admitted ones (dropped entirely if none survive). Events
+ * with no scope at all belong to no scope and pass through.
+ */
+function applyScopePolicy(ev: TelemetryInput, excluded: string[]): TelemetryInput | undefined {
+  if (excluded.length === 0) return ev;
+  if (typeof ev.scope === "string" && excluded.includes(ev.scope)) return undefined;
+  if (Array.isArray(ev.scopes)) {
+    const kept = (ev.scopes as unknown[]).filter((s) => typeof s === "string" && !excluded.includes(s));
+    if (kept.length === 0) return undefined;
+    return { ...ev, scopes: kept };
+  }
+  return ev;
 }
 
 export function emitEvent(root: string, clock: Clock, ev: TelemetryInput): void {
