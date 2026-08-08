@@ -8,6 +8,8 @@ import { newCorrId } from "./telemetry/corr.js";
 import { computeStats } from "./observability/stats.js";
 import { formatExplain } from "./observability/explain.js";
 import { traceEngram, formatTrace } from "./observability/trace.js";
+import { writeSnapshot, readSnapshots } from "./observability/snapshot.js";
+import { formatSnapshotSeries } from "./observability/format.js";
 import { searchExplain } from "./retrieval/search.js";
 import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
@@ -126,6 +128,16 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         out(formatExplain(await searchExplain(deps, opts), values.all ? { limit: null } : {}));
         return 0;
       }
+      case "snapshot": {
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, list: { type: "boolean" } }, allowPositionals: true });
+        const root = resolveRoot(values.root);
+        if (values.list) {
+          out(formatSnapshotSeries(readSnapshots(root)));
+          return 0;
+        }
+        out(`wrote ${writeSnapshot(openIndex(root), root, systemClock)}`);
+        return 0;
+      }
       case "trace": {
         const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" } }, allowPositionals: true });
         const slug = positionals[0];
@@ -233,7 +245,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, reindex, scan, scope, install-hook, add.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, reindex, scan, scope, install-hook, add.`);
         return 1;
     }
   } catch (e) {

@@ -1,4 +1,5 @@
 import type { Stats } from "./stats.js";
+import type { StatsSnapshot } from "./snapshot.js";
 
 /** `—` rather than 0: a metric with no data is not a metric that measured zero. */
 function n(value: number | null, digits = 2, suffix = ""): string {
@@ -50,4 +51,35 @@ export function formatStats(s: Stats): string {
     lines.push("", "  (— means no retrieval recorded yet; see MNEMOSYNE_TELEMETRY)");
   }
   return lines.join("\n");
+}
+
+/**
+ * The snapshot series as one row per date. Deliberately narrow: the columns
+ * are the ones a memory-rewriting subsystem would move — engram count (it
+ * archives), mean strength (it re-scores importance), top-k cosine (it rewrites
+ * text, changing embeddings) and budget utilisation (it consolidates).
+ */
+export function formatSnapshotSeries(series: StatsSnapshot[]): string {
+  if (series.length === 0) {
+    return "no snapshots yet — run 'mneme snapshot' to start the series";
+  }
+  const header = `${"date".padEnd(12)}${"algo".padEnd(8)}${"engrams".padStart(8)}${"avg str".padStart(9)}${"cos".padStart(8)}${"budget".padStart(9)}`;
+  const rows = series.map((s) => {
+    const engrams = Object.values(s.stats.countsByScope).reduce((a, b) => a + b, 0);
+    const buckets = Object.entries(s.stats.strengthHistogram);
+    const totalEngramsWithState = buckets.reduce((sum, [, n]) => sum + n, 0);
+    // Bucket midpoint is enough to see a trend; the histogram itself is in the JSON.
+    const avgStrength = totalEngramsWithState === 0
+      ? null
+      : buckets.reduce((sum, [b, n]) => sum + (Number(b.split("-")[0]) + 0.5) * n, 0) / totalEngramsWithState;
+    return [
+      s.ts.slice(0, 10).padEnd(12),
+      s.algoVersion.padEnd(8),
+      String(engrams).padStart(8),
+      (avgStrength === null ? "—" : avgStrength.toFixed(2)).padStart(9),
+      (s.stats.avgTopKCosine === null ? "—" : s.stats.avgTopKCosine.toFixed(3)).padStart(8),
+      (s.stats.injectionBudgetUtil === null ? "—" : `${(s.stats.injectionBudgetUtil * 100).toFixed(0)}%`).padStart(9),
+    ].join("");
+  });
+  return [header, "─".repeat(header.length), ...rows].join("\n");
 }
