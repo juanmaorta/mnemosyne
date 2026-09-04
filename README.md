@@ -46,6 +46,10 @@ mneme search "<query>" [--scope <scope>] [-k <n>]
 # Fetch one engram in full by slug (reinforces it — decay-on-access)
 mneme get <slug> [--scope <scope>]
 
+# Print the current scope's ambient digest — what a session-start hook injects.
+# Never fails: on any error it prints an empty digest rather than break session start.
+mneme context [--scope <scope>] [--budget <tokens>]
+
 # Scan text or a file for secrets (read-only; exits non-zero on any reject-level finding, never prints a full secret)
 mneme scan "<text>" | --file <path>
 
@@ -57,13 +61,23 @@ mneme scope [<path>]
 mneme add "<content>" --type feedback|reference|project|user [--scope s] [--description d] [--importance n] [--slug s]
 ```
 
+Diagnostics — for asking *why* a memory ranked where it did, not for daily use:
+
+```sh
+mneme explain "<query>" [--scope s] [-k n] [--all]  # per-candidate score breakdown
+mneme search "<query>" --explain                    # same, on the normal search path
+mneme stats [--json]                                # store + index health
+mneme trace <slug>                                  # one engram's event history
+mneme snapshot [--list]                             # record / list health over time
+```
+
 ### Writing memories (`mneme add`)
 
 `--type feedback|reference|project|user` is required; `feedback` writes an append-only fact,
 the others write an authored note. Three gates apply, fail-closed:
 
 - **Scope**: an unmapped cwd is refused rather than silently defaulting to `personal` — pass
-  `--scope` explicitly (see [Session auto-injection](#session-auto-injection-claude-code) below
+  `--scope` explicitly (see [Scopes](#scopes) below
   for `.scopemap`).
 - **Ownership**: refuses to write a scope this machine doesn't own per `~/memory/.owner`
   (`{"owns":[...]}`) — a machine never materializes a scope it doesn't own.
@@ -73,14 +87,70 @@ the others write an authored note. Three gates apply, fail-closed:
 Authored notes (`reference`/`project`/`user`) refuse to overwrite an existing slug — edit the
 `.md` file directly instead of re-running `add`.
 
-### Session auto-injection (Claude Code)
+### Wiring it into an agent
 
-Inject the current scope's memory digest at session start:
+The store knows nothing about any particular agent, and neither does the CLI: everything is
+`mneme <command>` against files on disk. So there are two levels of integration, and the
+first one works in **any** harness today.
+
+**Level 1 — context file + shell (universal).** Tell the agent the commands exist in whatever
+file it already reads on startup: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, a Cursor rule.
+Something like:
+
+```md
+Persistent memory lives in Mnemosyne (CLI: `mneme`). Use it instead of any built-in
+memory store.
+
+- Recall before assuming: `mneme search "<topic>"`, then `mneme get <slug>` for the full note.
+- Save what is durable — a preference, a project constraint, a reference:
+  `mneme add "<content>" --type feedback|reference|project|user --slug <kebab-slug>`
+- Always pass `--slug`. Without it the slug is derived from the whole description and you
+  get unusable filenames.
+- Don't store what's already in git, or what only matters to one conversation.
+```
+
+The agent then recalls on demand. It costs nothing to set up and never breaks, but memory is
+only as good as the agent's discipline in asking for it.
+
+**Level 2 — automatic injection at session start (Claude Code).** A hook runs the digest
+before the first turn, so the agent starts every session already knowing:
 
 ```sh
 mneme install-hook            # prints the SessionStart snippet for ~/.claude/settings.json
 mneme install-hook --write    # opt-in: merges it into ~/.claude/settings.json
 ```
+
+`install-hook` only knows Claude Code's settings file. Other harnesses expose an equivalent
+seam — OpenCode has plugins with an `experimental.chat.system.transform` hook, Cursor has
+rules — but nothing is shipped for them here yet; wire `mneme context` in by hand, or stay on
+level 1. A local MCP wrapper (see [`docs/plan.md`](docs/plan.md), Fase 6) is the planned
+portable answer for tool-style access.
+
+### More than one agent at a time
+
+Several agents — two harnesses, or two sessions of the same one — can share one store and
+both write to it. Each `mneme` invocation is a short-lived process, and the store is built to
+survive that:
+
+- **Notes** are created with `O_EXCL`. Two writers racing on the same slug: one wins, the
+  other is told the note exists. Never a silent clobber.
+- **Facts** are one ULID-named file each, append-only. Nothing is ever mutated in place, so
+  there is no shared file to corrupt and no merge to lose.
+- **The index** is WAL with a busy timeout and `BEGIN IMMEDIATE` write transactions, so
+  concurrent writers wait for each other instead of failing. Note that *every* read command
+  is also a writer: `search` and `context` reindex lazily, `get` reinforces hot state.
+- **Reinforcement is shared on purpose.** Two agents recalling the same memory reinforce it
+  twice, because the hot state is a fold over the append-only event log. It's one person's
+  memory, not one agent's.
+
+Two things to respect if you embed the CLI in a long-running agent server rather than calling
+it per turn: **spawn the binary, don't hold a `Db` handle open** — short-lived writers
+serialize cleanly, a resident one camps on the write lock. And **pass `--scope` explicitly**,
+because scope resolution reads the *calling process's* cwd; a server multiplexing several
+projects would otherwise resolve every session against its own working directory and read the
+wrong scope.
+
+### Scopes
 
 Map directories to scopes in `~/memory/.scopemap` (machine-local, longest-prefix match):
 
@@ -112,6 +182,7 @@ only in the local index — the `.md` files are never mutated by retrieval.
 |-----|---------|---------|
 | `MNEMOSYNE_ROOT` | `~/memory` | Store root (overridden by `--root`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
+| `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
 
 ---

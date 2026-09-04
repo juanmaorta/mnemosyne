@@ -54,7 +54,7 @@ export function materializeHotState(db: Db, root: string, scopes: string[], nowM
       });
     }
   });
-  tx();
+  tx.immediate(); // BEGIN IMMEDIATE: see the upsert in index/reindex.ts
 }
 
 export function getHotState(db: Db, scope: string, slug: string): HotState | undefined {

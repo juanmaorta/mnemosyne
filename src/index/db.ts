@@ -73,6 +73,17 @@ export function openDb(dbPath: string): Db {
   if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  /**
+   * Two harnesses (or two sessions) invoke `mneme` concurrently against one
+   * store, and every read command also writes: `search`/`context` reindex
+   * lazily, `get` reinforces hot state. SQLite permits one writer at a time and
+   * the default busy_timeout is 0, so the loser fails INSTANTLY instead of
+   * waiting — and `reindex` counts that failure and carries on, leaving a store
+   * that silently never got indexed and a SessionStart digest served empty.
+   * Every write here is short and bounded, so waiting is always the right
+   * answer; this is set per connection, so it belongs in openDb.
+   */
+  db.pragma("busy_timeout = 5000");
   sqliteVec.load(db);
   applySchema(db);
   return db;

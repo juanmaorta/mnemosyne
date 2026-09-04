@@ -172,7 +172,14 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       // thrown error (e.g. UNIQUE(scope, slug) violation when a DIFFERENT
       // path already claims this scope+slug — a genuine collision) and
       // rethrows, so prior state is left intact when we catch below.
-      upsert();
+      //
+      // `.immediate()`, not the default BEGIN DEFERRED: a deferred transaction
+      // starts as a reader and asks for the write lock only at the first
+      // INSERT, and if another process committed in between SQLite answers
+      // SQLITE_BUSY_SNAPSHOT — which busy_timeout does NOT retry, because the
+      // read snapshot can no longer be rewound. BEGIN IMMEDIATE takes the write
+      // lock up front, where busy_timeout does apply.
+      upsert.immediate();
       stats.indexed++;
       indexedEvents.push({
         kind: "engram.indexed",
@@ -207,7 +214,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       stats.deleted++;
     }
   });
-  prune();
+  prune.immediate(); // same BEGIN IMMEDIATE reasoning as the upsert above
   // One append for the whole run: a full reindex touches every engram in the
   // store, so per-event writes would put hundreds of syscalls in a command the
   // SessionStart hook runs.
