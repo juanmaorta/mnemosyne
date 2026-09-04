@@ -13,6 +13,7 @@ import { formatSnapshotSeries } from "./observability/format.js";
 import { searchExplain } from "./retrieval/search.js";
 import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
+import { loadTelemetryConfig } from "./telemetry/config.js";
 import { getEngramAndRecord } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
@@ -151,6 +152,12 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const root = resolveRoot(values.root);
         const stats = computeStats(openIndex(root), root);
         out(values.json ? JSON.stringify(stats, null, 2) : formatStats(stats));
+        // On-screen stats show everything; snapshots do not. Say so, so the
+        // difference between the two is never a surprise.
+        const excluded = loadTelemetryConfig(root).excludeScopes;
+        if (!values.json && excluded.length > 0) {
+          out(`\n  (scope${excluded.length > 1 ? "s" : ""} ${excluded.join(", ")} shown here but excluded from snapshots)`);
+        }
         return 0;
       }
       case "get": {

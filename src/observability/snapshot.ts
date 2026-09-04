@@ -5,6 +5,7 @@ import { storePaths } from "../store.js";
 import { ALGO_VERSION } from "../version.js";
 import type { Clock } from "../clock.js";
 import { computeStats, type Stats } from "./stats.js";
+import { loadTelemetryConfig } from "../telemetry/config.js";
 
 /**
  * Point-in-time record of the store's metrics.
@@ -39,7 +40,11 @@ export function writeSnapshot(db: Db, root: string, clock: Clock): string {
   const dir = snapshotsDir(root);
   mkdirSync(dir, { recursive: true });
   const ts = clock.nowIso();
-  const snapshot: StatsSnapshot = { ts, algoVersion: ALGO_VERSION, stats: computeStats(db, root) };
+  // A snapshot is persisted and lives outside <root>/<scope>/, so it must
+  // honour the same scope exclusions as the event log — otherwise a client
+  // scope survives the offboarding purge as a daily count.
+  const stats = computeStats(db, root, { excludeScopes: loadTelemetryConfig(root).excludeScopes });
+  const snapshot: StatsSnapshot = { ts, algoVersion: ALGO_VERSION, stats };
   const path = fileFor(dir, ts);
   writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`);
   return path;

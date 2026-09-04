@@ -52,29 +52,49 @@ function strengthBucket(strength: number): string {
   return `${lo}-${lo + 1}`;
 }
 
-export function computeStats(db: Db, root: string): Stats {
+export interface StatsOptions {
+  /**
+   * Scopes to leave out entirely. Used when the result is going to be
+   * PERSISTED (snapshots): telemetry exclusions stop the event log from
+   * naming a client scope, but these counts come straight from the `engrams`
+   * table and never pass through that gate. On-screen `mneme stats` passes
+   * nothing — hiding a scope from the user on their own machine would only
+   * push them to switch exclusions off altogether.
+   */
+  excludeScopes?: string[];
+}
+
+export function computeStats(db: Db, root: string, opts: StatsOptions = {}): Stats {
+  const excluded = opts.excludeScopes ?? [];
+  const notExcluded = excluded.length === 0
+    ? { sql: "", params: [] as string[] }
+    : { sql: ` where scope not in (${excluded.map(() => "?").join(",")})`, params: excluded };
+  const andNotExcluded = excluded.length === 0
+    ? { sql: "", params: [] as string[] }
+    : { sql: ` and e.scope not in (${excluded.map(() => "?").join(",")})`, params: excluded };
   const countsByScope: Record<string, number> = {};
-  for (const r of db.prepare("select scope, count(*) as n from engrams group by scope").all() as { scope: string; n: number }[]) {
+  for (const r of db.prepare(`select scope, count(*) as n from engrams${notExcluded.sql} group by scope`).all(...notExcluded.params) as { scope: string; n: number }[]) {
     countsByScope[r.scope] = r.n;
   }
   const countsByType: Record<string, number> = {};
-  for (const r of db.prepare("select type, count(*) as n from engrams group by type").all() as { type: string; n: number }[]) {
+  for (const r of db.prepare(`select type, count(*) as n from engrams${notExcluded.sql} group by type`).all(...notExcluded.params) as { type: string; n: number }[]) {
     countsByType[r.type] = r.n;
   }
 
   const staleCount = (db.prepare(
-    "select count(*) as n from engrams e where not exists (select 1 from vec_engrams v where v.rowid = e.id)",
-  ).get() as { n: number }).n;
+    `select count(*) as n from engrams e where not exists (select 1 from vec_engrams v where v.rowid = e.id)${andNotExcluded.sql}`,
+  ).get(...andNotExcluded.params) as { n: number }).n;
 
   const strengthHistogram: Record<string, number> = {};
-  for (const r of db.prepare("select strength from hot_state").all() as { strength: number }[]) {
+  for (const r of db.prepare(`select strength from hot_state${notExcluded.sql}`).all(...notExcluded.params) as { strength: number }[]) {
     const b = strengthBucket(r.strength);
     strengthHistogram[b] = (strengthHistogram[b] ?? 0) + 1;
   }
 
   let factStreamSize = 0;
   try {
-    for (const evs of readEvents(root, listScopes(root)).values()) factStreamSize += evs.length;
+    const scopes = listScopes(root).filter((sc) => !excluded.includes(sc));
+    for (const evs of readEvents(root, scopes).values()) factStreamSize += evs.length;
   } catch { /* no store on disk — leave at 0 */ }
 
   const telemetry = readTelemetry(root);

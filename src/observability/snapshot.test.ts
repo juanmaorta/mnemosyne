@@ -6,6 +6,8 @@ import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { writeSnapshot, readSnapshots, snapshotsDir } from "./snapshot.js";
+import { computeStats } from "./stats.js";
+import { clearTelemetryConfigCache } from "../telemetry/config.js";
 import { fixedClock } from "../clock.js";
 import { ALGO_VERSION } from "../version.js";
 
@@ -92,5 +94,38 @@ describe("readSnapshots", () => {
     writeFileSync(join(snapshotsDir(root), "stats-2026-01-01.json"), "{ truncated");
 
     expect(readSnapshots(root)).toHaveLength(1);
+  });
+});
+
+describe("scope exclusions", () => {
+  test("a snapshot omits every trace of an excluded scope", async () => {
+    // excludeScopes stops the event log from recording a client scope, but
+    // computeStats reads the `engrams` table by SQL and never went through
+    // that gate — so snapshots would still name the client and its size, one
+    // file a day, outside the directory the offboarding runbook deletes.
+    const { db, root } = await seeded();
+    mkdirSync(join(root, "acme"), { recursive: true });
+    writeFileSync(join(root, "acme", "client-contract.md"),
+      ["---", "name: client-contract", "description: d", "scope: acme", "type: project",
+        "created: 2026-06-01T10:00:00", "importance: 8", "---", "body", ""].join("\n"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), clock: fixedClock(T0) });
+    writeFileSync(join(root, ".telemetry.json"), JSON.stringify({ excludeScopes: ["acme"] }));
+    clearTelemetryConfigCache();
+
+    const saved = JSON.parse(readFileSync(writeSnapshot(db, root, fixedClock(T0)), "utf8"));
+
+    expect(saved.stats.countsByScope).toEqual({ personal: 1 });
+    expect(JSON.stringify(saved)).not.toContain("acme");
+    expect(JSON.stringify(saved)).not.toContain("client-contract");
+  });
+
+  test("mneme stats still shows the excluded scope on screen", async () => {
+    // Filtering is about what gets PERSISTED. Hiding a scope from the user on
+    // their own machine would just push them to turn exclusions off entirely.
+    const { db, root } = await seeded();
+    writeFileSync(join(root, ".telemetry.json"), JSON.stringify({ excludeScopes: ["personal"] }));
+    clearTelemetryConfigCache();
+
+    expect(computeStats(db, root).countsByScope).toEqual({ personal: 1 });
   });
 });

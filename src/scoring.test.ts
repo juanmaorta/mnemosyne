@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { recencyScore, importanceNorm, blendedScore, retention, reinforce, scoreBreakdown, DEFAULT_TAU_MS, INITIAL_STRENGTH, DEFAULT_WEIGHTS } from "./scoring.js";
+import { recencyScore, importanceNorm, blendedScore, retention, reinforce, scoreBreakdown, DEFAULT_TAU_MS, INITIAL_STRENGTH, DEFAULT_WEIGHTS, UNACCESSED_RECENCY_PRIOR } from "./scoring.js";
 
 describe("recencyScore", () => {
   test("recencyScore_is_1_at_zero_age", () => {
@@ -35,19 +35,64 @@ describe("blendedScore", () => {
   });
 });
 
+describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () => {
+  // The old code gave a never-accessed engram recencyNorm 1 — the MAXIMUM of
+  // the axis, not a neutral value. Reading an engram therefore PENALISED it:
+  // measured in the field, accessed engrams reached the top-k 4-8x less often
+  // than ones never touched.
+  const base = { importance: 5, relevanceCosine: 0.5 };
+  const DAY = 24 * 3600 * 1000;
+  const now = Date.parse("2026-09-03T10:00:00.000Z");
+
+  test("an engram accessed yesterday outranks one never accessed", () => {
+    const fresh = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - DAY, accessCount: 1 });
+    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 400 * DAY, accessCount: 0 });
+    expect(fresh.score).toBeGreaterThan(never.score);
+  });
+
+  test("reading an engram never lowers its own score", () => {
+    // Same engram, same instant: the only difference is that it has been read.
+    const unread = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 30 * DAY, accessCount: 0 });
+    const read = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now, accessCount: 1 });
+    expect(read.score).toBeGreaterThanOrEqual(unread.score);
+  });
+
+  test("the unaccessed prior sits inside the decay curve, not at its top", () => {
+    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: null, accessCount: 0 });
+    expect(never.signals.recencyNorm).toBeLessThan(1);
+    expect(never.signals.recencyNorm).toBeGreaterThan(0);
+    // Exactly the value the decay itself yields at one time constant.
+    expect(never.signals.recencyNorm).toBeCloseTo(Math.exp(-1), 10);
+  });
+
+  test("an access older than the time constant scores below the prior", () => {
+    // The prior means "unknown, treated as one half-life old". An access older
+    // than that is genuinely colder than no information at all.
+    const stale = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 60 * DAY, accessCount: 3 });
+    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: null, accessCount: 0 });
+    expect(stale.signals.recencyNorm).toBeLessThan(never.signals.recencyNorm);
+  });
+
+  // Only reachable once the axis is retention(strength) rather than plain
+  // recency: recencyNorm reads last_access alone, so two engrams read at the
+  // same instant tie regardless of how many times each was read. Tracked as
+  // the option-B follow-up in the diagnosis.
+  test.todo("more accesses outrank fewer, all else equal");
+});
+
 describe("scoreBreakdown", () => {
-  test("never_accessed_note_gets_neutral_recency_and_exposes_each_signal", () => {
+  test("never_accessed_note_gets_the_prior_and_exposes_each_signal", () => {
     const { score, signals } = scoreBreakdown({
       nowMs: 1000, lastAccessMs: null, accessCount: 0, importance: 10, relevanceCosine: 0.5,
     });
     expect(signals.accessed).toBe(false);
-    expect(signals.recencyNorm).toBe(1); // neutral, not "just accessed"
+    expect(signals.recencyNorm).toBe(UNACCESSED_RECENCY_PRIOR); // mid-curve, not the top of the axis
     expect(signals.recencyRaw).toBe(0);
     expect(signals.importanceRaw).toBe(10);
     expect(signals.importanceNorm).toBe(1);
     expect(signals.relevanceCosine).toBe(0.5);
     const w = DEFAULT_WEIGHTS, total = w.recency + w.importance + w.relevance;
-    expect(score).toBeCloseTo((w.recency * 1 + w.importance * 1 + w.relevance * 0.5) / total, 10);
+    expect(score).toBeCloseTo((w.recency * UNACCESSED_RECENCY_PRIOR + w.importance * 1 + w.relevance * 0.5) / total, 10);
   });
 
   test("accessed_note_uses_recencyScore_for_recencyNorm", () => {
@@ -67,7 +112,7 @@ describe("scoreBreakdown", () => {
       nowMs: 1000 + DEFAULT_TAU_MS, lastAccessMs: 1000, accessCount: 0, importance: 5, relevanceCosine: 0.5,
     });
     expect(signals.accessed).toBe(false);
-    expect(signals.recencyNorm).toBe(1);          // neutralized
+    expect(signals.recencyNorm).toBe(UNACCESSED_RECENCY_PRIOR); // prior, not the seeded age
     expect(signals.recencyRaw).toBe(DEFAULT_TAU_MS); // but the real age survives
   });
 

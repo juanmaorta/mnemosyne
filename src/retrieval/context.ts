@@ -1,6 +1,6 @@
 import type { Db } from "../index/db.js";
 import { materializeHotState } from "../hotstate.js";
-import { recencyScore, importanceNorm, blendedScore } from "../scoring.js";
+import { scoreBreakdown } from "../scoring.js";
 
 export interface ContextEntry {
   slug: string;
@@ -33,14 +33,19 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
       scope: r.scope,
       description: r.description,
       created: r.created,
-      score: blendedScore(
+      // Same scorer as `search`, deliberately: this used to inline its own copy
+      // of the recency rule, which is how the inverted prior survived here
+      // after being fixed in scoring.ts. One implementation, one behaviour.
+      score: scoreBreakdown(
         {
-          recency: r.accessCount && r.accessCount > 0 ? recencyScore(nowMs, Date.parse(r.lastAccess as string)) : 1,
-          importance: importanceNorm(r.importance),
-          relevance: 0,
+          nowMs,
+          lastAccessMs: r.lastAccess === null ? null : Date.parse(r.lastAccess),
+          accessCount: r.accessCount ?? 0,
+          importance: r.importance,
+          relevanceCosine: 0, // no query at session start
         },
         CONTEXT_WEIGHTS,
-      ),
+      ).score,
     }))
     .sort((a, b) => b.score - a.score || b.created.localeCompare(a.created) || a.slug.localeCompare(b.slug));
 }
