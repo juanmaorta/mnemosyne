@@ -14,6 +14,7 @@ import { searchExplain } from "./retrieval/search.js";
 import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
 import { loadTelemetryConfig } from "./telemetry/config.js";
+import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramAndRecord } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
@@ -139,6 +140,36 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         out(`wrote ${writeSnapshot(openIndex(root), root, systemClock)}`);
         return 0;
       }
+      case "purge-telemetry": {
+        const { values } = parseArgs({
+          args: rest,
+          options: { root: { type: "string" }, scope: { type: "string" }, apply: { type: "boolean" } },
+          allowPositionals: true,
+        });
+        const scope = values.scope?.trim();
+        if (!scope) { err("usage: mneme purge-telemetry --scope <scope> [--apply]"); return 1; }
+        const root = resolveRoot(values.root);
+        // Simulating is the DEFAULT and --apply the opt-in, not the other way
+        // round: this deletes data that cannot be regenerated, and it is run
+        // on the day a client relationship ends — the worst moment to discover
+        // a typo in a scope name.
+        const r = purgeTelemetryScope(root, scope, { dryRun: !values.apply });
+        out(r.dryRun ? `DRY RUN — nothing written. Would purge scope '${scope}':` : `Purged scope '${scope}':`);
+        out(`  events removed        ${r.eventsRemoved}`);
+        out(`  events narrowed       ${r.eventsNarrowed}   (multi-scope, kept without '${scope}')`);
+        out(`  day files rewritten   ${r.filesRewritten}`);
+        out(`  day files deleted     ${r.filesDeleted}`);
+        out(`  snapshots redacted    ${r.snapshotsRedacted}`);
+        if (r.snapshotsRedacted > 0) {
+          out(`\n  note: snapshot aggregates (countsByType, strengthHistogram) have no per-scope`);
+          out(`  breakdown, so '${scope}' stays folded into those totals. The scope name and its`);
+          out(`  size are gone; delete the snapshots outright if even the totals are unacceptable.`);
+        }
+        if (r.dryRun && (r.eventsRemoved > 0 || r.snapshotsRedacted > 0)) {
+          out(`\n  re-run with --apply to write these changes.`);
+        }
+        return 0;
+      }
       case "trace": {
         const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" } }, allowPositionals: true });
         const slug = positionals[0];
@@ -252,7 +283,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, reindex, scan, scope, install-hook, add.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, install-hook, add.`);
         return 1;
     }
   } catch (e) {

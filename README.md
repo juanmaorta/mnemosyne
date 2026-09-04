@@ -69,6 +69,7 @@ mneme search "<query>" --explain                    # same, on the normal search
 mneme stats [--json]                                # store + index health
 mneme trace <slug>                                  # one engram's event history
 mneme snapshot [--list]                             # record / list health over time
+mneme purge-telemetry --scope <s>                   # drop a scope from the log (simulates; --apply writes)
 ```
 
 ### Writing memories (`mneme add`)
@@ -176,6 +177,53 @@ Ranking blends relevance (semantic) + recency + importance, relevance-primary by
 Recall reinforces a memory; ignored memories decay (spaced repetition). Hot state lives
 only in the local index — the `.md` files are never mutated by retrieval.
 
+### Telemetry, and purging a scope from it
+
+Retrieval writes a diagnostic event log to `~/memory/.telemetry/` (machine-local: never synced,
+never backed up). It records slugs and scope names in clear — never the query text and never a
+note's content, only hashes of those.
+
+**Prevention comes first.** A scope can be kept out of the log entirely:
+
+```json
+// ~/memory/.telemetry.json
+{ "enabled": true, "excludeScopes": ["acme"] }
+```
+
+`MNEMOSYNE_TELEMETRY=0` disables recording altogether. Set `excludeScopes` for a client scope on
+**day one** — then there is nothing to purge later. Note that `mneme stats` still shows an excluded
+scope on screen (hiding it on your own machine would only invite turning exclusions off); what the
+exclusion guarantees is that nothing about it is *persisted*, neither in the log nor in snapshots.
+
+**Purging is the correction, for when the exclusion came too late:**
+
+```sh
+mneme purge-telemetry --scope acme            # simulates: reports what it would remove
+mneme purge-telemetry --scope acme --apply    # writes the changes
+```
+
+Simulating is the default and `--apply` the opt-in, deliberately: this deletes data that cannot be
+regenerated, usually on the day a client relationship ends.
+
+What it does:
+
+- Drops every event naming the scope, and **narrows** multi-scope events rather than deleting them
+  — a query over `personal` plus a client scope is still a real `personal` query.
+- Deletes a day file left empty by the purge; an empty file would still say *the client was active
+  on this date*.
+- Redacts the scope from snapshot counts.
+
+What it does **not** do:
+
+- It does not touch `~/memory/<scope>/` — your engrams stay on disk. This purges telemetry only;
+  removing the memories themselves is the client-offboarding runbook in [`docs/tasks.md`](docs/tasks.md).
+- Snapshot aggregates (`countsByType`, `strengthHistogram`) have no per-scope breakdown, so a purged
+  scope stays folded into those totals. The scope *name* and its size are gone, which is what
+  identifies a client; if even the totals are unacceptable, delete the snapshots outright.
+
+Why this needs a command at all: `.telemetry/` sits **outside** `~/memory/<scope>/`, so deleting the
+scope directory reads as a complete purge while leaving the client's slugs behind in the log.
+
 **Configuration** (env vars):
 
 | Var | Default | Purpose |
@@ -184,15 +232,17 @@ only in the local index — the `.md` files are never mutated by retrieval.
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
+| `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json` |
 
 ---
 
 > **Status:** Fase 0 (data model + migration), Fase 1 (retrieval + scoring + CLI),
 > Fase 2A (read integration — `SessionStart` digest hook + `.scopemap`), and Fase 2B
 > (write integration — `mneme add` with fail-closed scope, owner policy, and secret
-> scanner) complete. Next: Fase 3 (observability, instrumentation & benchmarking — make
-> the system measurable, explainable and regression-tested before adding more machinery),
-> then Fase 4 (nightly dreaming/consolidation).
+> scanner) complete. **Fase 3** (observability, instrumentation & benchmarking) is under way:
+> the clock seam, signal breakdown, telemetry store, lifecycle instrumentation and the
+> `stats`/`explain`/`trace` surface are in; the benchmark harness and its CI gate are not.
+> Then Fase 4 (nightly dreaming/consolidation).
 > See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay→archive subsystem: *lethe*.

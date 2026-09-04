@@ -71,8 +71,13 @@ export function emitEvents(root: string, clock: Clock, evs: TelemetryInput[]): v
  * event naming an excluded scope is dropped, and a multi-scope event is
  * narrowed to the admitted ones (dropped entirely if none survive). Events
  * with no scope at all belong to no scope and pass through.
+ *
+ * Exported because retroactive purging must apply exactly the same rule as
+ * prevention: two copies of "does this event belong to that scope?" would
+ * drift, and the one that drifts silently is the one that leaves client data
+ * behind.
  */
-function applyScopePolicy(ev: TelemetryInput, excluded: string[]): TelemetryInput | undefined {
+export function applyScopePolicy(ev: TelemetryInput, excluded: string[]): TelemetryInput | undefined {
   if (excluded.length === 0) return ev;
   if (typeof ev.scope === "string" && excluded.includes(ev.scope)) return undefined;
   if (Array.isArray(ev.scopes)) {
