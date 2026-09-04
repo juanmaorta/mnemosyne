@@ -163,9 +163,7 @@ mneme context --cwd /path/to/session/project
 mneme add "<content>" --type feedback --cwd /path/to/session/project
 ```
 
-`--scope` still overrides both. Note that `.scopemap` prefixes are matched as literal strings,
-so map the path your caller will actually pass — a path reached through a symlink does not match
-its target's entry.
+`--scope` still overrides both.
 
 ### Scopes
 
@@ -178,6 +176,11 @@ Map directories to scopes in `~/memory/.scopemap` (machine-local, longest-prefix
 
 A cwd with no match falls back to `personal` for **reads**. **Writes are fail-closed**: an
 unmapped cwd is refused (pass `--scope` explicitly) rather than silently written to `personal`.
+
+Prefixes are matched against the path with symlinks resolved, so it does not matter whether the
+map or the caller names the link or its target — both reach the same scope. A prefix that is not
+on disk yet (a repo not cloned, a volume not mounted) is still matched literally, so mapping a
+directory ahead of time works.
 
 Declare which scopes a machine may write in `~/memory/.owner` (machine-local, JSON):
 

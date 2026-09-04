@@ -18,7 +18,7 @@ import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramAndRecord } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
-import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath } from "./scope/scopemap.js";
+import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined } from "./scope/scopemap.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
 import { appendEvalLog } from "./eval/log.js";
@@ -56,7 +56,10 @@ const DEFAULT_CONTEXT_BUDGET = 1000;
  */
 function callerCwd(flag: string | undefined): string {
   const given = flag?.trim();
-  return given ? resolve(given) : process.cwd();
+  const path = given ? resolve(given) : process.cwd();
+  // Canonicalized so a caller passing a symlinked path and `process.cwd()`,
+  // which is always already resolved, are asked the same question of the map.
+  return realpathOrUndefined(path) ?? path;
 }
 
 function embedder(): EmbeddingClient {

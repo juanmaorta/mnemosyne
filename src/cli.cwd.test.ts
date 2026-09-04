@@ -6,7 +6,7 @@
 // multiplexes sessions breaks both premises: its cwd is wherever it was started,
 // so every session would resolve against that one directory. `--cwd` lets the
 // caller state the path it means, because it is the only party that knows.
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -39,6 +39,51 @@ function fixture(): Fixture {
   ].join("\n"));
   return { root, acmeWd, unmappedWd };
 }
+
+describe("symlinked paths resolve to the same scope", () => {
+  /** A store owning `acme`, plus a real directory and a symlink pointing at it. */
+  function linked(): { root: string; realWd: string; linkWd: string } {
+    const root = mkdtempSync(join(tmpdir(), "mneme-clilink-"));
+    mkdirSync(join(root, "acme"), { recursive: true });
+    writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["acme"] }));
+    const realWd = join(root, "real-client");
+    const linkWd = join(root, "link-client");
+    mkdirSync(realWd);
+    symlinkSync(realWd, linkWd);
+    return { root, realWd, linkWd };
+  }
+
+  test("cli_add_matches_a_scopemap_prefix_written_through_a_symlink", async () => {
+    const { root, realWd, linkWd } = linked();
+    // The map names the symlink — the path a human would cd into.
+    writeFileSync(join(root, ".scopemap"), `${linkWd} = acme\n`);
+    const lines: string[] = [];
+
+    // ...while the caller passes the canonical path, as process.cwd() would.
+    const code = await runCli(
+      ["add", "vlan 40", "--type", "feedback", "--cwd", realpathSync(realWd), "--root", root],
+      (s) => lines.push(s), (s) => lines.push(s),
+    );
+
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/\[acme\]/);
+  });
+
+  test("cli_add_accepts_a_cwd_flag_given_through_a_symlink", async () => {
+    const { root, realWd, linkWd } = linked();
+    // The mirror image: the map is canonical, the caller passes the symlink.
+    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = acme\n`);
+    const lines: string[] = [];
+
+    const code = await runCli(
+      ["add", "vlan 50", "--type", "feedback", "--cwd", linkWd, "--root", root],
+      (s) => lines.push(s), (s) => lines.push(s),
+    );
+
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/\[acme\]/);
+  });
+});
 
 describe("--cwd decides the scope, not the process", () => {
   test("cli_add_resolves_scope_from_the_cwd_flag", async () => {
