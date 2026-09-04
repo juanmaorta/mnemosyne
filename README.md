@@ -48,7 +48,7 @@ mneme get <slug> [--scope <scope>]
 
 # Print the current scope's ambient digest — what a session-start hook injects.
 # Never fails: on any error it prints an empty digest rather than break session start.
-mneme context [--scope <scope>] [--budget <tokens>]
+mneme context [--scope <scope>] [--budget <tokens>] [--cwd <path>]
 
 # Scan text or a file for secrets (read-only; exits non-zero on any reject-level finding, never prints a full secret)
 mneme scan "<text>" | --file <path>
@@ -58,7 +58,7 @@ mneme scan "<text>" | --file <path>
 mneme scope [<path>]
 
 # Write a new memory (fact or authored note)
-mneme add "<content>" --type feedback|reference|project|user [--scope s] [--description d] [--importance n] [--slug s]
+mneme add "<content>" --type feedback|reference|project|user [--scope s] [--cwd path] [--description d] [--importance n] [--slug s]
 ```
 
 Diagnostics — for asking *why* a memory ranked where it did, not for daily use:
@@ -144,11 +144,28 @@ survive that:
   memory, not one agent's.
 
 Two things to respect if you embed the CLI in a long-running agent server rather than calling
-it per turn: **spawn the binary, don't hold a `Db` handle open** — short-lived writers
-serialize cleanly, a resident one camps on the write lock. And **pass `--scope` explicitly**,
-because scope resolution reads the *calling process's* cwd; a server multiplexing several
-projects would otherwise resolve every session against its own working directory and read the
-wrong scope.
+it per turn.
+
+**Spawn the binary, don't hold a `Db` handle open** — short-lived writers serialize cleanly, a
+resident one camps on the write lock.
+
+**Pass `--cwd <path>` on `context` and `add`.** Without it, scope resolution reads the *calling
+process's* cwd, which is the right answer only while the caller is ephemeral and started in the
+project — one process per invocation, as a session-start hook does. A server started somewhere
+else resolves every session against that one directory: reads inject the wrong scope's digest,
+and writes land in the wrong scope's folder **without failing**, because the fail-closed gate
+covers "I don't know which scope" and not "I think I know and I'm wrong". That folder is the
+compliance boundary, so a misrouted write is not recoverable by deleting the scope later. Only
+the caller knows which project a turn belongs to, so it has to say:
+
+```sh
+mneme context --cwd /path/to/session/project
+mneme add "<content>" --type feedback --cwd /path/to/session/project
+```
+
+`--scope` still overrides both. Note that `.scopemap` prefixes are matched as literal strings,
+so map the path your caller will actually pass — a path reached through a symlink does not match
+its target's entry.
 
 ### Scopes
 

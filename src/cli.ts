@@ -26,7 +26,7 @@ import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
 import { hookSnippet, mergeSessionStartHook, SESSION_START_COMMAND } from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
 import {
   addMemory,
@@ -41,6 +41,23 @@ type Out = (s: string) => void;
 
 /** Token budget for the injected digest when neither --budget nor the env var says. */
 const DEFAULT_CONTEXT_BUDGET = 1000;
+
+/**
+ * The directory whose scope the caller means.
+ *
+ * Ambient `process.cwd()` is the right answer only while the caller is ephemeral
+ * and started in the project — one process per invocation, which is what a
+ * session-start hook does. A long-running agent server that multiplexes sessions
+ * breaks that: its cwd is wherever it was started, so every session would
+ * resolve against that one directory. Only the caller knows which project a
+ * given turn belongs to, so it has to be able to say. A relative path resolves
+ * against the caller, which is its natural reading; blank is treated as unset,
+ * like `--scope ""`.
+ */
+function callerCwd(flag: string | undefined): string {
+  const given = flag?.trim();
+  return given ? resolve(given) : process.cwd();
+}
 
 function embedder(): EmbeddingClient {
   return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
@@ -119,11 +136,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           });
         };
         try {
-          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" } }, allowPositionals: true });
+          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" }, cwd: { type: "string" } }, allowPositionals: true });
           root = resolveRoot(values.root);
           try {
             const scopeArg = values.scope?.trim();
-            scope = scopeArg ? scopeArg : resolveScope(loadScopeMap(scopeMapPath(root), homedir()), process.cwd(), DEFAULT_SCOPE);
+            scope = scopeArg ? scopeArg : resolveScope(loadScopeMap(scopeMapPath(root), homedir()), callerCwd(values.cwd), DEFAULT_SCOPE);
           } catch { degraded.push("scope-unresolved"); } // fell back to the default scope
           const parsedBudget = Number(values.budget ?? process.env.MNEMOSYNE_CONTEXT_BUDGET);
           budget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : DEFAULT_CONTEXT_BUDGET;
@@ -291,6 +308,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           options: {
             type: { type: "string" }, scope: { type: "string" }, description: { type: "string" },
             importance: { type: "string" }, slug: { type: "string" }, root: { type: "string" },
+            cwd: { type: "string" },
           },
           allowPositionals: true,
         });
@@ -301,7 +319,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const root = resolveRoot(values.root);
         try {
           const res = addMemory(
-            { root, cwd: process.cwd(), home: homedir(), now: systemClock.nowIso().slice(0, 19) },
+            { root, cwd: callerCwd(values.cwd), home: homedir(), now: systemClock.nowIso().slice(0, 19) },
             {
               content, type: type as EngramType,
               ...(values.scope ? { scope: values.scope } : {}),
