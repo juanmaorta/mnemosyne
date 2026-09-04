@@ -43,6 +43,9 @@ export function formatStats(s: Stats): string {
   lines.push(row("top-k cosine (avg)", n(s.avgTopKCosine, 3)));
   lines.push(row("empty results", pct(s.emptyResultRate)));
   lines.push(row("budget utilisation", pct(s.injectionBudgetUtil)));
+  // Deliberately adjacent to budget utilisation, because the two answer the
+  // question a short digest raises — was it configured, or was it broken?
+  lines.push(row("degraded injections", pct(s.degradedInjectionRate)));
   lines.push(row("reinforcement rate", n(s.reinforcementRate, 2, " per query")));
 
   // Only claim there is no telemetry when no query was recorded at all —

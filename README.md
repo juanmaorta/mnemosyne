@@ -78,8 +78,7 @@ mneme purge-telemetry --scope <s>                   # drop a scope from the log 
 the others write an authored note. Three gates apply, fail-closed:
 
 - **Scope**: an unmapped cwd is refused rather than silently defaulting to `personal` — pass
-  `--scope` explicitly (see [Scopes](#scopes) below
-  for `.scopemap`).
+  `--scope` explicitly (see [Scopes](#scopes) below for `.scopemap`).
 - **Ownership**: refuses to write a scope this machine doesn't own per `~/memory/.owner`
   (`{"owns":[...]}`) — a machine never materializes a scope it doesn't own.
 - **Secrets**: content is scanned before writing; any reject-level finding aborts the write
@@ -182,6 +181,14 @@ only in the local index — the `.md` files are never mutated by retrieval.
 Retrieval writes a diagnostic event log to `~/memory/.telemetry/` (machine-local: never synced,
 never backed up). It records slugs and scope names in clear — never the query text and never a
 note's content, only hashes of those.
+
+It also records when an injection was **degraded** — when the digest a session started with was
+not what a healthy run would have served. `mneme context` never fails by design, so a failure
+otherwise shows up only as a shorter digest, and a short digest is indistinguishable from "you
+have little memory" both to the agent reading it and to anyone reading a scorecard. `mneme stats`
+reports the share as `degraded injections`, next to `budget utilisation` because the two answer
+the question a short digest raises: was it configured that way, or did something break? A budget
+that truncated the tail is **not** degradation — that is the utilisation row.
 
 **Prevention comes first.** A scope can be kept out of the log entirely:
 

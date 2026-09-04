@@ -17,6 +17,18 @@ export interface Stats {
   emptyResultRate: number | null;
   /** Share of ranked engrams that survived the context budget. */
   injectionBudgetUtil: number | null;
+  /**
+   * Share of injections that were degraded — the digest was not what a healthy
+   * run would have served. Budget truncation is excluded on purpose: that is
+   * `injectionBudgetUtil` above, and folding it in here would make a tight
+   * budget look like a broken system.
+   *
+   * This is the one failure that zeroes retrieval, and it used to be invisible:
+   * the read path exits 0 and prints a digest whatever happens, so a scorecard
+   * built on the ranking alone would average over sessions that received no
+   * memory at all without ever knowing it.
+   */
+  degradedInjectionRate: number | null;
   strengthHistogram: Record<string, number>;
   /** Reinforcements per query: how often retrieval turns into an actual read. */
   reinforcementRate: number | null;
@@ -114,6 +126,7 @@ export function computeStats(db: Db, root: string, opts: StatsOptions = {}): Sta
   const injectedTotal = injections.reduce((sum, e) => sum + (Array.isArray(e.injectedSlugs) ? e.injectedSlugs.length : 0), 0);
   const droppedTotal = injections.reduce((sum, e) => sum + (num(e.droppedForBudget) ?? 0), 0);
   const consideredTotal = injectedTotal + droppedTotal;
+  const degradedInjections = injections.filter((e) => Array.isArray(e.degraded) && e.degraded.length > 0).length;
 
   const reinforcements = byKind("access.reinforced").length;
 
@@ -133,6 +146,7 @@ export function computeStats(db: Db, root: string, opts: StatsOptions = {}): Sta
       ? null
       : resultCounts.filter((n) => n === 0).length / resultCounts.length,
     injectionBudgetUtil: consideredTotal === 0 ? null : injectedTotal / consideredTotal,
+    degradedInjectionRate: injections.length === 0 ? null : degradedInjections / injections.length,
     strengthHistogram,
     reinforcementRate: queries.length === 0 ? null : reinforcements / queries.length,
   };

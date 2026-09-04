@@ -56,6 +56,7 @@ describe("computeStats", () => {
     expect(s.emptyResultRate).toBeNull();
     expect(s.avgCandidateSetSize).toBeNull();
     expect(s.reinforcementRate).toBeNull();
+    expect(s.degradedInjectionRate).toBeNull();
   });
 
   test("derives latency percentiles and rates from the telemetry log", async () => {
@@ -99,6 +100,24 @@ describe("computeStats", () => {
 
     expect(s.injectionBudgetUtil).toBe(0.75); // 3 of 4 candidates fit
     expect(s.reinforcementRate).toBe(0.5);    // 1 reinforcement per 2 queries
+  });
+
+  test("reports the share of injections that were degraded", async () => {
+    const { db, root } = await seeded();
+    emitEvents(root, CLOCK, [
+      // Healthy: served everything it ranked.
+      { kind: "retrieval.injected", corrId: "a", injectedSlugs: ["x"], droppedForBudget: 0 },
+      // Starved by a deliberate budget — configured, not broken.
+      { kind: "retrieval.injected", corrId: "b", injectedSlugs: [], droppedForBudget: 7 },
+      // Actually broken: the index could not be refreshed.
+      { kind: "retrieval.injected", corrId: "c", injectedSlugs: ["x"], droppedForBudget: 0, degraded: ["reindex-failed"] },
+      // Broken outright: the session began with no memory at all.
+      { kind: "retrieval.injected", corrId: "d", injectedSlugs: [], droppedForBudget: 0, degraded: ["fatal"] },
+    ]);
+
+    // 2 of 4. The budget-starved one must NOT count, or a tight budget would
+    // read as a broken system and the metric would stop meaning anything.
+    expect(computeStats(db, root).degradedInjectionRate).toBe(0.5);
   });
 
   test("buckets hot-state strength and counts the access-event stream", async () => {

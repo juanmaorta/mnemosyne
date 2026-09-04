@@ -39,6 +39,9 @@ import {
 
 type Out = (s: string) => void;
 
+/** Token budget for the injected digest when neither --budget nor the env var says. */
+const DEFAULT_CONTEXT_BUDGET = 1000;
+
 function embedder(): EmbeddingClient {
   return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
 }
@@ -86,34 +89,69 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
       }
       case "context": {
         let scope = DEFAULT_SCOPE;
+        let budget = DEFAULT_CONTEXT_BUDGET;
+        /**
+         * Root of the store we would log to. Undefined only while the arguments
+         * are still unparsed: if parseArgs itself throws we do not know WHICH
+         * store this invocation meant, and guessing would write telemetry into
+         * an unrelated store — so that one case stays deliberately unrecorded.
+         */
+        let root: string | undefined;
+        /**
+         * Why this digest is not what a healthy run would have served. Empty is
+         * the healthy case, and the field is then left off the event entirely.
+         * Budget truncation is NOT in here: it is deliberate, configured, and
+         * already reported by `droppedForBudget`. Conflating the two would peg
+         * the degraded rate at 100% for anyone running a tight budget.
+         */
+        const degraded: string[] = [];
+        /** Best-effort by contract, exactly like the digest itself. */
+        const emitInjected = (injectedSlugs: string[], droppedForBudget: number): void => {
+          if (root === undefined) return;
+          emitEvent(root, systemClock, {
+            kind: "retrieval.injected",
+            corrId: newCorrId(systemClock),
+            scope,
+            budget,
+            injectedSlugs,
+            droppedForBudget,
+            ...(degraded.length > 0 ? { degraded } : {}),
+          });
+        };
         try {
           const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" } }, allowPositionals: true });
-          const root = resolveRoot(values.root);
+          root = resolveRoot(values.root);
           try {
             const scopeArg = values.scope?.trim();
             scope = scopeArg ? scopeArg : resolveScope(loadScopeMap(scopeMapPath(root), homedir()), process.cwd(), DEFAULT_SCOPE);
-          } catch { /* keep personal */ }
+          } catch { degraded.push("scope-unresolved"); } // fell back to the default scope
           const parsedBudget = Number(values.budget ?? process.env.MNEMOSYNE_CONTEXT_BUDGET);
-          const budget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : 1000;
+          budget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : DEFAULT_CONTEXT_BUDGET;
           const db = openIndex(root);
-          try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { /* serve existing index */ }
+          // Serving whatever the index already holds is the right call — a stale
+          // digest beats no digest — but it can be arbitrarily old, so say so.
+          try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
           const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
           out(formatContextDigest(included, scope, omitted));
           // What the agent actually saw this session, and what the budget cut.
           // Injection is the point where memory becomes behaviour, so a scorecard
           // that only measured ranking would miss the truncation entirely.
-          emitEvent(root, systemClock, {
-            kind: "retrieval.injected",
-            corrId: newCorrId(systemClock),
-            scope,
-            budget,
-            injectedSlugs: included.map((e) => e.slug),
-            droppedForBudget: omitted,
-          });
+          emitInjected(included.map((e) => e.slug), omitted);
           appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
         } catch {
           out(formatContextDigest([], scope, 0)); // never break session start
+          // A session beginning with NO memory is the single most important
+          // thing this log can record, and it used to be the one thing it
+          // recorded nothing about.
+          degraded.push("fatal");
+          emitInjected([], 0);
+        }
+        if (degraded.length > 0) {
+          // stdout stays a clean digest for the agent; the human gets the
+          // warning. The durable signal is the event above — a hook's stderr
+          // reaches nobody reliably when the hook exits 0.
+          err(`warning: memory digest degraded (${degraded.join(", ")}); this session may be missing memory.`);
         }
         return 0;
       }
