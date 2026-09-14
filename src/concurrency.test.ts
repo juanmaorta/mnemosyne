@@ -10,33 +10,20 @@
 // connections inside one process cannot contend the way two processes do (the
 // holder can never release while the waiter blocks).
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { beforeAll, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
+import { parseFrontmatter } from "./frontmatter.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Built once by the vitest globalSetup (`src/test-support/ensure-dist.ts`),
+// before any test file runs: a per-file guard here would race the other suites
+// that spawn this same binary.
 const cli = join(repoRoot, "dist", "bin", "mneme.js");
-
-/** Newest mtime under src/, so a stale dist is rebuilt instead of silently tested. */
-function newestSrcMtime(dir: string): number {
-  let newest = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    newest = Math.max(newest, entry.isDirectory() ? newestSrcMtime(path) : statSync(path).mtimeMs);
-  }
-  return newest;
-}
-
-beforeAll(async () => {
-  const built = existsSync(cli) ? statSync(cli).mtimeMs : 0;
-  if (built < newestSrcMtime(join(repoRoot, "src"))) {
-    await execFileAsync("npm", ["run", "build"], { cwd: repoRoot });
-  }
-}, 180_000);
 
 const ENGRAMS = 40;
 
@@ -54,12 +41,39 @@ function coldStore(): string {
   return root;
 }
 
-/** Run K copies of one command at once, as the two harnesses would. */
-function race(k: number, args: string[]): Promise<{ stdout: string; stderr: string }[]> {
-  return Promise.all(Array.from({ length: k }, () =>
-    execFileAsync(process.execPath, [cli, ...args], {
+/** An empty, owned store — the writers create everything themselves. */
+function writableStore(): string {
+  const root = mkdtempSync(join(tmpdir(), "mneme-conc-add-"));
+  mkdirSync(join(root, "personal"), { recursive: true });
+  writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal"] }));
+  return root;
+}
+
+/**
+ * Run K commands at once, as the two harnesses would. `args` is either the one
+ * command every process runs, or a function of the process index for the cases
+ * where each writer must carry its own identity.
+ */
+function race(k: number, args: string[] | ((i: number) => string[])): Promise<{ stdout: string; stderr: string }[]> {
+  const argsFor = typeof args === "function" ? args : (): string[] => args;
+  return Promise.all(Array.from({ length: k }, (_, i) =>
+    execFileAsync(process.execPath, [cli, ...argsFor(i)], {
       env: { ...process.env, MNEMOSYNE_FAKE_EMBED: "1" },
     })));
+}
+
+interface Run { code: number; stdout: string; stderr: string }
+
+function run(args: string[]): Promise<Run> {
+  return execFileAsync(process.execPath, [cli, ...args], { env: { ...process.env, MNEMOSYNE_FAKE_EMBED: "1" } })
+    .then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }))
+    .catch((e: { code?: number; stdout?: string; stderr?: string }) =>
+      ({ code: e.code ?? 1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }));
+}
+
+/** Launch commands simultaneously and keep the losers instead of rejecting. */
+function raceSettled(argv: string[][]): Promise<Run[]> {
+  return Promise.all(argv.map(run));
 }
 
 describe("concurrent harnesses on one store", () => {
@@ -92,5 +106,108 @@ describe("concurrent harnesses on one store", () => {
       expect(stdout).not.toMatch(/no memory in this scope yet/);
       expect(stdout.match(/^- \[nota-\d\d\]/gm)?.length ?? 0).toBe(ENGRAMS);
     }
+  }, 120_000);
+
+  test("concurrent_add_feedback_writes_every_fact_and_leaves_no_lock", async () => {
+    const root = writableStore();
+    const writers = 8;
+
+    // Each writer records its OWN observation, with its own slug — which is what
+    // the instruction block tells agents to do, and the only shape that is
+    // retrievable afterwards: (scope, slug) is unique, so eight facts sharing
+    // one slug would be eight files and one indexable memory. What is under test
+    // here is the lock, not the slug rule (see `cli.add.test.ts` for that).
+    const runs = await race(writers, (i) => [
+      "add", `riego automatico a las ${7 + i}`, "--type", "feedback", "--scope", "personal",
+      "--description", `riego ${i}`, "--slug", `riego-${i}`, "--root", root,
+    ]);
+
+    for (const { stdout } of runs) expect(stdout).toMatch(/wrote fact \[personal\]/);
+    const facts = readdirSync(join(root, "personal", "facts"));
+    expect(new Set(facts).size).toBe(writers);
+    // Eight distinct memories, none of them shadowing another.
+    const slugs = facts.map((f) => parseFrontmatter(readFileSync(join(root, "personal", "facts", f), "utf8")).data.name);
+    expect(new Set(slugs).size).toBe(writers);
+    // Every writer released what it took.
+    expect(existsSync(join(root, "personal", ".mneme-write.lock"))).toBe(false);
+  }, 120_000);
+
+  test("concurrent_import_claude_imports_every_file_exactly_once", async () => {
+    const root = writableStore();
+    const source = mkdtempSync(join(tmpdir(), "mneme-conc-native-"));
+    const NOTES = 6;
+    const FACTS = 4;
+    for (let i = 0; i < NOTES; i++) {
+      writeFileSync(join(source, `nota-${i}.md`),
+        ["---", "type: reference", `description: nota ${i} sobre riego`, "---", "", `cuerpo de la nota ${i}`, ""].join("\n"));
+    }
+    for (let i = 0; i < FACTS; i++) {
+      writeFileSync(join(source, `feedback_${i}.md`),
+        ["---", "type: feedback", `description: hecho ${i}`, "---", "", `observacion numero ${i}`, ""].join("\n"));
+    }
+
+    // Two harnesses import the same directory at once. Facts are the dangerous
+    // half: their filenames are fresh ULIDs every run, so only the content
+    // fingerprint — computed under the lock — keeps the second process from
+    // appending a duplicate of everything.
+    const args = ["import-claude", "--source", source, "--source-id", "repo-a", "--scope", "personal", "--apply", "--root", root];
+    const runs = await raceSettled([args, args]);
+
+    for (const r of runs) expect(r.code).toBe(0);
+    const imported = runs.reduce((n, r) => n + (r.stdout.match(/^imported\s+\S+\.md/gm)?.length ?? 0), 0);
+    const skipped = runs.reduce((n, r) => n + (r.stdout.match(/^skipped-identical\s+\S+\.md/gm)?.length ?? 0), 0);
+    expect(imported).toBe(NOTES + FACTS);
+    expect(skipped).toBe(NOTES + FACTS);
+
+    const notes = readdirSync(join(root, "personal")).filter((f) => f.endsWith(".md"));
+    expect(notes).toHaveLength(NOTES);
+    expect(new Set(notes).size).toBe(NOTES);
+    const facts = readdirSync(join(root, "personal", "facts")).filter((f) => f.endsWith(".md"));
+    expect(facts).toHaveLength(FACTS);
+    // Every fact is a distinct memory, not the same one appended twice.
+    const bodies = facts.map((f) => parseFrontmatter(readFileSync(join(root, "personal", "facts", f), "utf8")).data.name);
+    expect(new Set(bodies).size).toBe(FACTS);
+    // Nothing left behind, and the originals are untouched.
+    const left = readdirSync(join(root, "personal"));
+    expect(left.filter((f) => f.includes(".tmp-"))).toEqual([]);
+    expect(existsSync(join(root, "personal", ".mneme-write.lock"))).toBe(false);
+    expect(readdirSync(source)).toHaveLength(NOTES + FACTS);
+  }, 120_000);
+
+  test("concurrent_update_from_one_revision_lets_exactly_one_writer_win", async () => {
+    const root = writableStore();
+    const path = join(root, "personal", "yogurtera.md");
+
+    expect((await run(["add", "cuerpo original", "--type", "reference", "--scope", "personal",
+      "--description", "como hacer yogur", "--slug", "yogurtera", "--root", root])).code).toBe(0);
+    expect((await run(["reindex", "--root", root])).code).toBe(0);
+    const read = await run(["get", "yogurtera", "--json", "--root", root]);
+    expect(read.code).toBe(0);
+    const revision = (JSON.parse(read.stdout) as { revision: string }).revision;
+
+    // Both harnesses read the same note and now write back a different edit.
+    // Last-write-wins would silently destroy one of them; this is the whole
+    // reason `update` is a compare-and-swap and not a write.
+    const runs = await raceSettled([
+      ["update", "yogurtera", "version A", "--if-match", revision, "--scope", "personal", "--root", root],
+      ["update", "yogurtera", "version B", "--if-match", revision, "--scope", "personal", "--root", root],
+    ]);
+
+    expect(runs.filter((r) => r.code === 0)).toHaveLength(1);
+    const loser = runs.find((r) => r.code !== 0)!;
+    expect(loser.stderr).toContain("mneme get yogurtera --json");
+    expect(loser.stderr).not.toMatch(/--force/);
+
+    const text = readFileSync(path, "utf8");
+    const doc = parseFrontmatter(text);
+    expect(doc.data).toMatchObject({ name: "yogurtera", scope: "personal", type: "reference" });
+    // Exactly one of the two edits survives — never a splice of both.
+    expect(text.includes("version A")).toBe(!text.includes("version B"));
+    expect(text).not.toContain("cuerpo original");
+    // No temporary and no lock survived the race, and no second note appeared.
+    const left = readdirSync(join(root, "personal"));
+    expect(left.filter((f) => f.endsWith(".md"))).toEqual(["yogurtera.md"]);
+    expect(left.filter((f) => f.includes(".tmp-"))).toEqual([]);
+    expect(existsSync(join(root, "personal", ".mneme-write.lock"))).toBe(false);
   }, 120_000);
 });

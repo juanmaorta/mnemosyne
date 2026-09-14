@@ -15,7 +15,7 @@ import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
 import { loadTelemetryConfig } from "./telemetry/config.js";
 import { purgeTelemetryScope } from "./telemetry/purge.js";
-import { getEngramAndRecord } from "./retrieval/get.js";
+import { getEngramWithRevision } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
 import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined } from "./scope/scopemap.js";
@@ -26,7 +26,7 @@ import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
 import { hookSnippet, mergeSessionStartHook, SESSION_START_COMMAND } from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
 import {
   addMemory,
@@ -34,8 +34,23 @@ import {
   NotOwnerError,
   SecretDetectedError,
   NoteExistsError,
+  FactExistsError,
+  SlugTakenError,
   type EngramType,
 } from "./write/add.js";
+import {
+  updateNote,
+  NoChangesError,
+  NoteNotFoundError,
+  DuplicateSlugError,
+  NotEditableError,
+  IdentityMismatchError,
+  RevisionMismatchError,
+  NotRegularFileError,
+} from "./write/update.js";
+import { BodyInputError, resolveBody } from "./write/body.js";
+import { ImportUsageError, importClaudeMemory, importFailed, formatImportReport } from "./import/claude.js";
+import { LockBusyError } from "./write/lock.js";
 
 type Out = (s: string) => void;
 
@@ -60,6 +75,18 @@ function callerCwd(flag: string | undefined): string {
   // Canonicalized so a caller passing a symlinked path and `process.cwd()`,
   // which is always already resolved, are asked the same question of the map.
   return realpathOrUndefined(path) ?? path;
+}
+
+/**
+ * `--importance` as a number, or null when the flag is not one.
+ *
+ * The schema says the same thing in zod's language, but its error is a JSON
+ * dump of issue objects — the one place the CLI would stop speaking its own.
+ * Checked at the flag instead, where the caller's typo actually is.
+ */
+function parseImportance(raw: string): number | null {
+  const n = Number(raw.trim());
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
 }
 
 function embedder(): EmbeddingClient {
@@ -250,12 +277,19 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "get": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, json: { type: "boolean" } }, allowPositionals: true });
         const slug = positionals[0];
-        if (!slug) { err("usage: mneme get <slug> [--scope s]"); return 1; }
+        if (!slug) { err("usage: mneme get <slug> [--scope s] [--json]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        out(getEngramAndRecord(db, root, slug, systemClock, values.scope).content);
+        const doc = getEngramWithRevision(db, root, slug, systemClock, values.scope);
+        // --json is the machine contract behind `update`: one object, nothing
+        // else on stdout, and a revision taken from the same read as `content`.
+        if (values.json) {
+          out(JSON.stringify({ slug: doc.slug, scope: doc.scope, path: doc.path, content: doc.content, revision: doc.revision }));
+          return 0;
+        }
+        out(doc.content);
         return 0;
       }
       case "install-hook": {
@@ -294,7 +328,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
       }
       case "scope": {
         const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" } }, allowPositionals: true });
-        const path = positionals[0] ?? process.cwd();
+        // Canonicalized exactly like a write's cwd: this command is the gate a
+        // human uses BEFORE importing into a scope, so it must answer the same
+        // question `add`/`update`/`context` ask of the map, not a lookalike.
+        const path = callerCwd(positionals[0]);
         const root = resolveRoot(values.root);
         const scope = resolveScopeStrict(loadScopeMap(scopeMapPath(root), homedir()), path);
         if (scope === null) {
@@ -311,23 +348,33 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           options: {
             type: { type: "string" }, scope: { type: "string" }, description: { type: "string" },
             importance: { type: "string" }, slug: { type: "string" }, root: { type: "string" },
-            cwd: { type: "string" },
+            cwd: { type: "string" }, file: { type: "string" },
           },
           allowPositionals: true,
         });
-        const content = positionals.join(" ").trim();
-        if (!content) { err('usage: mneme add "<content>" --type feedback|reference|project|user [--scope s] [--description d] [--importance n] [--slug s]'); return 1; }
+        const usage = 'usage: mneme add "<content>" | --file <path> --type feedback|reference|project|user [--scope s] [--description d] [--importance n] [--slug s]\n'
+          + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme add --type t [flags] -- \"- uno\"";
         const type = values.type ?? "";
         if (!["feedback", "reference", "project", "user"].includes(type)) { err("--type is required: feedback | reference | project | user"); return 1; }
+        let importance: number | undefined;
+        if (values.importance !== undefined) {
+          const parsed = parseImportance(values.importance);
+          if (parsed === null) { err(`--importance must be a whole number between 1 and 10 (got '${values.importance}')`); return 1; }
+          importance = parsed;
+        }
         const root = resolveRoot(values.root);
         try {
+          // Inside the try: a bad --file is a refusal of THIS command and gets
+          // the same treatment (message + usage) as every other one.
+          const content = resolveBody(positionals.join(" "), values.file);
+          if (content === undefined) { err(usage); return 1; }
           const res = addMemory(
             { root, cwd: callerCwd(values.cwd), home: homedir(), now: systemClock.nowIso().slice(0, 19) },
             {
               content, type: type as EngramType,
               ...(values.scope ? { scope: values.scope } : {}),
               ...(values.description ? { description: values.description } : {}),
-              ...(values.importance ? { importance: Number(values.importance) } : {}),
+              ...(importance !== undefined ? { importance } : {}),
               ...(values.slug ? { slug: values.slug } : {}),
             },
           );
@@ -337,12 +384,126 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           if (e instanceof ScopeUnresolvedError) { err("cannot resolve a scope for this cwd; pass --scope explicitly (write is fail-closed — it never defaults to personal)"); return 1; }
           if (e instanceof NotOwnerError) { err(`this machine does not own scope '${e.scope}'. Declare it in ${storePaths(root).ownerPolicy} ({"owns":[...]}), or write from a machine that owns it.`); return 1; }
           if (e instanceof SecretDetectedError) { err("refusing to write — possible secret(s) detected:"); for (const f of e.findings) err(`  ${f.pattern} (line ${f.line}): ${f.masked}`); return 1; }
-          if (e instanceof NoteExistsError) { err(`note already exists: ${e.path} (authored notes are edited directly, not re-added)`); return 1; }
+          if (e instanceof NoteExistsError) {
+            // Notes are canonical: the way to change one is a checked update, not a hand edit.
+            const existing = basename(e.path, ".md");
+            err(`note already exists: ${e.path}. Read it with \`mneme get ${existing} --json\` and rewrite it with \`mneme update ${existing} --if-match <revision>\`.`);
+            return 1;
+          }
+          if (e instanceof FactExistsError) { err(`fact already exists: ${e.path} (facts are append-only; retry to get a fresh id)`); return 1; }
+          if (e instanceof SlugTakenError) {
+            // (scope, slug) is unique in the index, so a second document under
+            // the same slug would be on disk and retrievable by nothing.
+            err(`slug '${e.slug}' is already claimed in scope '${e.scope}' by ${e.path}. Nothing was written — pass a different --slug (a slug identifies exactly one memory in a scope, feedback facts included).`);
+            return 1;
+          }
+          if (e instanceof BodyInputError) { err(`${e.message}\n${usage}`); return 1; }
+          if (e instanceof LockBusyError) { err(`another mneme write holds this scope: ${e.lockPath}${e.holder ? ` (held by ${e.holder})` : ""}. Locks are never broken by age — check no mneme process is still writing, then remove that file.`); return 1; }
+          err((e as Error).message); return 1;
+        }
+      }
+      case "update": {
+        const { values, positionals } = parseArgs({
+          args: rest,
+          options: {
+            "if-match": { type: "string" }, scope: { type: "string" }, description: { type: "string" },
+            importance: { type: "string" }, root: { type: "string" }, cwd: { type: "string" },
+            file: { type: "string" },
+          },
+          allowPositionals: true,
+        });
+        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n]\n'
+          + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"";
+        const slug = positionals[0];
+        if (!slug) { err(usage); return 1; }
+        const ifMatch = values["if-match"]?.trim();
+        // Never optional: without it this would be a blind overwrite, which is
+        // the exact failure `update` exists to prevent.
+        if (!ifMatch) { err(`--if-match <revision> is required. Read the note first: \`mneme get ${slug} --json\`.\n${usage}`); return 1; }
+        let importance: number | undefined;
+        if (values.importance !== undefined) {
+          const parsed = parseImportance(values.importance);
+          if (parsed === null) { err(`--importance must be a whole number between 1 and 10 (got '${values.importance}')`); return 1; }
+          importance = parsed;
+        }
+        const root = resolveRoot(values.root);
+        try {
+          // Inside the try, like every other refusal of this command.
+          const content = resolveBody(positionals.slice(1).join(" "), values.file);
+          const res = updateNote(
+            { root, cwd: callerCwd(values.cwd), home: homedir() },
+            {
+              slug, ifMatch,
+              ...(content !== undefined ? { content } : {}),
+              ...(values.scope ? { scope: values.scope } : {}),
+              ...(values.description ? { description: values.description } : {}),
+              ...(importance !== undefined ? { importance } : {}),
+            },
+          );
+          out(`updated note [${res.scope}] ${res.slug} → ${res.path} (revision ${res.revision})`);
+          return 0;
+        } catch (e) {
+          if (e instanceof NoChangesError) { err(`${e.message}\n${usage}`); return 1; }
+          if (e instanceof BodyInputError) { err(`${e.message}\n${usage}`); return 1; }
+          if (e instanceof ScopeUnresolvedError) { err("cannot resolve a scope for this cwd; pass --scope explicitly (write is fail-closed — it never defaults to personal)"); return 1; }
+          if (e instanceof NotOwnerError) { err(`this machine does not own scope '${e.scope}'. Declare it in ${storePaths(root).ownerPolicy} ({"owns":[...]}), or write from a machine that owns it.`); return 1; }
+          if (e instanceof NoteNotFoundError) { err(`${e.message}. \`update\` never creates a note — use \`mneme add\` for a new one.`); return 1; }
+          if (e instanceof DuplicateSlugError) { err(`${e.message}. Resolve the duplicate by hand (rename or delete one) before updating.`); return 1; }
+          if (e instanceof NotEditableError) { err(`${e.message}. Facts are append-only — record a new one with \`mneme add ... --type feedback\`.`); return 1; }
+          if (e instanceof IdentityMismatchError) { err(`${e.message}. Fix the file by hand; \`update\` never changes a memory's identity.`); return 1; }
+          if (e instanceof RevisionMismatchError) {
+            // No retry, no --force: the other writer's content is on disk and
+            // only the caller can decide how to merge its own edit into it.
+            err(`conflict: ${slug} changed since you read it (on disk ${e.actual}, --if-match ${e.expected}). Nothing was written.`);
+            err(`Re-read it with \`mneme get ${slug} --json\`, reconcile your edit against that content, and update again with the revision it returns.`);
+            return 1;
+          }
+          if (e instanceof NotRegularFileError) { err(`${e.message} (a symlink or device where a note should be). Refusing to write through it.`); return 1; }
+          if (e instanceof SecretDetectedError) { err("refusing to write — possible secret(s) detected:"); for (const f of e.findings) err(`  ${f.pattern} (line ${f.line}): ${f.masked}`); return 1; }
+          if (e instanceof LockBusyError) { err(`another mneme write holds this scope: ${e.lockPath}${e.holder ? ` (held by ${e.holder})` : ""}. Locks are never broken by age — check no mneme process is still writing, then remove that file.`); return 1; }
+          err((e as Error).message); return 1;
+        }
+      }
+      case "import-claude": {
+        const { values } = parseArgs({
+          args: rest,
+          options: {
+            source: { type: "string" }, "source-id": { type: "string" }, scope: { type: "string" },
+            apply: { type: "boolean" }, root: { type: "string" },
+          },
+          allowPositionals: true,
+        });
+        const usage = "usage: mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply] [--root r]";
+        const source = values.source?.trim();
+        if (!source) { err(usage); return 1; }
+        const root = resolveRoot(values.root);
+        try {
+          // Dry run is the DEFAULT and --apply the opt-in: this creates memories
+          // in a scope the operator named by hand, from a directory nobody has
+          // reviewed yet. The report is the review.
+          const report = importClaudeMemory(
+            { root, home: homedir(), now: systemClock.nowIso().slice(0, 19), clock: systemClock },
+            {
+              // Relative is the natural reading for a path typed at a shell; the
+              // report echoes the absolute one actually used.
+              source: resolve(source),
+              sourceId: values["source-id"]?.trim() ?? "",
+              scope: values.scope?.trim() ?? "",
+              apply: Boolean(values.apply),
+            },
+          );
+          for (const line of formatImportReport(report)) out(line);
+          // Conflicts and failures need a human: never a silent 0.
+          return importFailed(report) ? 1 : 0;
+        } catch (e) {
+          if (e instanceof ImportUsageError) { err(`${e.message}\n${usage}`); return 1; }
+          if (e instanceof LockBusyError) { err(`another mneme write holds this scope: ${e.lockPath}${e.holder ? ` (held by ${e.holder})` : ""}. Locks are never broken by age — check no mneme process is still writing, then remove that file.`); return 1; }
+          if (e instanceof NotOwnerError) { err(`this machine does not own scope '${e.scope}'. Declare it in ${storePaths(root).ownerPolicy} ({"owns":[...]}), or write from a machine that owns it.`); return 1; }
           err((e as Error).message); return 1;
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, install-hook, add.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, install-hook, add, update, import-claude.`);
         return 1;
     }
   } catch (e) {

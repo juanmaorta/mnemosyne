@@ -1,0 +1,245 @@
+// src/write/update.ts
+//
+// The only supported way to change an existing note.
+//
+// A note is canonical: agents and humans both read it and both want to rewrite
+// it, from different processes, on machines that sync the folder behind our
+// back. Last-write-wins there means one of those edits disappears without a
+// trace, so an update is a compare-and-swap on the file's bytes: the caller
+// says which revision it read (`get --json`), and the write happens only if the
+// file is still exactly that. It never creates a missing note, never touches
+// identity (`name`, `scope`, `type`, `created`), and never truncates the target
+// in place — a new file is written beside it and renamed over it.
+import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import type { Stats } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { basename, dirname, join } from "node:path";
+import { EngramSchema, FACT_TYPES } from "../schema.js";
+import { parseFrontmatter, serializeFrontmatter } from "../frontmatter.js";
+import { revisionOf } from "../revision.js";
+import { storePaths } from "../store.js";
+import { findSlugClaims } from "./claims.js";
+import { withScopeLock } from "./lock.js";
+import { assertNoSecrets, assertOwnsScope, resolveWriteScope } from "./validation.js";
+
+// The scope/owner/secret gates are shared with `add`, but their errors are part
+// of `update`'s contract too — re-exported so callers map them in one place.
+export {
+  ScopeUnresolvedError,
+  NotOwnerError,
+  SecretDetectedError,
+} from "./validation.js";
+
+export class NoChangesError extends Error {
+  constructor() {
+    super("nothing to update: pass a new body (positional or --file), --description or --importance");
+    this.name = "NoChangesError";
+  }
+}
+export class NoteNotFoundError extends Error {
+  constructor(readonly slug: string, readonly scope: string) {
+    super(`no note named '${slug}' in scope '${scope}'`);
+    this.name = "NoteNotFoundError";
+  }
+}
+/**
+ * Two files in one scope claim the same `name`. The index enforces (scope, slug)
+ * uniqueness, but it is derived state that may be stale or missing, so this is
+ * decided from the Markdown itself.
+ */
+export class DuplicateSlugError extends Error {
+  constructor(readonly slug: string, readonly paths: string[]) {
+    super(`'${slug}' is claimed by more than one file: ${paths.join(", ")}`);
+    this.name = "DuplicateSlugError";
+  }
+}
+/** Feedback is an append-only observation: rewriting one would erase evidence. */
+export class NotEditableError extends Error {
+  constructor(readonly path: string) {
+    super(`refusing to edit an append-only feedback fact: ${path}`);
+    this.name = "NotEditableError";
+  }
+}
+/**
+ * The file on disk is not the memory it says it is: wrong filename for its
+ * `name`, a `scope` that disagrees with the folder it lives in, or frontmatter
+ * the schema rejects. Updating any of those would either move a memory's
+ * identity or bless an invalid document.
+ */
+export class IdentityMismatchError extends Error {
+  constructor(readonly path: string, readonly detail: string) {
+    super(`${path} is not a valid note for this update: ${detail}`);
+    this.name = "IdentityMismatchError";
+  }
+}
+export class RevisionMismatchError extends Error {
+  constructor(readonly path: string, readonly expected: string, readonly actual: string) {
+    super(`revision mismatch for ${path}: on disk ${actual}, --if-match ${expected}`);
+    this.name = "RevisionMismatchError";
+  }
+}
+/** A symlink, directory or device where a note should be — never written through. */
+export class NotRegularFileError extends Error {
+  constructor(readonly path: string) {
+    super(`refusing to write ${path}: not a regular file`);
+    this.name = "NotRegularFileError";
+  }
+}
+
+export interface UpdateDeps {
+  root: string;
+  cwd: string;
+  home: string;
+}
+
+export interface UpdateOptions {
+  slug: string;
+  /** The revision the caller read, from `mneme get <slug> --json`. */
+  ifMatch: string;
+  content?: string;
+  description?: string;
+  importance?: number;
+  scope?: string;
+}
+
+export interface UpdateResult {
+  path: string;
+  scope: string;
+  slug: string;
+  /** The revision of the bytes now on disk — what a follow-up update must match. */
+  revision: string;
+}
+
+/**
+ * Locates the single file in `scope` whose frontmatter `name` is `slug`.
+ *
+ * The search itself lives in `claims.ts`, shared with `add` — which asks the
+ * same question to refuse a slug that is already taken. Here the answer must be
+ * exactly one file: two claims are a defect on disk that only a human can undo.
+ */
+function locateBySlug(root: string, scope: string, slug: string): { path: string; isFact: boolean } {
+  const matches = findSlugClaims(root, scope, slug);
+  if (matches.length > 1) throw new DuplicateSlugError(slug, matches.map((m) => m.path));
+  if (matches.length === 1) return { path: matches[0]!.path, isFact: matches[0]!.isFact };
+
+  // The walker only yields regular files, so a symlinked note is invisible to
+  // it. Say what is actually there instead of "not found".
+  const expected = join(storePaths(root).scopeDir(scope), `${slug}.md`);
+  statRegularFile(expected, () => undefined);
+  throw new NoteNotFoundError(slug, scope);
+}
+
+/**
+ * Stats `path`, insisting it is a plain file. `onMissing` says what an absent
+ * path means to the caller — a domain error to raise, or `undefined` when the
+ * caller wants to handle it itself. Node's raw ENOENT never escapes.
+ */
+function statRegularFile(path: string, onMissing: () => Error | undefined): Stats | undefined {
+  let stat: Stats;
+  try {
+    stat = lstatSync(path); // lstat, not stat: a symlink must be seen as a symlink
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    const missing = onMissing();
+    if (missing) throw missing;
+    return undefined;
+  }
+  if (!stat.isFile()) throw new NotRegularFileError(path);
+  return stat;
+}
+
+function isFactType(type: unknown): boolean {
+  return (FACT_TYPES as readonly string[]).includes(String(type));
+}
+
+/**
+ * Reads, checks and rewrites one note. Gates first (scope → owner), then
+ * location and identity, then the compare-and-swap under the scope lock.
+ */
+export function updateNote(deps: UpdateDeps, opts: UpdateOptions): UpdateResult {
+  if (opts.content === undefined && opts.description === undefined && opts.importance === undefined) {
+    throw new NoChangesError();
+  }
+  const scope = resolveWriteScope(deps, opts.scope);
+  assertOwnsScope(deps.root, scope);
+
+  const found = locateBySlug(deps.root, scope, opts.slug);
+  if (found.isFact) throw new NotEditableError(found.path);
+  const target = join(storePaths(deps.root).scopeDir(scope), `${opts.slug}.md`);
+  if (found.path !== target) {
+    throw new IdentityMismatchError(found.path, `it claims name '${opts.slug}' but is not ${target}`);
+  }
+
+  return withScopeLock(dirname(target), () => swap(target, scope, opts));
+}
+
+/** Everything under the lock: read bytes → compare → rebuild → validate → rename. */
+function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult {
+  // Re-checked while holding the lock: between the walk and here the file could
+  // have been deleted, or replaced by a symlink pointing anywhere.
+  const stat = statRegularFile(target, () => new NoteNotFoundError(opts.slug, scope))!;
+  const bytes = readFileSync(target);
+  const actual = revisionOf(bytes);
+  if (actual !== opts.ifMatch) throw new RevisionMismatchError(target, opts.ifMatch, actual);
+
+  const { data, body } = parseFrontmatter(bytes.toString("utf8"));
+  const current = EngramSchema.safeParse(data);
+  if (!current.success) {
+    throw new IdentityMismatchError(target, `frontmatter does not satisfy the schema (${current.error.issues[0]?.message ?? "invalid"})`);
+  }
+  if (current.data.scope !== scope) {
+    throw new IdentityMismatchError(target, `frontmatter says scope '${current.data.scope}' but it lives in '${scope}'`);
+  }
+  if (isFactType(current.data.type)) throw new NotEditableError(target);
+
+  // Spread the RAW frontmatter, not the parsed copy: key order survives, and
+  // anything the schema accepts but this command does not touch (links, sources)
+  // is carried over verbatim. Identity fields are never in the override list.
+  const next: Record<string, unknown> = { ...data };
+  if (opts.description !== undefined) next.description = opts.description.trim();
+  if (opts.importance !== undefined) next.importance = opts.importance;
+  EngramSchema.parse(next); // the RESULT must be valid too — bad importance stops here
+
+  const nextBody = opts.content === undefined
+    ? body
+    : (opts.content.endsWith("\n") ? opts.content : `${opts.content}\n`);
+  const fileContent = serializeFrontmatter(next, nextBody);
+  assertNoSecrets(fileContent); // on the whole document, so a new description cannot smuggle one
+
+  writeAtomic(target, fileContent, stat.mode & 0o7777); // permission bits only; the type bits are not ours to set
+  return { path: target, scope, slug: opts.slug, revision: revisionOf(Buffer.from(fileContent, "utf8")) };
+}
+
+/**
+ * Replaces `target` by writing a sibling temporary and renaming over it.
+ *
+ * Truncating in place would leave a half-written note behind if anything failed
+ * mid-write — and this store is synced, so that half-file would propagate. A
+ * reader therefore only ever sees the old file or the new one, never a partial
+ * one. That is atomicity against concurrent readers and processes, NOT against
+ * power loss: nothing is fsync'd, so a crash can still lose the rename.
+ *
+ * The temporary is hidden and does NOT end in `.md`, so the index walker never
+ * picks it up even if a crash strands one; it is created with `wx` so two
+ * writers can never share one; and the original's mode is carried over, because
+ * a rename brings the new file's permissions with it.
+ *
+ * `writeFileSync` rather than a hand-rolled `openSync`/`writeSync`: `writeSync`
+ * does not loop, so a short write returns a smaller count with NO error and the
+ * rename would install a silently truncated note.
+ */
+function writeAtomic(target: string, content: string, mode?: number): void {
+  const tmp = join(dirname(target), `.${basename(target)}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
+  try {
+    writeFileSync(tmp, content, { flag: "wx", ...(mode !== undefined ? { mode } : {}) });
+    if (mode !== undefined) chmodSync(tmp, mode); // the create mode is masked by umask; this is not
+    renameSync(tmp, target);
+  } catch (e) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Never created, or already renamed away: nothing to clean.
+    }
+    throw e;
+  }
+}

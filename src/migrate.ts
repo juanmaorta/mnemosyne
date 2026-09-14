@@ -26,8 +26,12 @@ export interface MigrationResult {
   engram: Engram;
 }
 
-/** Legacy frontmatter is inconsistent: type may sit at the top level or nested under `metadata`. */
-function extractType(data: Record<string, unknown>): unknown {
+/**
+ * Legacy frontmatter is inconsistent: type may sit at the top level or nested
+ * under `metadata`. Exported (pure) because the Claude importer reads the same
+ * shapes — one definition of "where the type hides", not two.
+ */
+export function extractType(data: Record<string, unknown>): unknown {
   if (typeof data.type === "string") return data.type;
   const metadata = data.metadata;
   if (metadata && typeof metadata === "object" && "type" in metadata) {
@@ -37,13 +41,13 @@ function extractType(data: Record<string, unknown>): unknown {
 }
 
 /** Some legacy files carry no `type` in frontmatter — the filename prefix is the fallback signal. */
-function typeFromFilename(filename: string): string | undefined {
+export function typeFromFilename(filename: string): string | undefined {
   const prefix = LEGACY_PREFIXES.find((p) => filename.startsWith(`${p}_`));
   return prefix;
 }
 
 /** Coerce arbitrary text into a kebab-case slug (lowercase, non-alphanumeric → dash). */
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

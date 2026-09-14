@@ -69,6 +69,26 @@ describe("symlinked paths resolve to the same scope", () => {
     expect(lines.join("\n")).toMatch(/\[acme\]/);
   });
 
+  // `mneme scope <dir>` is the runbook's gate before importing anything into a
+  // scope. If it answered a different question than a write does, the gate would
+  // bless the wrong scope — so it canonicalizes the path exactly like `--cwd`.
+  test("cli_scope_agrees_with_the_write_for_a_symlinked_directory", async () => {
+    const { root, realWd, linkWd } = linked();
+    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = acme\n`);
+
+    const said: string[] = [];
+    expect(await runCli(["scope", linkWd, "--root", root], (s) => said.push(s), (s) => said.push(s))).toBe(0);
+    expect(said.join("\n")).toMatch(/^acme\s+owned/);
+
+    // …and the write it is a gate for resolves the same scope from the same path.
+    const wrote: string[] = [];
+    expect(await runCli(
+      ["add", "vlan 60", "--type", "feedback", "--slug", "vlan-60", "--cwd", linkWd, "--root", root],
+      (s) => wrote.push(s), (s) => wrote.push(s),
+    )).toBe(0);
+    expect(wrote.join("\n")).toMatch(/\[acme\]/);
+  });
+
   test("cli_add_accepts_a_cwd_flag_given_through_a_symlink", async () => {
     const { root, realWd, linkWd } = linked();
     // The mirror image: the map is canonical, the caller passes the symlink.

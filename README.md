@@ -43,8 +43,9 @@ mneme reindex [--scope <scope>]
 # Two-tier search: ranked refs + snippet + score (not whole docs). Reindexes lazily first.
 mneme search "<query>" [--scope <scope>] [-k <n>]
 
-# Fetch one engram in full by slug (reinforces it — decay-on-access)
-mneme get <slug> [--scope <scope>]
+# Fetch one engram in full by slug (reinforces it — decay-on-access).
+# --json prints exactly one object: {slug, scope, path, content, revision}
+mneme get <slug> [--scope <scope>] [--json]
 
 # Print the current scope's ambient digest — what a session-start hook injects.
 # Never fails: on any error it prints an empty digest rather than break session start.
@@ -57,8 +58,14 @@ mneme scan "<text>" | --file <path>
 # (or "unmapped → pass --scope") and whether this machine owns it
 mneme scope [<path>]
 
-# Write a new memory (fact or authored note)
-mneme add "<content>" --type feedback|reference|project|user [--scope s] [--cwd path] [--description d] [--importance n] [--slug s]
+# Write a new memory (fact or authored note). --file supplies the BODY only, never frontmatter
+mneme add "<content>" | --file <path> --type feedback|reference|project|user [--scope s] [--cwd path] [--description d] [--importance n] [--slug s]
+
+# Rewrite an existing authored note, compare-and-swap on the revision you read
+mneme update <slug> "<body>" | --file <path> --if-match <revision> [--scope s] [--cwd path] [--description d] [--importance n]
+
+# Import one Claude Code native memory directory into one scope (dry run by default)
+mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply]
 ```
 
 Diagnostics — for asking *why* a memory ranked where it did, not for daily use:
@@ -84,8 +91,93 @@ the others write an authored note. Three gates apply, fail-closed:
 - **Secrets**: content is scanned before writing; any reject-level finding aborts the write
   with the offending pattern masked, never echoing the full secret (see `mneme scan` above).
 
-Authored notes (`reference`/`project`/`user`) refuse to overwrite an existing slug — edit the
-`.md` file directly instead of re-running `add`.
+A body longer than a sentence belongs in a file: argv quoting mangles blank lines,
+indentation and code fences. `--file` reads the body as UTF-8 and nothing else — frontmatter
+is the store's to write, never the caller's to supply — so positional text *and* `--file`
+together is an error, as is an empty body.
+
+```sh
+mneme add --file /tmp/memory-body.md --type project --slug api-constraint --cwd /repo
+```
+
+A body whose **first character is `-`** (a bulleted list, the usual shape of an
+agent-written note) cannot travel as a bare positional: `parseArgs` reads it as an unknown
+option and the command exits 1 before the body is ever resolved. Use `--file`, or put the
+body after `--`, with every flag before it:
+
+```sh
+mneme add --type reference --scope personal --slug lista -- "- uno
+- dos"
+```
+
+Authored notes (`reference`/`project`/`user`) refuse to overwrite an existing slug: `add`
+creates with `O_EXCL` and tells you the note exists. Changing one is `update`, below.
+
+`(scope, slug)` is unique across the whole scope, facts included, so `add` also refuses a
+slug that any other document in that scope already claims — a fact's filename is a fresh
+ULID, so without that check a second fact under a claimed slug would land on disk and then
+be retrievable by nothing (`reindex` counts it as one more `errors`). Each feedback fact is
+its own memory: give it its own `--slug`.
+
+### Rewriting a note (`mneme get --json` → `mneme update --if-match`)
+
+A note is canonical, and two writers want it — an agent in one process, you in `$EDITOR`, a
+second machine through the synced folder. Last-write-wins there loses an edit silently, so an
+update is a **compare-and-swap on the file's bytes**: read the note, get its revision, write
+only if the file is still exactly that.
+
+```sh
+mneme get api-constraint --json      # {"slug":…,"scope":…,"path":…,"content":…,"revision":"<sha256>"}
+mneme update api-constraint --file /tmp/new-body.md --if-match <sha256> [--description d] [--importance n]
+```
+
+- `revision` is the SHA-256 of the whole `.md` file as it is on disk, taken from the same read
+  that produced `content` — not a value from the index, and not a hash of the body (which
+  would let a frontmatter-only change slip past the check).
+- `--if-match` is **required**. There is deliberately no `--force`: on a conflict you are told
+  the note changed since you read it and nothing is written. The recovery is to re-read it,
+  reconcile your edit against what is now there, and update with the revision that read
+  returned — never to retry with a fresh revision, which is just last-write-wins spelled
+  differently.
+- It never creates a missing note, refuses append-only `feedback` facts (record a new one
+  instead), and preserves `name`, `scope`, `type`, `created`, `links` and `sources`. Only the
+  body, `description` and `importance` change.
+- The write is a sibling temp file renamed over the target, so a reader only ever sees the old
+  file or the new one, never half of one. That is atomicity against concurrent readers, not
+  against power loss: nothing is fsync'd.
+
+`update` goes through the same three gates as `add` — a new `description` cannot smuggle a
+secret past the scanner.
+
+### Importing Claude Code's native memory (`mneme import-claude`)
+
+Claude Code keeps its own memory in `~/.claude/projects/<cwd-slug>/memory/*.md`, which this
+store never indexed (see [`docs/native-memory-gap.md`](docs/native-memory-gap.md)).
+`import-claude` brings **one** explicit directory into **one** explicit scope, idempotently,
+without ever modifying the originals.
+
+```sh
+mneme import-claude --source /absolute/native/memory --source-id repo-a --scope personal
+mneme import-claude --source /absolute/native/memory --source-id repo-a --scope personal --apply
+```
+
+- **Dry run is the default**; `--apply` is the opt-in. Both run the owner, schema and secret
+  gates, so a dry run cannot promise an import that `--apply` would then refuse.
+- The scope is **explicit, always**. Native directory names are not reversible paths (the slug
+  replaces `/` with `-`, and `-` occurs in directory names too), so nothing is inferred from
+  them and an unknown origin never lands in `personal` by default.
+- Identity is a deterministic slug — `claude-<source-id>-<filename-slug>-<hash12>` — and
+  sameness is a fingerprint over `(type, description, body)` read from the Markdown, not from
+  the index. Re-running with the same `source-id` imports nothing new; content already present
+  under any slug is `skipped-identical`; the same slug with different content is a visible
+  `conflict`, never an overwrite or an automatic second version.
+- One line per file, counters, and a non-zero exit on any conflict or failure. There is no
+  batch transaction: a file can fail while the rest import, and re-running is how you resume.
+- The importer does not touch the index — run `mneme reindex` afterwards to make what it wrote
+  retrievable.
+
+The operational side (source inventory, per-scope checks, instruction block, cutover and
+rollback) is [`docs/integrations/canonical-memory-cutover.md`](docs/integrations/canonical-memory-cutover.md).
 
 ### Wiring it into an agent
 
@@ -104,10 +196,15 @@ memory store.
 - Recall before assuming: `mneme search "<topic>"`, then `mneme get <slug>` for the full note.
 - Save what is durable — a preference, a project constraint, a reference:
   `mneme add "<content>" --type feedback|reference|project|user --slug <kebab-slug>`
-- Always pass `--slug`. Without it the slug is derived from the whole description and you
-  get unusable filenames.
+- Rewrite a note you already wrote: `mneme get <slug> --json`, then
+  `mneme update <slug> "<body>" --if-match <revision>`.
+- Always pass `--slug` on `add` (`update` takes the slug positionally, not as a flag).
+  Without it the slug is derived from the whole description and you get unusable filenames.
 - Don't store what's already in git, or what only matters to one conversation.
 ```
+
+The ready-made, agent-agnostic version of that block — the one to paste into `~/.claude/CLAUDE.md`
+or an `AGENTS.md` — is [`docs/integrations/memory-instructions.md`](docs/integrations/memory-instructions.md).
 
 The agent then recalls on demand. It costs nothing to set up and never breaks, but memory is
 only as good as the agent's discipline in asking for it.
@@ -134,8 +231,19 @@ survive that:
 
 - **Notes** are created with `O_EXCL`. Two writers racing on the same slug: one wins, the
   other is told the note exists. Never a silent clobber.
+- **Rewriting a note is a compare-and-swap** on the file's bytes (`mneme update --if-match`,
+  above). Two writers that read the same revision: one updates, the other gets a conflict and
+  writes nothing. This is the only check that covers a writer the lock cannot see — another
+  machine through the synced folder, or a hand edit — because it asks the file itself.
 - **Facts** are one ULID-named file each, append-only. Nothing is ever mutated in place, so
   there is no shared file to corrupt and no merge to lose.
+- **Writes take a per-scope lock** — a hidden `<scope>/.mneme-write.lock` created with
+  `O_EXCL`, with a bounded wait — so two `mneme` processes never interleave a write to the
+  same scope. It coordinates *our* processes on *this* machine and nothing else: Obsidian,
+  Syncthing and a hand `vim` ignore it, which is why `O_EXCL` on create stays in place
+  regardless. A busy lock is reported, never broken by age (a slow writer may still be
+  alive): if one is left behind by a killed process, check no `mneme` is still writing and
+  delete the file. Lock files are transient local state — don't sync them.
 - **The index** is WAL with a busy timeout and `BEGIN IMMEDIATE` write transactions, so
   concurrent writers wait for each other instead of failing. Note that *every* read command
   is also a writer: `search` and `context` reindex lazily, `get` reinforces hot state.
@@ -271,5 +379,11 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 > `stats`/`explain`/`trace` surface are in; the benchmark harness and its CI gate are not.
 > Then Fase 4 (nightly dreaming/consolidation).
 > See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
+>
+> Alongside that track, Mnemosyne is being made the **canonical** store for what Claude Code
+> learns: `get --json`, `update --if-match`, `add --file` and `import-claude` are implemented
+> and tested — the migration of the existing native memory and the cutover itself are an
+> operational step that has **not** been run. See
+> [`docs/integrations/canonical-memory-cutover.md`](docs/integrations/canonical-memory-cutover.md).
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay→archive subsystem: *lethe*.
