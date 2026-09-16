@@ -50,6 +50,17 @@ export interface SourceCandidate {
   filename: string;
   /** Deterministic destination identity. */
   slug: string;
+  /**
+   * The slug this file would have WITHOUT the source prefix and hash — i.e.
+   * the identity an earlier migration would have given it.
+   *
+   * The destination slug can never collide with an already-migrated copy,
+   * because the prefix and digest make it unique by construction. Without this
+   * second identity, "same note, different version" is invisible and lands as
+   * `create`: on the real store that meant 13 duplicates reported as
+   * `conflict 0`, each older than the note it duplicated.
+   */
+  baseSlug: string;
   type: EngramType;
   description: string;
   /** Normalized body, preserved verbatim otherwise (links are NOT rewritten). */
@@ -83,9 +94,16 @@ export function toLocalIso(date: Date): string {
  * without a manifest.
  */
 export function importSlug(sourceId: string, filename: string): string {
-  const base = filename.replace(/\.md$/i, "");
   const digest = createHash("sha256").update(filename, "utf8").digest("hex").slice(0, 12);
-  return `claude-${sourceId}-${slugify(base)}-${digest}`;
+  return `claude-${sourceId}-${baseSlugOf(filename)}-${digest}`;
+}
+
+/**
+ * The bare slug of a source file, as an earlier migration would have named it.
+ * Used to detect a note that is already in the store under its own identity.
+ */
+export function baseSlugOf(filename: string): string {
+  return slugify(filename.replace(/\.md$/i, ""));
 }
 
 export function isKebabSlug(value: string): boolean {
@@ -204,6 +222,7 @@ export function normalizeSourceFile(input: NormalizeInput): NormalizeResult {
     candidate: {
       filename: input.filename,
       slug,
+      baseSlug: baseSlugOf(input.filename),
       type: type as EngramType,
       description,
       body,
@@ -224,21 +243,27 @@ export interface Inventory {
   byFingerprint: Map<string, string[]>;
   /** slug → the document that already claims that identity. */
   bySlug: Map<string, string>;
+  /** path → body length, so a conflict can say which side holds more. */
+  bodyLengthByPath: Map<string, number>;
 }
 
 export function emptyInventory(): Inventory {
-  return { byFingerprint: new Map(), bySlug: new Map() };
+  return { byFingerprint: new Map(), bySlug: new Map(), bodyLengthByPath: new Map() };
 }
 
-export function rememberInInventory(inv: Inventory, entry: { slug: string; fingerprint: string; path: string }): void {
+export function rememberInInventory(
+  inv: Inventory,
+  entry: { slug: string; fingerprint: string; path: string; bodyLength?: number },
+): void {
   const existing = inv.byFingerprint.get(entry.fingerprint);
   if (existing) existing.push(entry.path);
   else inv.byFingerprint.set(entry.fingerprint, [entry.path]);
   if (!inv.bySlug.has(entry.slug)) inv.bySlug.set(entry.slug, entry.path);
+  if (entry.bodyLength !== undefined) inv.bodyLengthByPath.set(entry.path, entry.bodyLength);
 }
 
 /** An existing document's identity, or null when it is not a readable engram. */
-export function inventoryEntryOf(raw: string): { slug: string; fingerprint: string } | null {
+export function inventoryEntryOf(raw: string): { slug: string; fingerprint: string; bodyLength: number } | null {
   let data: Record<string, unknown>;
   let body: string;
   try {
@@ -248,7 +273,7 @@ export function inventoryEntryOf(raw: string): { slug: string; fingerprint: stri
   }
   const { name, description, type } = data;
   if (typeof name !== "string" || typeof description !== "string" || typeof type !== "string") return null;
-  return { slug: name, fingerprint: fingerprintOf({ type, description, body }) };
+  return { slug: name, fingerprint: fingerprintOf({ type, description, body }), bodyLength: body.length };
 }
 
 export type Decision =
@@ -259,9 +284,15 @@ export type Decision =
   | { kind: "conflict"; paths: string[] };
 
 export function decide(candidate: SourceCandidate, inv: Inventory): Decision {
+  // Identical content first: it is the cheaper and stronger signal, and a
+  // re-import of an untouched file must stay a skip rather than become a
+  // conflict just because the store already holds it under its bare slug.
   const identical = inv.byFingerprint.get(candidate.fingerprint);
   if (identical && identical.length > 0) return { kind: "skip", paths: [...identical] };
-  const claimed = inv.bySlug.get(candidate.slug);
+  // Two identities can already be taken: the destination slug (a previous run
+  // of this importer) and the bare slug (an earlier migration of the same
+  // file). Missing the second one is what silently duplicates a note.
+  const claimed = inv.bySlug.get(candidate.slug) ?? inv.bySlug.get(candidate.baseSlug);
   if (claimed) return { kind: "conflict", paths: [claimed] };
   return { kind: "create" };
 }

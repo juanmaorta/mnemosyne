@@ -221,6 +221,21 @@ function addOptions(candidate: SourceCandidate) {
 }
 
 /** What the scope already holds, read from the Markdown — never from the index. */
+/**
+ * Why a candidate conflicts, and — when the store already holds the note under
+ * its bare slug — which side has more body. With a dozen conflicts at once,
+ * "the store is longer in 11 of them" is the difference between a decision and
+ * a file-by-file diff. Length is a hint, not a verdict: a note can be improved
+ * by being cut.
+ */
+function conflictReason(candidate: SourceCandidate, existingPath: string | undefined, inv: Inventory): string {
+  const migrated = existingPath !== undefined && inv.bySlug.get(candidate.baseSlug) === existingPath;
+  if (!migrated) return "slug exists with different content";
+  const theirs = inv.bodyLengthByPath.get(existingPath);
+  const sizes = theirs === undefined ? "" : ` (store ${theirs} B vs source ${candidate.body.length} B)`;
+  return `already in the store as '${candidate.baseSlug}', with different content${sizes}`;
+}
+
 function buildInventory(root: string, scope: string): { inventory: Inventory; errors: string[] } {
   const inventory = emptyInventory();
   const errors: string[] = [];
@@ -343,7 +358,8 @@ function settle(
     }
     if (decision.kind === "conflict") {
       return {
-        ...base, status: "conflict" as const, reason: "slug exists with different content",
+        ...base, status: "conflict" as const,
+        reason: conflictReason(candidate, decision.paths[0], inventory),
         existing: decision.paths,
       };
     }

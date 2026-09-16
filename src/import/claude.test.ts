@@ -521,3 +521,90 @@ describe("importClaudeMemory", () => {
     expect(snapshotDir(src)).toEqual(before);
   });
 });
+
+describe("a note already migrated under its own slug (MNE-60)", () => {
+  // Fase 0 migrated these files into the store under their bare slug, and they
+  // have been edited since. The importer deduplicates by content fingerprint
+  // only, and its destination slug carries a source prefix and a hash, so it
+  // can never collide with the migrated copy. Measured on the real store: what
+  // the dry run called `conflict 0, importable 13` was in fact 13 pending
+  // duplicates, each one OLDER than what the store already held.
+  const NATIVE = native(["type: project", "description: el HGU pierde el bridge"], "version corta de julio");
+
+  /** The same engram as the store holds it: bare slug, richer body. */
+  function migrated(slug: string): string {
+    return [
+      "---", `name: ${slug}`, "description: el HGU pierde el bridge", "scope: personal",
+      "type: project", "created: 2026-07-01T10:00:00", "importance: 5", "---",
+      "version larga, ampliada despues de migrar", "",
+    ].join("\n");
+  }
+
+  function storeWithMigrated(slug: string): string {
+    const root = store();
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(join(root, "personal", `${slug}.md`), migrated(slug));
+    return root;
+  }
+
+  test("is reported as a conflict, not as importable", () => {
+    const root = storeWithMigrated("modem-bridge-reboot");
+    const src = sourceDir({ "modem-bridge-reboot.md": NATIVE });
+
+    const report = importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: false });
+
+    const r = byName(report)["modem-bridge-reboot.md"]!;
+    expect(r.status).toBe("conflict");
+    expect(r.existing).toEqual([join(root, "personal", "modem-bridge-reboot.md")]);
+    expect(report.counts.conflict).toBe(1);
+    expect(report.counts.importable).toBe(0);
+  });
+
+  test("--apply creates nothing for it and leaves the store untouched", () => {
+    const root = storeWithMigrated("modem-bridge-reboot");
+    const src = sourceDir({ "modem-bridge-reboot.md": NATIVE });
+    const before = snapshotDir(join(root, "personal"));
+
+    importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: true });
+
+    expect(snapshotDir(join(root, "personal"))).toEqual(before);
+    expect(notesIn(root)).toEqual(["modem-bridge-reboot.md"]);
+  });
+
+  test("a genuinely new note still imports alongside the conflicting one", () => {
+    // The fix must not turn the importer into a no-op: only the colliding
+    // identity is held back.
+    const root = storeWithMigrated("modem-bridge-reboot");
+    const src = sourceDir({
+      "modem-bridge-reboot.md": NATIVE,
+      "nota-nueva.md": native(["type: reference", "description: algo nuevo"], "nunca migrado"),
+    });
+
+    const report = importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: true });
+
+    expect(report.counts.conflict).toBe(1);
+    expect(report.counts.imported).toBe(1);
+    expect(notesIn(root)).toContain("modem-bridge-reboot.md");
+    expect(notesIn(root).some((n) => n.startsWith("claude-home-nota-nueva-"))).toBe(true);
+  });
+
+  test("identical content still wins over the slug check", () => {
+    // Byte-identical to what the store holds is a skip, not a conflict: the
+    // slug rule must not shadow the cheaper, stronger signal.
+    const root = store();
+    mkdirSync(join(root, "personal"), { recursive: true });
+    const body = "mismo cuerpo exacto";
+    writeFileSync(join(root, "personal", "misma.md"), [
+      // The blank line after the fences matters: `native()` has one, and the
+      // fingerprint covers the body verbatim. Without it these two differ.
+      "---", "name: misma", "description: d", "scope: personal", "type: reference",
+      "created: 2026-07-01T10:00:00", "importance: 5", "---", "", body, "",
+    ].join("\n"));
+    const src = sourceDir({ "misma.md": native(["type: reference", "description: d"], body) });
+
+    const report = importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: false });
+
+    expect(byName(report)["misma.md"]!.status).toBe("skipped-identical");
+    expect(report.counts.conflict).toBe(0);
+  });
+});
