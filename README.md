@@ -162,8 +162,10 @@ mneme update api-constraint --file /tmp/new-body.md --if-match <sha256> [--descr
   instead), and preserves `name`, `scope`, `type`, `created`, `links` and `sources`. Only the
   body, `description` and `importance` change.
 - The write is a sibling temp file renamed over the target, so a reader only ever sees the old
-  file or the new one, never half of one. That is atomicity against concurrent readers, not
-  against power loss: nothing is fsync'd.
+  file or the new one, never half of one. The temp file is fsync'd before the rename and the
+  directory after it, so a power cut cannot leave the note's name pointing at data that never
+  reached the disk. (On macOS `fsync` stops at the drive cache — `F_FULLFSYNC` is not reachable
+  from Node.)
 
 `update` goes through the same three gates as `add` — a new `description` cannot smuggle a
 secret past the scanner.

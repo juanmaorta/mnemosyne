@@ -10,7 +10,17 @@
 // file is still exactly that. It never creates a missing note, never touches
 // identity (`name`, `scope`, `type`, `created`), and never truncates the target
 // in place — a new file is written beside it and renamed over it.
-import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fchmodSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import type { Stats } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { basename, dirname, join } from "node:path";
@@ -216,24 +226,42 @@ function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult 
  * Truncating in place would leave a half-written note behind if anything failed
  * mid-write — and this store is synced, so that half-file would propagate. A
  * reader therefore only ever sees the old file or the new one, never a partial
- * one. That is atomicity against concurrent readers and processes, NOT against
- * power loss: nothing is fsync'd, so a crash can still lose the rename.
+ * one.
+ *
+ * The rename alone is atomic against other processes but not against a power
+ * cut: the directory entry can reach the disk before the data it names, and the
+ * note comes back as a file full of zeros. So the temporary's bytes are fsync'd
+ * BEFORE the rename publishes them, and the directory is fsync'd after, so the
+ * entry itself survives too. Residual limitation: on macOS `fsync` only hands
+ * the data to the drive, and forcing it past the drive cache needs
+ * `F_FULLFSYNC`, which Node does not expose.
  *
  * The temporary is hidden and does NOT end in `.md`, so the index walker never
  * picks it up even if a crash strands one; it is created with `wx` so two
  * writers can never share one; and the original's mode is carried over, because
  * a rename brings the new file's permissions with it.
  *
- * `writeFileSync` rather than a hand-rolled `openSync`/`writeSync`: `writeSync`
- * does not loop, so a short write returns a smaller count with NO error and the
- * rename would install a silently truncated note.
+ * `writeFileSync` on the descriptor rather than a hand-rolled `writeSync`:
+ * `writeSync` does not loop, so a short write returns a smaller count with NO
+ * error and the rename would install a silently truncated note.
  */
 function writeAtomic(target: string, content: string, mode?: number): void {
-  const tmp = join(dirname(target), `.${basename(target)}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
+  const dir = dirname(target);
+  const tmp = join(dir, `.${basename(target)}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
   try {
-    writeFileSync(tmp, content, { flag: "wx", ...(mode !== undefined ? { mode } : {}) });
-    if (mode !== undefined) chmodSync(tmp, mode); // the create mode is masked by umask; this is not
+    // Opened by hand instead of written by path: only a descriptor can be
+    // fsync'd, and reopening the path afterwards would sync whatever is at that
+    // name by then rather than the bytes we just wrote.
+    const fd = mode !== undefined ? openSync(tmp, "wx", mode) : openSync(tmp, "wx");
+    try {
+      writeFileSync(fd, content);
+      if (mode !== undefined) fchmodSync(fd, mode); // the create mode is masked by umask; this is not
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, target);
+    syncDir(dir);
   } catch (e) {
     try {
       unlinkSync(tmp);
@@ -241,5 +269,30 @@ function writeAtomic(target: string, content: string, mode?: number): void {
       // Never created, or already renamed away: nothing to clean.
     }
     throw e;
+  }
+}
+
+/**
+ * Flushes the directory entry created by the rename.
+ *
+ * Best effort on purpose: the swap has already happened and is visible to every
+ * reader, so a filesystem that refuses to open a directory (Windows) or to sync
+ * one must not turn a successful update into an error the caller would retry —
+ * and the retry could not succeed anyway, because the revision it matched on is
+ * no longer the one on disk.
+ */
+function syncDir(dir: string): void {
+  let fd: number;
+  try {
+    fd = openSync(dir, "r");
+  } catch {
+    return;
+  }
+  try {
+    fsyncSync(fd);
+  } catch {
+    // See above: durability of the entry is a bonus, not part of the contract.
+  } finally {
+    closeSync(fd);
   }
 }

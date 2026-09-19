@@ -26,14 +26,35 @@ import { describe, expect, test, vi } from "vitest";
  * that installs the new note (EXDEV/EIO/ENOSPC on a synced store). It is the
  * only point at which the temporary file already exists, so it is the only way
  * to exercise the cleanup branch. Everything else delegates to the real fs.
+ *
+ * `durability` records the fsync/rename calls in order, because durability is
+ * precisely an ordering property: a crash cannot be staged, but the sequence
+ * that makes the swap survive one can be read off here. `fdPaths` only exists
+ * to name the file behind an fsync'd descriptor.
  */
-const fsHook = vi.hoisted(() => ({ failRename: false, lastRenamedFrom: "", vanishOnStat: "" }));
+const fsHook = vi.hoisted(() => ({
+  failRename: false,
+  lastRenamedFrom: "",
+  vanishOnStat: "",
+  durability: [] as string[],
+  fdPaths: new Map<number, string>(),
+}));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
+    openSync: ((path: unknown, ...rest: unknown[]) => {
+      const fd = (actual.openSync as (...a: unknown[]) => number)(path, ...rest);
+      fsHook.fdPaths.set(fd, String(path));
+      return fd;
+    }) as unknown as typeof actual.openSync,
+    fsyncSync: (fd: number): void => {
+      fsHook.durability.push(`fsync:${fsHook.fdPaths.get(fd) ?? fd}`);
+      actual.fsyncSync(fd);
+    },
     renameSync: (from: string, to: string): void => {
       fsHook.lastRenamedFrom = from;
+      fsHook.durability.push(`rename:${from}`);
       if (fsHook.failRename) throw Object.assign(new Error("cross-device link not permitted"), { code: "EXDEV" });
       actual.renameSync(from, to);
     },
@@ -454,6 +475,29 @@ describe("updateNote", () => {
 
     expect(res.scope).toBe("personal");
     expect(readFileSync(path, "utf8")).toContain("desde el cwd");
+  });
+
+  test("update_fsyncs_the_temporary_before_the_rename_and_the_directory_after_it", () => {
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", FULL);
+    fsHook.durability = [];
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      content: "cuerpo que debe sobrevivir a un corte de luz\n",
+    });
+
+    const tmp = fsHook.lastRenamedFrom;
+    expect(tmp).toContain(".tmp-");
+    // Only the order is worth pinning: the bytes have to be on disk before the
+    // directory entry that publishes them, and the entry itself after that.
+    expect(fsHook.durability).toEqual([
+      `fsync:${tmp}`,
+      `rename:${tmp}`,
+      `fsync:${join(root, "personal")}`,
+    ]);
   });
 
   test("update_preserves_the_original_file_mode", () => {
