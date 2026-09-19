@@ -1,0 +1,116 @@
+name: Harness integration
+description: Wire Mnemosyne into an agent harness — a new one, or a gap in an existing integration.
+labels: ["integration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The store knows nothing about any particular agent, and neither does the CLI: an
+        integration is just `mneme <command>` reaching a harness. There are two levels, and
+        they cost very different amounts:
+
+        - **Level 1 — instructions.** Paste the block from
+          [`docs/integrations/memory-instructions.md`](https://github.com/juanmaorta/mnemosyne/blob/main/docs/integrations/memory-instructions.md)
+          into whatever file the harness reads at startup (`CLAUDE.md`, `AGENTS.md`, a Cursor
+          rule). This works **today, in any harness**, with no code. If you have not tried it,
+          try it first — it may be the whole answer.
+        - **Level 2 — automatic injection.** A session-start hook runs `mneme context` before
+          the first turn. Shipped for Claude Code and Codex CLI (`mneme install-hook
+          [--harness codex]`). Anything else needs the seam identified and the output format
+          worked out.
+
+        What sinks a level 2 integration is never the command — it is how the harness delivers
+        the hook's output, what its sandbox allows, and whether it tells the hook which project
+        the session is in. That is what the questions below are about.
+
+  - type: input
+    id: harness
+    attributes:
+      label: Harness and version
+      placeholder: "OpenCode 0.4.2 / Cursor 1.3 / Zed …"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: level
+    attributes:
+      label: What are you asking for
+      options:
+        - Level 1 works, I want to document it
+        - Level 1 does not work (the agent ignores or misuses the commands)
+        - Level 2 — automatic injection for a harness that has none
+        - Level 2 is shipped for this harness but broken or incomplete
+    validations:
+      required: true
+
+  - type: textarea
+    id: seam
+    attributes:
+      label: The seam
+      description: |
+        Where can this harness run a command at session start, or inject text into the system
+        prompt? Name the mechanism and link the docs for the version you are running — a hook,
+        a plugin API, a settings key. If there is none, say so; that is a useful answer.
+      placeholder: |
+        OpenCode plugins expose `experimental.chat.system.transform` — https://opencode.ai/docs/plugins/
+    validations:
+      required: true
+
+  - type: textarea
+    id: output-format
+    attributes:
+      label: How the harness consumes the hook's output
+      description: |
+        Raw stdout injected as-is, or a structured payload? This is the one that bit us: Claude
+        Code injects raw stdout, while Codex reads exactly one JSON object and silently drops
+        anything else — which is why its hook runs `mneme context --emit codex-session-start`.
+        Silent dropping is the dangerous case, because `mneme context` never fails by design,
+        so a broken integration looks identical to an empty memory.
+    validations:
+      required: true
+
+  - type: textarea
+    id: cwd
+    attributes:
+      label: Does the hook learn the session's working directory?
+      description: |
+        Scope resolution depends on it. If the harness passes the session cwd to the hook (on
+        stdin, in an env var), say how — that is what lets the digest come from the right
+        scope. If it does not, the command has to hardcode `--cwd`, which is worth knowing
+        before anyone wires it up.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sandbox
+    attributes:
+      label: Sandbox and permissions
+      description: |
+        Can commands the agent runs reach the network and write outside the workspace? Codex's
+        default sandbox blocks both, which leaves the session-start digest showing while
+        `search` and `add` quietly fail — the worst shape of failure: visible memory, silently
+        read-only.
+
+  - type: input
+    id: instructions-file
+    attributes:
+      label: Instruction file it reads at startup
+      placeholder: "AGENTS.md at the repo root, plus a global one at ~/.config/…"
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What you have already tried
+      description: |
+        Commands, config, and what the agent actually did. A transcript excerpt showing the
+        agent recalling or saving is the evidence that matters — a passing unit test is not
+        evidence that an agent remembers. Redact anything from your real store.
+      render: shell
+
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Can you test it?
+      options:
+        - label: I have this harness installed and can test a proposed integration.
+        - label: I am willing to open the pull request.

@@ -1,0 +1,99 @@
+name: Bug report
+description: Something the CLI or the store does wrong — a wrong result, a lost or misplaced memory, a crash.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before anything else: redact your data.** This tool handles your memory store, so a
+        report can easily carry note content, client names or a secret. Paste commands and
+        error messages, not your notes — replace real slugs and scope names with placeholders
+        if they say something you would not publish.
+
+        If this is a **security** problem (something escaping a scope, a secret leaking, a
+        deletion that does not delete), stop here and follow
+        [SECURITY.md](https://github.com/juanmaorta/mnemosyne/blob/main/SECURITY.md) instead — do not describe it in a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you got, and what you expected instead.
+      placeholder: |
+        I ran `mneme add ... --type project --slug api-constraint` in a mapped project and it
+        exited 0, but `mneme get api-constraint` says the slug is unknown.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        The exact commands, in order, and the output. If you can reproduce it against a scratch
+        store (`export MNEMOSYNE_ROOT="$(mktemp -d)"`), that version is worth far more than one
+        against your real store — it is reproducible and it carries none of your data.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Writing (add / update / secret scanner / lock)
+        - Reading (search / get / context / the session digest)
+        - Index (reindex, stale or missing results)
+        - Scopes (.scopemap, .owner, --cwd, wrong scope)
+        - Import (import-claude)
+        - Observability (stats / explain / trace / snapshot / telemetry / purge-telemetry)
+        - Hook installation (install-hook)
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit SHA you are on (`git rev-parse --short HEAD`), or the installed package version.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node
+      description: "`node -v` and your OS/version."
+      placeholder: "node v24.4.0, macOS 15.5 (arm64)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: store-shape
+    attributes:
+      label: Store shape (optional)
+      description: |
+        `mneme stats` output, if it is relevant. It prints counts, scope names and retrieval
+        metrics — no note content and no slugs — but redact the scope names if they are client
+        names.
+      render: shell
+
+  - type: textarea
+    id: embedder
+    attributes:
+      label: Embedder setup (optional)
+      description: |
+        Only if the bug involves search, context or reindex. Is Ollama running, which model, is
+        `OLLAMA_HOST` pointing somewhere non-default, are you using `MNEMOSYNE_FAKE_EMBED=1`?
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security issue (see SECURITY.md for those).
+          required: true
+        - label: I have removed real note content, real secrets and anything identifying from this report.
+          required: true
