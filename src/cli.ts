@@ -24,7 +24,16 @@ import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieva
 import { appendEvalLog } from "./eval/log.js";
 import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
-import { hookSnippet, mergeSessionStartHook, SESSION_START_COMMAND } from "./hook.js";
+import {
+  CODEX_SESSION_START_COMMAND,
+  codexHookSnippet,
+  codexSessionStartEnvelope,
+  cwdFromHookPayload,
+  hookSnippet,
+  mergeCodexSessionStartHook,
+  mergeSessionStartHook,
+  SESSION_START_COMMAND,
+} from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
@@ -75,6 +84,22 @@ function callerCwd(flag: string | undefined): string {
   // Canonicalized so a caller passing a symlinked path and `process.cwd()`,
   // which is always already resolved, are asked the same question of the map.
   return realpathOrUndefined(path) ?? path;
+}
+
+/**
+ * The session cwd a harness reports on the hook's stdin, or undefined when
+ * there is nothing readable there.
+ *
+ * Best-effort by design: a hook that cannot read its own payload still has a
+ * process cwd to fall back on, and falling back costs one scope where throwing
+ * would cost the whole digest.
+ */
+function hookPayloadCwd(): string | undefined {
+  try {
+    return cwdFromHookPayload(readFileSync(0, "utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -138,6 +163,16 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         let scope = DEFAULT_SCOPE;
         let budget = DEFAULT_CONTEXT_BUDGET;
         /**
+         * Read BEFORE parseArgs on purpose. Everything below is wrapped in a
+         * catch that must still print something a harness can read, and under
+         * Codex "something readable" means the JSON envelope — a bare digest
+         * there is dropped without a word. If the flag were parsed with the
+         * rest, a typo anywhere on the line would cost the session its memory
+         * and look identical to having none.
+         */
+        const emitCodex = rest.some((a) => a === "codex-session-start" || a === "--emit=codex-session-start")
+          && rest.some((a) => a.startsWith("--emit"));
+        /**
          * Root of the store we would log to. Undefined only while the arguments
          * are still unparsed: if parseArgs itself throws we do not know WHICH
          * store this invocation meant, and guessing would write telemetry into
@@ -152,6 +187,9 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
          * the degraded rate at 100% for anyone running a tight budget.
          */
         const degraded: string[] = [];
+        /** The one thing stdout ever carries, wrapped if the harness needs it. */
+        const emitDigest = (digest: string): void => { out(emitCodex ? codexSessionStartEnvelope(digest) : digest); };
+
         /** Best-effort by contract, exactly like the digest itself. */
         const emitInjected = (injectedSlugs: string[], droppedForBudget: number): void => {
           if (root === undefined) return;
@@ -166,11 +204,15 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           });
         };
         try {
-          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" }, cwd: { type: "string" } }, allowPositionals: true });
+          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" }, cwd: { type: "string" }, emit: { type: "string" } }, allowPositionals: true });
           root = resolveRoot(values.root);
+          // Codex passes no --cwd: the session directory arrives on the hook's
+          // stdin. Never read from a terminal, where there is no payload coming
+          // and the read would hang until someone types EOF.
+          const cwdArg = values.cwd ?? (emitCodex && !process.stdin.isTTY ? hookPayloadCwd() : undefined);
           try {
             const scopeArg = values.scope?.trim();
-            scope = scopeArg ? scopeArg : resolveScope(loadScopeMap(scopeMapPath(root), homedir()), callerCwd(values.cwd), DEFAULT_SCOPE);
+            scope = scopeArg ? scopeArg : resolveScope(loadScopeMap(scopeMapPath(root), homedir()), callerCwd(cwdArg), DEFAULT_SCOPE);
           } catch { degraded.push("scope-unresolved"); } // fell back to the default scope
           const parsedBudget = Number(values.budget ?? process.env.MNEMOSYNE_CONTEXT_BUDGET);
           budget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : DEFAULT_CONTEXT_BUDGET;
@@ -180,14 +222,14 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
           const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
-          out(formatContextDigest(included, scope, omitted));
+          emitDigest(formatContextDigest(included, scope, omitted));
           // What the agent actually saw this session, and what the budget cut.
           // Injection is the point where memory becomes behaviour, so a scorecard
           // that only measured ranking would miss the truncation entirely.
           emitInjected(included.map((e) => e.slug), omitted);
           appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
         } catch {
-          out(formatContextDigest([], scope, 0)); // never break session start
+          emitDigest(formatContextDigest([], scope, 0)); // never break session start
           // A session beginning with NO memory is the single most important
           // thing this log can record, and it used to be the one thing it
           // recorded nothing about.
@@ -293,10 +335,25 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "install-hook": {
-        const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" } }, allowPositionals: true });
-        const settingsPath = join(homedir(), ".claude", "settings.json");
+        const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" }, harness: { type: "string" } }, allowPositionals: true });
+        const harness = values.harness?.trim() || "claude-code";
+        if (harness !== "claude-code" && harness !== "codex") {
+          err(`unknown harness: ${harness}. Supported: claude-code, codex.`);
+          return 1;
+        }
+        // Codex reads `hooks.json` from CODEX_HOME, and a hook it has not been
+        // told to trust never runs — without a word about why. Everything else
+        // is the same file surgery as Claude Code's settings.
+        const codex = harness === "codex";
+        const settingsPath = codex
+          ? join(process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"), "hooks.json")
+          : join(homedir(), ".claude", "settings.json");
+        const snippet = codex ? codexHookSnippet() : hookSnippet();
+        const trustNote = codex
+          ? "\n\nThen open Codex and trust it: /hooks. Until you do, the hook is inert and Codex will not tell you so."
+          : "";
         if (!values.write) {
-          out(`Add this to ${settingsPath}:\n\n${hookSnippet()}`);
+          out(`Add this to ${settingsPath}:\n\n${snippet}${trustNote}`);
           return 0;
         }
         let current: Record<string, unknown> = {};
@@ -304,13 +361,16 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           current = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-            err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${hookSnippet()}`);
+            err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${snippet}`);
             return 1;
           }
         }
         mkdirSync(dirname(settingsPath), { recursive: true });
-        writeFileSync(settingsPath, `${JSON.stringify(mergeSessionStartHook(current, SESSION_START_COMMAND), null, 2)}\n`);
-        out(`Installed SessionStart hook into ${settingsPath}.`);
+        const merged = codex
+          ? mergeCodexSessionStartHook(current, CODEX_SESSION_START_COMMAND)
+          : mergeSessionStartHook(current, SESSION_START_COMMAND);
+        writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
+        out(`Installed SessionStart hook into ${settingsPath}.${trustNote}`);
         return 0;
       }
       case "scan": {

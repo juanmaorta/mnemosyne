@@ -209,19 +209,31 @@ or an `AGENTS.md` — is [`docs/integrations/memory-instructions.md`](docs/integ
 The agent then recalls on demand. It costs nothing to set up and never breaks, but memory is
 only as good as the agent's discipline in asking for it.
 
-**Level 2 — automatic injection at session start (Claude Code).** A hook runs the digest
-before the first turn, so the agent starts every session already knowing:
+**Level 2 — automatic injection at session start (Claude Code, Codex CLI).** A hook runs the
+digest before the first turn, so the agent starts every session already knowing:
 
 ```sh
-mneme install-hook            # prints the SessionStart snippet for ~/.claude/settings.json
-mneme install-hook --write    # opt-in: merges it into ~/.claude/settings.json
+mneme install-hook                           # prints the SessionStart snippet for ~/.claude/settings.json
+mneme install-hook --write                   # opt-in: merges it into ~/.claude/settings.json
+
+mneme install-hook --harness codex           # the same, for $CODEX_HOME/hooks.json
+mneme install-hook --harness codex --write
 ```
 
-`install-hook` only knows Claude Code's settings file. Other harnesses expose an equivalent
-seam — OpenCode has plugins with an `experimental.chat.system.transform` hook, Cursor has
-rules — but nothing is shipped for them here yet; wire `mneme context` in by hand, or stay on
-level 1. A local MCP wrapper (see [`docs/plan.md`](docs/plan.md), Fase 6) is the planned
-portable answer for tool-style access.
+The two harnesses differ in one way that matters. Claude Code injects a hook's raw stdout;
+**Codex reads one JSON object and silently drops anything else**, so its hook runs
+`mneme context --emit codex-session-start`, which wraps the digest — and keeps wrapping it
+when something upstream fails, because under Codex a bare digest is indistinguishable from
+no memory at all. Two Codex-specific gotchas, both covered in
+[`docs/integrations/canonical-memory-cutover.md`](docs/integrations/canonical-memory-cutover.md):
+a freshly written `hooks.json` stays inert until you trust it from the TUI with `/hooks`, and
+the default sandbox blocks both the network and writes outside the workspace, which leaves
+the digest showing while `search` and `add` quietly fail.
+
+Other harnesses expose an equivalent seam — OpenCode has plugins with an
+`experimental.chat.system.transform` hook, Cursor has rules — but nothing is shipped for them
+here yet; wire `mneme context` in by hand, or stay on level 1. A local MCP wrapper (see
+[`docs/plan.md`](docs/plan.md), Fase 6) is the planned portable answer for tool-style access.
 
 ### More than one agent at a time
 

@@ -1,8 +1,8 @@
 # Bloque de instrucciones de memoria (agent-agnostic)
 
-Qué es: el texto que se pega tal cual en `~/.claude/CLAUDE.md` (Claude Code) y en el
-`AGENTS.md` que lea OpenCode. Es el mismo bloque para los dos: no menciona ningún
-harness y solo usa comandos reales del CLI `mneme`.
+Qué es: el texto que se pega tal cual en `~/.claude/CLAUDE.md` (Claude Code), en
+`~/.codex/AGENTS.md` (Codex CLI) y en el `AGENTS.md` que lea OpenCode. Es el mismo bloque
+para los tres: no menciona ningún harness y solo usa comandos reales del CLI `mneme`.
 
 Cómo se activa: [`canonical-memory-cutover.md`](canonical-memory-cutover.md). Decisión
 y alcance: [`../superpowers/plans/2026-09-11-canonical-memory-cutover.md`](../superpowers/plans/2026-09-11-canonical-memory-cutover.md).
