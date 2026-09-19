@@ -22,6 +22,25 @@ forgets what doesn't, and connects ideas over time.
 The name: **Mnemosyne**, Titaness of memory, whose spring stood opposite the river Lethe —
 to remember versus to forget. That duality is the whole system.
 
+## Dreaming, and Anthropic's Dreams API
+
+Anthropic's [Dreams API](https://platform.claude.com/docs/en/managed-agents/dreams) (research
+preview) reaches for the same mechanism this project calls dreaming: it takes a memory store
+plus past sessions and returns a store with duplicates merged and contradicted entries
+replaced. Same name, same two inputs, same operations — with no borrowing in either
+direction. The common ancestor is the literature both build on, reflection in Generative
+Agents and the Auto-Dreamer/SCM line. Two independent designs arriving at the same place is
+a good sign for the idea; where they part is the reason this one exists.
+
+|  | Dreams API | Mnemosyne |
+|---|---|---|
+| **Where it runs** | The store lives in Anthropic's workspace | Files on your disk, consolidated by a local model. A client scope never leaves the boundary, which is what makes deleting one a real delete |
+| **What it does** | Merges duplicates, resolves contradictions | A lifecycle: decay, strength and reinforcement on recall, with archival on the roadmap. The forgetting half of the problem, not only the tidying half |
+| **What it reads** | Memory stores belonging to Managed Agents | Markdown any tool can open, Obsidian included |
+
+The pitch here is *your memory, not your harness's*. Dreams is the harness owning your
+memory — the clearest illustration available of why the alternative is worth having.
+
 ---
 
 ## Usage
