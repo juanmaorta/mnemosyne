@@ -1,12 +1,25 @@
 {
   "name": "mnemosyne",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Persistent, human-like memory for LLM agents. File-based, local-first, agent-agnostic.",
+  "license": "Apache-2.0",
+  "author": "Juanma Orta",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juanmaorta/mnemosyne.git"
+  },
+  "homepage": "https://github.com/juanmaorta/mnemosyne#readme",
+  "bugs": {
+    "url": "https://github.com/juanmaorta/mnemosyne/issues"
+  },
   "type": "module",
   "bin": {
     "mneme": "dist/bin/mneme.js",
     "mem": "dist/bin/mneme.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

@@ -482,3 +482,9 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 > [`docs/integrations/canonical-memory-cutover.md`](docs/integrations/canonical-memory-cutover.md).
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay→archive subsystem: *lethe*.
+
+---
+
+## License
+
+Apache-2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). No CLA.

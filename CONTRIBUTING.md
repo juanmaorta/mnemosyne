@@ -126,7 +126,10 @@ no output behind it is the claim this project trusts least.
 
 ## Licensing
 
-There is **no `LICENSE` file in the repo yet**. Apache-2.0 without a CLA is the intended
-license and lands before the v0.1 release, but until that file exists nothing here is
-formally licensed. For a typo or a small fix that is unlikely to matter to you; for anything
-substantial, open an issue first rather than writing code against an unanswered question.
+This project is licensed under **Apache-2.0** (see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE)), and there is **no CLA**: you keep the copyright on what you write, and
+contributing it here licenses it under the same terms as the rest — that is all.
+
+Apache-2.0 rather than MIT for one reason worth naming: it grants patent rights explicitly.
+The trade is deliberate and already made — no path to relicensing, and no protection against
+someone running this as a hosted service.
