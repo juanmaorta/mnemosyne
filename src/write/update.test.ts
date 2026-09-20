@@ -516,3 +516,68 @@ describe("updateNote", () => {
     expect(statSync(path).mode).toBe(before);
   });
 });
+
+describe("line endings", () => {
+  /**
+   * A note written on Windows, or synced from a machine that was. `update`
+   * reserializes the whole document even when only the frontmatter changes, and
+   * `parseFrontmatter` normalizes CRLF to LF on the way in — so a one-word
+   * change to the description used to rewrite every line of a body nobody
+   * touched. In a synced, hand-editable store that is a diff the user did not
+   * ask for.
+   */
+  test("update_keeps_crlf_line_endings_when_only_the_description_changes", () => {
+    const { root, home } = store();
+    const crlf = (s: string): string => s.replace(/\n/g, "\r\n");
+    const path = join(root, "personal", "yogurtera.md");
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(path, crlf(`---\n${FULL.join("\n")}\n---\ncuerpo original\nsegunda linea\n`));
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      description: "receta revisada",
+    });
+
+    const after = readFileSync(path, "utf8");
+    expect(after).toContain("description: receta revisada");
+    expect(after).toContain("cuerpo original\r\nsegunda linea\r\n");
+    expect(after.includes("cuerpo original\nsegunda linea")).toBe(false);
+  });
+
+  test("update_of_a_crlf_note_returns_the_revision_of_the_bytes_on_disk", () => {
+    // The returned revision is what the caller feeds to the NEXT --if-match.
+    // Hashing the pre-conversion text would hand back a revision no file ever
+    // had, and the following update would be refused as a phantom conflict.
+    const { root, home } = store();
+    const path = join(root, "personal", "yogurtera.md");
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(path, `---\r\n${FULL.join("\r\n")}\r\n---\r\ncuerpo original\r\n`);
+
+    const res = updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      description: "receta revisada",
+    });
+
+    expect(res.revision).toBe(revisionOnDisk(path));
+  });
+
+  test("update_leaves_an_lf_note_on_lf", () => {
+    // The mirror of the above: preserving what was there must not mean
+    // introducing CRLF into a file that never had it.
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", FULL, "cuerpo original\nsegunda linea\n");
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      description: "receta revisada",
+    });
+
+    expect(readFileSync(path, "utf8")).not.toContain("\r\n");
+  });
+});

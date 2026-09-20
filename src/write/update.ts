@@ -192,7 +192,8 @@ function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult 
   const actual = revisionOf(bytes);
   if (actual !== opts.ifMatch) throw new RevisionMismatchError(target, opts.ifMatch, actual);
 
-  const { data, body } = parseFrontmatter(bytes.toString("utf8"));
+  const raw = bytes.toString("utf8");
+  const { data, body } = parseFrontmatter(raw);
   const current = EngramSchema.safeParse(data);
   if (!current.success) {
     throw new IdentityMismatchError(target, `frontmatter does not satisfy the schema (${current.error.issues[0]?.message ?? "invalid"})`);
@@ -213,10 +214,19 @@ function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult 
   const nextBody = opts.content === undefined
     ? body
     : (opts.content.endsWith("\n") ? opts.content : `${opts.content}\n`);
-  const fileContent = serializeFrontmatter(next, nextBody);
-  assertNoSecrets(fileContent); // on the whole document, so a new description cannot smuggle one
+  const serialized = serializeFrontmatter(next, nextBody);
+  assertNoSecrets(serialized); // on the whole document, so a new description cannot smuggle one
+
+  // `parseFrontmatter` normalizes CRLF to LF and this rewrites the whole
+  // document even for a one-word change to the description, so without this the
+  // note would come back with every line ending altered — an edit nobody asked
+  // for, in a store that is synced and hand-editable. The file's own convention
+  // wins, including over `--content` typed with LF.
+  const fileContent = raw.includes("\r\n") ? serialized.replace(/\r?\n/g, "\r\n") : serialized;
 
   writeAtomic(target, fileContent, stat.mode & 0o7777); // permission bits only; the type bits are not ours to set
+  // Over the bytes actually written: a revision taken from the pre-conversion
+  // text would not match the file, and the next compare-and-swap would refuse.
   return { path: target, scope, slug: opts.slug, revision: revisionOf(Buffer.from(fileContent, "utf8")) };
 }
 
