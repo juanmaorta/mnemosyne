@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
-import { getMeta, setMeta, resetVectorIndex, type Db } from "./db.js";
-import { EMBEDDING_DIM, type EmbeddingClient } from "../embeddings.js";
+import { getMeta, setMeta, resetVectorIndex, vectorIndexDim, type Db } from "./db.js";
+import { type EmbeddingClient } from "../embeddings.js";
 import { listEngramFiles, type EngramFile } from "./walk.js";
 import { needsReindex, type FileState } from "./fileState.js";
 import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
@@ -76,14 +76,18 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // Vectors produced by different models are not comparable: mixing them would
   // silently corrupt every cosine distance with no error to notice. A changed
   // fingerprint therefore invalidates the whole index — safe, because the index
-  // is disposable and this function rebuilds it. Recreating the vector table
-  // (not just clearing file_state) also covers a shipped EMBEDDING_DIM change,
-  // which `CREATE VIRTUAL TABLE IF NOT EXISTS` would otherwise never apply.
+  // is disposable and this function rebuilds it.
   const previousEmbeddingId = getMeta(db, "embedding_id");
   const embeddingMismatch = previousEmbeddingId !== undefined && previousEmbeddingId !== embedder.id;
-  if (embeddingMismatch) {
+  // The table's own width is checked separately, and against the SCHEMA rather
+  // than the stamp: a store created at the default width and then pointed at a
+  // 1024-dim model is NOT a model change (there is no previous stamp to differ
+  // from), yet every insert would fail against the 768-wide table. This is also
+  // the path that covers a store predating the stamp entirely.
+  const widthMismatch = vectorIndexDim(db) !== embedder.dim;
+  if (embeddingMismatch || widthMismatch) {
     db.prepare("DELETE FROM file_state").run();
-    resetVectorIndex(db);
+    resetVectorIndex(db, embedder.dim);
   }
   setMeta(db, "embedding_id", embedder.id);
 
@@ -188,7 +192,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
         scope: engram.scope,
         slug: engram.name,
         embeddingId: embedder.id,
-        dim: EMBEDDING_DIM,
+        dim: embedder.dim,
         // `hash` means the bytes changed; `mtime` means only the stat did
         // (a touch, or a Syncthing round-trip) yet we re-embedded anyway.
         reason: item.prev === undefined ? "new" : item.prev.hash !== hash ? "hash" : "mtime",

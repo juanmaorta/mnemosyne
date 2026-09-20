@@ -1,9 +1,10 @@
-import { EMBEDDING_DIM, type EmbeddingClient } from "./embeddings.js";
+import { DEFAULT_EMBEDDING_DIM, type EmbeddingClient } from "./embeddings.js";
 
 /** Deterministic, dependency-free embedder for tests: bag-of-words over a hashed vocab. */
-export function createFakeEmbedder(dim: number = EMBEDDING_DIM): EmbeddingClient {
+export function createFakeEmbedder(dim: number = DEFAULT_EMBEDDING_DIM): EmbeddingClient {
   return {
     id: `fake-bow/dim${dim}`,
+    dim,
     async embed(texts) {
       return texts.map((t) => {
         const v = new Array<number>(dim).fill(0);

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, statSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { openDb, getMeta } from "./db.js";
+import { openDb, getMeta, vectorIndexDim } from "./db.js";
 import { reindex } from "./reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import type { EmbeddingClient } from "../embeddings.js";
@@ -241,5 +241,41 @@ describe("reindex", () => {
 
     const row = db.prepare("select scope from engrams").get() as { scope: string };
     expect(row.scope).toBe("shared");
+  });
+});
+
+describe("reindex vector width", () => {
+  test("reindex_fits_a_fresh_index_to_a_non_default_dimension", async () => {
+    // A store created at the default width and first indexed with a 1024-dim
+    // model must end up with a 1024-dim table, not with per-file insert errors.
+    const root = store();
+    const db = openDb(":memory:");
+
+    const stats = await reindex({ root, db, embedder: createFakeEmbedder(1024), scopes: ["personal"] });
+
+    expect(stats).toMatchObject({ indexed: 1, errors: 0 });
+    expect(vectorIndexDim(db)).toBe(1024);
+  });
+
+  test("reindex_rebuilds_the_vector_index_when_the_dimension_changes", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const stats = await reindex({ root, db, embedder: createFakeEmbedder(1024), scopes: ["personal"] });
+
+    expect(stats).toMatchObject({ embeddingMismatch: true, indexed: 1, skipped: 0, errors: 0 });
+    expect(vectorIndexDim(db)).toBe(1024);
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
+  });
+
+  test("reindex_records_the_dimension_the_embedder_actually_produced", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+
+    await reindex({ root, db, embedder: createFakeEmbedder(1024), scopes: ["personal"] });
+
+    const events = readTelemetry(root).filter((e) => e.kind === "engram.indexed");
+    expect(events[0]).toMatchObject({ embeddingId: "fake-bow/dim1024", dim: 1024 });
   });
 });

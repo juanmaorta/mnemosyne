@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { EMBEDDING_DIM } from "../embeddings.js";
+import { DEFAULT_EMBEDDING_DIM } from "../embeddings.js";
 
 export type Db = Database.Database;
 
@@ -24,7 +24,7 @@ export function applySchema(db: Db): void {
       status TEXT NOT NULL DEFAULT 'active',
       UNIQUE(scope, slug)
     );
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_engrams USING vec0(embedding float[${EMBEDDING_DIM}]);
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_engrams USING vec0(embedding float[${DEFAULT_EMBEDDING_DIM}]);
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_engrams USING fts5(description, body);
     CREATE TABLE IF NOT EXISTS hot_state (
       scope TEXT NOT NULL,
@@ -77,15 +77,31 @@ export function getMeta(db: Db, key: string): string | undefined {
 }
 
 /**
- * Drop and recreate the vector table at the CURRENT embedding dimension.
+ * Width the vector table was created at, or undefined when there is no table.
+ *
+ * Read from the live schema rather than from `meta`, because the schema is the
+ * thing an insert is actually checked against: a store written before the
+ * dimension was tracked, or one whose meta row was lost, still answers
+ * truthfully here.
+ */
+export function vectorIndexDim(db: Db): number | undefined {
+  const row = db.prepare("select sql from sqlite_master where name = 'vec_engrams'").get() as
+    | { sql: string | null }
+    | undefined;
+  const m = row?.sql?.match(/float\s*\[\s*(\d+)\s*\]/i);
+  return m ? Number(m[1]) : undefined;
+}
+
+/**
+ * Drop and recreate the vector table at the given embedding dimension.
  *
  * `CREATE VIRTUAL TABLE IF NOT EXISTS` never redimensions an existing table, so
- * a release that changes EMBEDDING_DIM would leave every existing store with a
- * table at the old width and every insert failing. Recreating is safe because
- * the index is disposable by design — `reindex` re-embeds everything.
+ * pointing the store at a model of another width would leave it with a table at
+ * the old width and every insert failing. Recreating is safe because the index
+ * is disposable by design — `reindex` re-embeds everything.
  */
-export function resetVectorIndex(db: Db): void {
-  db.exec(`DROP TABLE IF EXISTS vec_engrams; CREATE VIRTUAL TABLE vec_engrams USING vec0(embedding float[${EMBEDDING_DIM}]);`);
+export function resetVectorIndex(db: Db, dim: number): void {
+  db.exec(`DROP TABLE IF EXISTS vec_engrams; CREATE VIRTUAL TABLE vec_engrams USING vec0(embedding float[${dim}]);`);
 }
 
 export function openDb(dbPath: string): Db {

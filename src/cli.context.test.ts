@@ -117,6 +117,28 @@ describe("runCli context", () => {
     }
   }, 30_000);
 
+  test("cli_context_degrades_instead_of_failing_on_an_unusable_embedding_model", async () => {
+    // A model whose dimension is unknown makes the embedder refuse to exist —
+    // a config error, but session start must never break over one.
+    const prevFake = process.env.MNEMOSYNE_FAKE_EMBED;
+    const prevModel = process.env.OLLAMA_MODEL;
+    delete process.env.MNEMOSYNE_FAKE_EMBED;
+    process.env.OLLAMA_MODEL = "mystery-embed";
+    try {
+      const root = storeWith("yogurtera");
+      const code = await runCli(["context", "--root", root, "--scope", "personal"], () => {}, () => {});
+
+      expect(code).toBe(0);
+      const ev = readTelemetry(root).find((e) => e.kind === "retrieval.injected")!;
+      expect(ev.degraded).toEqual(["reindex-failed"]);
+    } finally {
+      if (prevFake === undefined) delete process.env.MNEMOSYNE_FAKE_EMBED;
+      else process.env.MNEMOSYNE_FAKE_EMBED = prevFake;
+      if (prevModel === undefined) delete process.env.OLLAMA_MODEL;
+      else process.env.OLLAMA_MODEL = prevModel;
+    }
+  });
+
   test("cli_context_still_emits_an_injected_event_when_it_dies_outright", async () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-cli-ctx-dead-"));
     writeFileSync(join(root, ".telemetry-marker"), ""); // root exists, store does not

@@ -51,6 +51,18 @@ Requires [Ollama](https://ollama.com) running locally with the embedding model p
 ollama pull nomic-embed-text
 ```
 
+The model is configurable: `OLLAMA_MODEL` picks any embedding model Ollama serves (pull it
+first). The vector dimension is **not** configured alongside it — it is derived from the model
+(`nomic-embed-text` 768, `bge-m3` 1024, `qwen3-embedding:0.6b` 1024, …). For a model Mnemosyne
+does not know, declare its width with `OLLAMA_EMBEDDING_DIM`; without it the client refuses to
+start rather than guess, because a wrong dimension writes vectors into an index table of another
+width. A declared width that the model then contradicts is rejected on the first batch.
+
+Changing the model invalidates the index: vectors from two models are not comparable, so the next
+`mneme reindex` sees the fingerprint (or the table width) differ, rebuilds the vector table and
+re-embeds every engram — it prints `warning: embedding model changed; index fully rebuilt`. The
+index is derived and disposable, so nothing is lost but the time to re-embed the store.
+
 Build and run the CLI (`mneme`, alias `mem`):
 
 ```sh
@@ -446,6 +458,8 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 |-----|---------|---------|
 | `MNEMOSYNE_ROOT` | `~/memory` | Store root (overridden by `--root`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
+| `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it forces a full reindex |
+| `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
 | `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json` |
