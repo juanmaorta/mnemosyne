@@ -73,6 +73,11 @@ mneme context [--scope <scope>] [--budget <tokens>] [--cwd <path>]
 # Scan text or a file for secrets (read-only; exits non-zero on any reject-level finding, never prints a full secret)
 mneme scan "<text>" | --file <path>
 
+# Re-scan notes already on disk — catches secrets pasted by hand in Obsidian, which never
+# cross the write-path gate. Read-only: it reports path:line and the masked pattern, and
+# never rewrites a note. Same exit code as above.
+mneme scan --scope <scope> [--scope <scope2>] | --all [--root <path>]
+
 # Diagnose write-side scope resolution for a path (read-only): prints the fail-closed scope
 # (or "unmapped → pass --scope") and whether this machine owns it
 mneme scope [<path>]
@@ -109,6 +114,8 @@ the others write an authored note. Three gates apply, fail-closed:
   (`{"owns":[...]}`) — a machine never materializes a scope it doesn't own.
 - **Secrets**: content is scanned before writing; any reject-level finding aborts the write
   with the offending pattern masked, never echoing the full secret (see `mneme scan` above).
+  That gate only sees writes that go through this tool: a note edited by hand in Obsidian
+  bypasses it, so `mneme scan --scope <s>` / `--all` re-reads what is already on disk.
 
 A body longer than a sentence belongs in a file: argv quoting mangles blank lines,
 indentation and code fences. `--file` reads the body as UTF-8 and nothing else — frontmatter

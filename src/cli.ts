@@ -37,6 +37,7 @@ import {
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
+import { rescanStore, formatStoreFinding, formatRescanSummary } from "./secrets/rescan.js";
 import {
   addMemory,
   ScopeUnresolvedError,
@@ -374,14 +375,29 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "scan": {
-        const { values, positionals } = parseArgs({ args: rest, options: { file: { type: "string" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { file: { type: "string" }, scope: { type: "string", multiple: true }, all: { type: "boolean" }, root: { type: "string" } }, allowPositionals: true });
+        const scanUsage = 'usage: mneme scan "<text>" | --file <path> | --scope <s> [--scope <s2>] | --all [--root <path>]';
+        // Same command, same exit code, one more input: a whole store instead of
+        // one text. The write-path gate never sees a note edited by hand, so the
+        // re-scan lives where someone already looks for "is this clean?".
+        const storeMode = Boolean(values.all) || (values.scope?.length ?? 0) > 0;
+        if (storeMode) {
+          if (values.file !== undefined || positionals.length > 0) { err(scanUsage); return 1; }
+          if (values.all && (values.scope?.length ?? 0) > 0) { err(scanUsage); return 1; }
+          const root = resolveRoot(values.root);
+          // Streamed: one note in memory at a time, printed as it is found, so a
+          // large store neither buffers nor waits to say the first thing.
+          const summary = rescanStore(root, (f) => out(formatStoreFinding(f)), values.all ? {} : { scopes: values.scope ?? [] });
+          out(formatRescanSummary(summary));
+          return summary.rejectCount > 0 ? 1 : 0;
+        }
         let text: string;
         if (values.file) {
           text = readFileSync(values.file, "utf8");
         } else {
           text = positionals.join(" ");
         }
-        if (!text.trim()) { err("usage: mneme scan \"<text>\" | --file <path>"); return 1; }
+        if (!text.trim()) { err(scanUsage); return 1; }
         const findings = scanForSecrets(text);
         for (const f of findings) out(`${f.severity}  ${f.pattern}  L${f.line}  ${f.masked}`);
         return hasRejectFinding(findings) ? 1 : 0;
