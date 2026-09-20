@@ -139,12 +139,14 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       deleteRowsForPath(db, file.path);
       const info = db
         .prepare(
-          `insert into engrams(slug, scope, type, importance, created, description, path, snippet, mtime, size, hash)
-           values(@slug,@scope,@type,@importance,@created,@description,@path,@snippet,@mtime,@size,@hash)`,
+          `insert into engrams(slug, scope, type, importance, created, description, path, snippet, mtime, size, hash, status)
+           values(@slug,@scope,@type,@importance,@created,@description,@path,@snippet,@mtime,@size,@hash,@status)`,
         )
         .run({
           slug: engram.name,
           scope: engram.scope,
+          // Absent means active, here as in the frontmatter.
+          status: engram.status ?? "active",
           type: engram.type,
           importance: engram.importance,
           created: engram.created,

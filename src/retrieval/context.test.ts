@@ -101,3 +101,47 @@ describe("formatContextDigest", () => {
     expect(out).toContain("no memory in this scope yet");
   });
 });
+
+describe("rankContext and supersession", () => {
+  /** A note with the supersession fields already set, written straight to disk. */
+  function supersededNote(root: string, slug: string, by: string, importance = 9) {
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(join(root, "personal", `${slug}.md`),
+      ["---", `name: ${slug}`, `description: ${slug} description`, "scope: personal", "type: reference",
+        "created: 2026-06-01T10:00:00", `importance: ${importance}`, "status: superseded",
+        `superseded_by: ${by}`, "---", `body ${slug}`, ""].join("\n"));
+  }
+
+  test("rankContext_leaves_superseded_notes_out_of_the_digest", async () => {
+    // The digest is a handful of lines the agent reads before its first turn.
+    // A claim that something else has replaced does not belong there, and its
+    // importance would otherwise put it at the very top.
+    const root = mkdtempSync(join(tmpdir(), "mneme-ctx-sup-"));
+    mkdirSync(join(root, ".index"), { recursive: true });
+    supersededNote(root, "network-upgrade", "network-upgrade-mesh");
+    note(root, "network-upgrade-mesh", 5, "el plan que manda");
+    const db = openDb(join(root, ".index", "store.db"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const ranked = rankContext(db, root, "personal", Date.parse("2026-06-01T10:00:00Z"));
+
+    expect(ranked.map((e) => e.slug)).toEqual(["network-upgrade-mesh"]);
+  });
+
+  test("rankContext_keeps_flagged_notes_in_the_digest", async () => {
+    // `flagged` is an unresolved contradiction. Hiding it would bury exactly
+    // the thing somebody needs to look at.
+    const root = mkdtempSync(join(tmpdir(), "mneme-ctx-flag-"));
+    mkdirSync(join(root, ".index"), { recursive: true });
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(join(root, "personal", "dudosa.md"),
+      ["---", "name: dudosa", "description: algo que no cuadra", "scope: personal", "type: reference",
+        "created: 2026-06-01T10:00:00", "importance: 5", "status: flagged", "---", "body", ""].join("\n"));
+    const db = openDb(join(root, ".index", "store.db"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const ranked = rankContext(db, root, "personal", Date.parse("2026-06-01T10:00:00Z"));
+
+    expect(ranked.map((e) => e.slug)).toEqual(["dudosa"]);
+  });
+});

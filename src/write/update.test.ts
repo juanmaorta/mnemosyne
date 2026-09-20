@@ -79,6 +79,7 @@ import {
   NotEditableError,
   NotRegularFileError,
   RevisionMismatchError,
+  UnknownSupersederError,
   updateNote,
 } from "./update.js";
 
@@ -579,5 +580,92 @@ describe("line endings", () => {
     });
 
     expect(readFileSync(path, "utf8")).not.toContain("\r\n");
+  });
+});
+
+describe("supersession", () => {
+  /**
+   * The point of these fields is to give an agent a move OTHER than writing a
+   * third nearly-identical note when it learns something changed. So the write
+   * path has to make the relation cheap, and the incoherent states impossible.
+   */
+  test("update_marks_a_note_superseded_and_names_the_replacement", () => {
+    const { root, home } = store();
+    const path = note(root, "personal", "network-upgrade.md", FULL.map((l) => l.replace("name: yogurtera", "name: network-upgrade")));
+    note(root, "personal", "network-upgrade-mesh.md", FULL.map((l) => l.replace("name: yogurtera", "name: network-upgrade-mesh")));
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "network-upgrade",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      supersededBy: "network-upgrade-mesh",
+    });
+
+    const doc = parseFrontmatter(readFileSync(path, "utf8"));
+    expect(doc.data.status).toBe("superseded");
+    expect(doc.data.superseded_by).toBe("network-upgrade-mesh");
+    // Nothing is destroyed: the body is exactly what it was.
+    expect(doc.body).toContain("cuerpo original");
+  });
+
+  test("update_refuses_a_pointer_to_a_note_that_does_not_exist", () => {
+    // A dangling pointer is worse than no pointer: the note drops out of the
+    // ranking and names a replacement nobody can read.
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", FULL);
+    const before = readFileSync(path, "utf8");
+
+    expect(() => updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      supersededBy: "no-existe",
+    })).toThrow(UnknownSupersederError);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  test("update_refuses_a_note_that_supersedes_itself", () => {
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", FULL);
+    const before = readFileSync(path, "utf8");
+
+    expect(() => updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera",
+      scope: "personal",
+      ifMatch: revisionOnDisk(path),
+      supersededBy: "yogurtera",
+    })).toThrow();
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  test("update_flags_a_note_without_naming_any_replacement", () => {
+    // `flagged` is the "somebody noticed a contradiction and has not resolved
+    // it" state. It takes no pointer, and it is NOT hidden from the ranking.
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", FULL);
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera", scope: "personal", ifMatch: revisionOnDisk(path), status: "flagged",
+    });
+
+    const doc = parseFrontmatter(readFileSync(path, "utf8"));
+    expect(doc.data.status).toBe("flagged");
+    expect(doc.data.superseded_by).toBeUndefined();
+  });
+
+  test("update_back_to_active_drops_both_fields", () => {
+    // Absent means active, so going back writes neither key: a note that was
+    // never superseded and one that stopped being superseded look the same on
+    // disk, which is the only way the "absent means active" rule stays true.
+    const { root, home } = store();
+    const path = note(root, "personal", "yogurtera.md", [...FULL, "status: flagged"]);
+
+    updateNote({ root, cwd: "/anywhere", home }, {
+      slug: "yogurtera", scope: "personal", ifMatch: revisionOnDisk(path), status: "active",
+    });
+
+    const raw = readFileSync(path, "utf8");
+    expect(raw).not.toContain("status:");
+    expect(raw).not.toContain("superseded_by:");
   });
 });

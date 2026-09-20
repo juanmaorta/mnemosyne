@@ -177,6 +177,47 @@ mneme update api-constraint --file /tmp/new-body.md --if-match <sha256> [--descr
 `update` goes through the same three gates as `add` — a new `description` cannot smuggle a
 secret past the scanner.
 
+### When a note stops being true (`--superseded-by`)
+
+An agent that learns something changed has, by default, exactly one move: write another note.
+That is how a store fills up with near-duplicates that quietly disagree with each other, and
+nothing says which one holds. Supersession gives it a second move:
+
+```sh
+# "the omada plan replaces the old router plan"
+mneme update network-upgrade --superseded-by network-upgrade-mesh --if-match <revision>
+
+# a contradiction somebody noticed and has not resolved yet
+mneme update dudosa --status flagged --if-match <revision>
+
+# back to normal; both fields are dropped
+mneme update network-upgrade --status active --if-match <revision>
+```
+
+Two optional frontmatter fields carry it, and **absent means active**, so every note already
+on disk stays valid:
+
+```yaml
+status: active | superseded | flagged
+superseded_by: the-note-that-replaces-this-one
+```
+
+What it does and does not do:
+
+- **Nothing is deleted.** The superseded note stays on disk, `mneme get` still serves it, and
+  `search` still finds it. It names its replacement, so the trail is followable.
+- **The ambient digest drops it.** That digest is a handful of lines loaded before the agent's
+  first turn, and a claim something else has replaced is misleading there — doubly so because
+  a high `importance` would put it near the top.
+- **`flagged` is not hidden.** An unresolved contradiction is exactly the thing worth
+  surfacing, so it ranks like any other note.
+- The pair is checked: `superseded` without a pointer is refused, a pointer without
+  `superseded` is refused, a note cannot supersede itself, and the replacement must exist in
+  the same scope. A pointer at a note nobody can read would hide this one and name nothing.
+
+Detecting a contradiction still needs a model, and that is the consolidation pass's job.
+Recording one does not, which is why this works today and without one.
+
 ### Importing Claude Code's native memory (`mneme import-claude`)
 
 Claude Code keeps its own memory in `~/.claude/projects/<cwd-slug>/memory/*.md`, which this

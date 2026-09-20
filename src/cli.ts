@@ -57,6 +57,7 @@ import {
   IdentityMismatchError,
   RevisionMismatchError,
   NotRegularFileError,
+  UnknownSupersederError,
 } from "./write/update.js";
 import { BodyInputError, resolveBody } from "./write/body.js";
 import { ImportUsageError, importClaudeMemory, importFailed, formatImportReport } from "./import/claude.js";
@@ -484,11 +485,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           options: {
             "if-match": { type: "string" }, scope: { type: "string" }, description: { type: "string" },
             importance: { type: "string" }, root: { type: "string" }, cwd: { type: "string" },
-            file: { type: "string" },
+            file: { type: "string" }, status: { type: "string" }, "superseded-by": { type: "string" },
           },
           allowPositionals: true,
         });
-        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n]\n'
+        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged]\n'
           + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"";
         const slug = positionals[0];
         if (!slug) { err(usage); return 1; }
@@ -502,6 +503,19 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           if (parsed === null) { err(`--importance must be a whole number between 1 and 10 (got '${values.importance}')`); return 1; }
           importance = parsed;
         }
+        // Validated here rather than let through to a schema error: the caller
+        // typed a word, and the answer to a mistyped word is the list of words.
+        const STATUSES = ["active", "superseded", "flagged"] as const;
+        type Status = (typeof STATUSES)[number];
+        let status: Status | undefined;
+        if (values.status !== undefined) {
+          const given = values.status.trim();
+          if (!(STATUSES as readonly string[]).includes(given)) {
+            err(`--status must be one of ${STATUSES.join(", ")} (got '${given}')`);
+            return 1;
+          }
+          status = given as Status;
+        }
         const root = resolveRoot(values.root);
         try {
           // Inside the try, like every other refusal of this command.
@@ -514,6 +528,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
               ...(values.scope ? { scope: values.scope } : {}),
               ...(values.description ? { description: values.description } : {}),
               ...(importance !== undefined ? { importance } : {}),
+              ...(status !== undefined ? { status } : {}),
+              ...(values["superseded-by"] ? { supersededBy: values["superseded-by"].trim() } : {}),
             },
           );
           out(`updated note [${res.scope}] ${res.slug} → ${res.path} (revision ${res.revision})`);
@@ -524,6 +540,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           if (e instanceof ScopeUnresolvedError) { err("cannot resolve a scope for this cwd; pass --scope explicitly (write is fail-closed — it never defaults to personal)"); return 1; }
           if (e instanceof NotOwnerError) { err(`this machine does not own scope '${e.scope}'. Declare it in ${storePaths(root).ownerPolicy} ({"owns":[...]}), or write from a machine that owns it.`); return 1; }
           if (e instanceof NoteNotFoundError) { err(`${e.message}. \`update\` never creates a note — use \`mneme add\` for a new one.`); return 1; }
+          if (e instanceof UnknownSupersederError) { err(`${e.message}. Write the replacement first, or check the slug — a pointer at a note that does not exist hides this one and names nothing readable.`); return 1; }
           if (e instanceof DuplicateSlugError) { err(`${e.message}. Resolve the duplicate by hand (rename or delete one) before updating.`); return 1; }
           if (e instanceof NotEditableError) { err(`${e.message}. Facts are append-only — record a new one with \`mneme add ... --type feedback\`.`); return 1; }
           if (e instanceof IdentityMismatchError) { err(`${e.message}. Fix the file by hand; \`update\` never changes a memory's identity.`); return 1; }

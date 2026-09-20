@@ -307,3 +307,58 @@ describe("runCli update", () => {
     expect(readFileSync(path, "utf8")).toContain("yogur griego");
   }, 30_000);
 });
+
+describe("supersession through the CLI", () => {
+  test("cli_update_supersedes_a_note_and_records_the_replacement", async () => {
+    const root = store();
+    const old = await addNote(root, "personal", "network-upgrade");
+    await addNote(root, "personal", "network-upgrade-mesh");
+
+    const code = await runCli(
+      ["update", "network-upgrade", "--superseded-by", "network-upgrade-mesh",
+        "--if-match", revisionOnDisk(old), "--scope", "personal", "--root", root],
+      () => {}, () => {},
+    );
+
+    expect(code).toBe(0);
+    const raw = readFileSync(old, "utf8");
+    expect(raw).toContain("status: superseded");
+    expect(raw).toContain("superseded_by: network-upgrade-mesh");
+  });
+
+  test("cli_update_refuses_an_unknown_status_and_names_the_valid_ones", async () => {
+    // The caller typed a word; the answer to a mistyped word is the list of
+    // words, not a schema dump.
+    const root = store();
+    const path = await addNote(root, "personal", "yogurtera");
+    const before = readFileSync(path, "utf8");
+    const errs: string[] = [];
+
+    const code = await runCli(
+      ["update", "yogurtera", "--status", "borrada", "--if-match", revisionOnDisk(path),
+        "--scope", "personal", "--root", root],
+      () => {}, (s) => errs.push(s),
+    );
+
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toMatch(/active, superseded, flagged/);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  test("cli_update_refuses_a_replacement_that_does_not_exist", async () => {
+    const root = store();
+    const path = await addNote(root, "personal", "yogurtera");
+    const before = readFileSync(path, "utf8");
+    const errs: string[] = [];
+
+    const code = await runCli(
+      ["update", "yogurtera", "--superseded-by", "no-existe", "--if-match", revisionOnDisk(path),
+        "--scope", "personal", "--root", root],
+      () => {}, (s) => errs.push(s),
+    );
+
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toMatch(/no-existe/);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});

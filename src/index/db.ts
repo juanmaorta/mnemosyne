@@ -21,6 +21,7 @@ export function applySchema(db: Db): void {
       mtime INTEGER NOT NULL,
       size INTEGER NOT NULL,
       hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
       UNIQUE(scope, slug)
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_engrams USING vec0(embedding float[${EMBEDDING_DIM}]);
@@ -46,6 +47,24 @@ export function applySchema(db: Db): void {
       value TEXT NOT NULL
     );
   `);
+  addMissingColumns(db);
+}
+
+/**
+ * Adds columns that a `CREATE TABLE IF NOT EXISTS` can never add to an index
+ * that already exists.
+ *
+ * The index is derived and disposable, so the alternative was to drop and
+ * rebuild it on any schema change. That is a minutes-long reindex and a call to
+ * the embedder for every note, to add one column whose default is right for
+ * every row already there: a note nobody has touched is active. Cheap and
+ * correct beats dramatic.
+ */
+function addMissingColumns(db: Db): void {
+  const columns = (db.prepare("PRAGMA table_info(engrams)").all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes("status")) {
+    db.exec("ALTER TABLE engrams ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  }
 }
 
 export function setMeta(db: Db, key: string, value: string): void {

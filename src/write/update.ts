@@ -46,6 +46,12 @@ export class NoChangesError extends Error {
     this.name = "NoChangesError";
   }
 }
+export class UnknownSupersederError extends Error {
+  constructor(readonly slug: string, readonly scope: string) {
+    super(`no note named '${slug}' in scope '${scope}' to supersede with`);
+    this.name = "UnknownSupersederError";
+  }
+}
 export class NoteNotFoundError extends Error {
   constructor(readonly slug: string, readonly scope: string) {
     super(`no note named '${slug}' in scope '${scope}'`);
@@ -110,6 +116,10 @@ export interface UpdateOptions {
   description?: string;
   importance?: number;
   scope?: string;
+  /** Lifecycle of the claim. `active` clears both fields — absent means active. */
+  status?: "active" | "superseded" | "flagged";
+  /** Implies `status: superseded`. The note named must exist in the same scope. */
+  supersededBy?: string;
 }
 
 export interface UpdateResult {
@@ -167,10 +177,22 @@ function isFactType(type: unknown): boolean {
  * location and identity, then the compare-and-swap under the scope lock.
  */
 export function updateNote(deps: UpdateDeps, opts: UpdateOptions): UpdateResult {
-  if (opts.content === undefined && opts.description === undefined && opts.importance === undefined) {
+  if (opts.content === undefined && opts.description === undefined && opts.importance === undefined
+      && opts.status === undefined && opts.supersededBy === undefined) {
     throw new NoChangesError();
   }
   const scope = resolveWriteScope(deps, opts.scope);
+  // Checked BEFORE taking the lock: a pointer at a note that does not exist is
+  // worse than no pointer at all — the note drops out of the ranking and names
+  // a replacement nobody can read. Cheap to verify, and nothing is held while
+  // we do it.
+  if (opts.supersededBy !== undefined && opts.supersededBy !== opts.slug) {
+    try {
+      locateBySlug(deps.root, scope, opts.supersededBy);
+    } catch {
+      throw new UnknownSupersederError(opts.supersededBy, scope);
+    }
+  }
   assertOwnsScope(deps.root, scope);
 
   const found = locateBySlug(deps.root, scope, opts.slug);
@@ -209,7 +231,17 @@ function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult 
   const next: Record<string, unknown> = { ...data };
   if (opts.description !== undefined) next.description = opts.description.trim();
   if (opts.importance !== undefined) next.importance = opts.importance;
-  EngramSchema.parse(next); // the RESULT must be valid too — bad importance stops here
+  const status = opts.status ?? (opts.supersededBy !== undefined ? "superseded" : undefined);
+  if (status !== undefined) {
+    // `active` writes nothing: absent IS active, so a note that was never
+    // superseded and one that stopped being superseded look identical on disk.
+    // Anything else would make "absent means active" a rule with exceptions.
+    if (status === "active") { delete next.status; delete next.superseded_by; }
+    else next.status = status;
+  }
+  if (opts.supersededBy !== undefined) next.superseded_by = opts.supersededBy;
+  else if (status === "flagged") delete next.superseded_by;
+  EngramSchema.parse(next); // the RESULT must be valid too — bad importance, or an incoherent pair, stops here
 
   const nextBody = opts.content === undefined
     ? body

@@ -40,6 +40,20 @@ const baseFields = {
   links: z.array(Slug).optional(),
   /** Provenance of derived memories → scope taint. */
   sources: z.array(Slug).optional(),
+  /**
+   * Lifecycle of the note's claim, NOT of the file. Absent means `active`: every
+   * note already on disk omits it, and requiring it would invalidate the store
+   * at parse time.
+   *
+   * `superseded` says another note now holds the truth this one used to hold.
+   * Nothing is deleted — the note stays readable and `mneme get` still serves
+   * it; what changes is that the ranking stops offering it as current.
+   * `flagged` marks a contradiction someone noticed but has not resolved, and
+   * is deliberately NOT hidden: an unresolved conflict is worth surfacing.
+   */
+  status: z.enum(["active", "superseded", "flagged"]).optional(),
+  /** The note that supersedes this one. Only meaningful with `status: superseded`. */
+  superseded_by: Slug.optional(),
 };
 
 export const NOTE_TYPES = ["user", "reference", "project"] as const;
@@ -53,7 +67,43 @@ export const FactSchema = z
   .object({ ...baseFields, type: z.enum(FACT_TYPES) })
   .strict();
 
-export const EngramSchema = z.discriminatedUnion("type", [NoteSchema, FactSchema]);
+/**
+ * The two supersession fields only mean something together, so the pair is
+ * checked here rather than left to every caller.
+ *
+ * `superseded` without a pointer is strictly worse than leaving the note alone:
+ * it drops out of the digest and names no replacement, so the knowledge is gone
+ * from view with nothing to follow. A pointer without `superseded` is the same
+ * incoherence read from the other side.
+ */
+export const EngramSchema = z
+  .discriminatedUnion("type", [NoteSchema, FactSchema])
+  .superRefine((engram, ctx) => {
+    const superseded = engram.status === "superseded";
+    if (superseded && engram.superseded_by === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["superseded_by"],
+        message: "status 'superseded' requires superseded_by naming the note that replaces it",
+      });
+    }
+    if (!superseded && engram.superseded_by !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["status"],
+        message: "superseded_by is only meaningful with status 'superseded'",
+      });
+    }
+    // A note superseding itself would be excluded from the ranking and point at
+    // the thing that is excluded: a memory that quietly erases itself.
+    if (engram.superseded_by === engram.name) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["superseded_by"],
+        message: "a note cannot supersede itself",
+      });
+    }
+  });
 
 export type Note = z.infer<typeof NoteSchema>;
 export type Fact = z.infer<typeof FactSchema>;

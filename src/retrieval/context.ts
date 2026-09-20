@@ -20,7 +20,13 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
               e.created as created, h.last_access as lastAccess, h.access_count as accessCount
        from engrams e
        left join hot_state h on h.scope = e.scope and h.slug = e.slug
-       where e.scope = ?`,
+       -- Superseded notes are excluded HERE and nowhere else. The digest is a
+       -- handful of lines loaded before the agent's first turn, so a claim that
+       -- something else has replaced is actively misleading there, and its
+       -- importance would happily put it at the top. search and get still serve
+       -- it: nothing is destroyed, the history stays findable, and the note
+       -- names its replacement in superseded_by.
+       where e.scope = ? and e.status <> 'superseded'`,
     )
     .all(scope) as {
     slug: string; scope: string; description: string; importance: number; created: string;

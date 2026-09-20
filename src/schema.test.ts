@@ -58,3 +58,58 @@ describe("EngramSchema", () => {
     expect(EngramSchema.parse({ ...baseNote, name: "x", type: "feedback" }).type).toBe("feedback");
   });
 });
+
+// --- Supersession ----------------------------------------------------------
+//
+// Contradictions were delegated entirely to the dreaming, which is the most
+// destructive part of the system and is not written yet. Meanwhile the only
+// move an agent has when it learns something changed is to write ANOTHER nearly
+// identical note — which is how half this corpus ended up in near-duplicate
+// clusters. These two fields give it a way to say "this one supersedes that
+// one" in the session, without deleting anything.
+describe("supersession fields", () => {
+  const base = {
+    name: "network-upgrade",
+    description: "el plan viejo",
+    scope: "personal",
+    created: "2026-06-01T10:00:00",
+    importance: 5,
+    type: "reference" as const,
+  };
+
+  test("schema_defaults_to_no_status_so_existing_notes_stay_valid", () => {
+    // Every note already on disk lacks both fields. Requiring them would make
+    // the whole store invalid at parse time.
+    expect(EngramSchema.safeParse(base).success).toBe(true);
+  });
+
+  test("schema_accepts_a_superseded_note_pointing_at_its_replacement", () => {
+    const parsed = EngramSchema.safeParse({ ...base, status: "superseded", superseded_by: "network-upgrade-mesh" });
+    expect(parsed.success).toBe(true);
+  });
+
+  test("schema_accepts_active_and_flagged_without_a_pointer", () => {
+    expect(EngramSchema.safeParse({ ...base, status: "active" }).success).toBe(true);
+    expect(EngramSchema.safeParse({ ...base, status: "flagged" }).success).toBe(true);
+  });
+
+  test("schema_rejects_an_unknown_status", () => {
+    expect(EngramSchema.safeParse({ ...base, status: "deleted" }).success).toBe(false);
+  });
+
+  test("schema_rejects_superseded_without_saying_by_what", () => {
+    // A note marked superseded with no pointer is strictly worse than one left
+    // alone: it is hidden from the digest and names no replacement.
+    expect(EngramSchema.safeParse({ ...base, status: "superseded" }).success).toBe(false);
+  });
+
+  test("schema_rejects_a_pointer_on_a_note_that_is_not_superseded", () => {
+    expect(EngramSchema.safeParse({ ...base, superseded_by: "otra" }).success).toBe(false);
+    expect(EngramSchema.safeParse({ ...base, status: "active", superseded_by: "otra" }).success).toBe(false);
+  });
+
+  test("schema_rejects_a_note_that_supersedes_itself", () => {
+    const parsed = EngramSchema.safeParse({ ...base, status: "superseded", superseded_by: base.name });
+    expect(parsed.success).toBe(false);
+  });
+});
