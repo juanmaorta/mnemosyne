@@ -120,10 +120,14 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
         embedder.id,
       );
     }
-    db.prepare("DELETE FROM file_state").run();
-    resetVectorIndex(db, embedder.dim);
   }
-  setMeta(db, "embedding_id", embedder.id);
+  // Deliberately NOT destroyed here. Everything below up to phase 3 can fail —
+  // Ollama down, the model never pulled — and the old index is what answers
+  // every search until a rebuild actually succeeds. Wiping it first and finding
+  // out second leaves the store with no retrieval at all, which is worse than
+  // not having tried. The stamp waits too: written early, a failed rebuild
+  // would leave the index claiming an embedder whose vectors are not in it.
+  const rebuild = embeddingMismatch || widthMismatch;
 
   const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0, embeddingMismatch };
   const files = listEngramFiles(root, scopes);
@@ -136,7 +140,9 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     const st = statSync(file.path);
     const curr = { mtime: Math.floor(st.mtimeMs), size: st.size };
     const prev = fileStateOf(db, file.path);
-    if (!needsReindex(prev, curr)) {
+    // A rebuild re-embeds everything: the vectors are about to be dropped, so a
+    // file whose bytes did not change still needs its vector written again.
+    if (!rebuild && !needsReindex(prev, curr)) {
       stats.skipped++;
       continue;
     }
@@ -164,6 +170,16 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     const embedded = await embedder.embed(texts);
     vectors.push(...embedded);
   }
+
+  // The embeddings are in hand, so now the old index can go. Between this line
+  // and the end of phase 3 there is no network and no parsing — only local
+  // writes — which is as narrow as this window gets without giving up the
+  // per-file transactions that keep one bad note from aborting the run.
+  if (rebuild) {
+    db.prepare("DELETE FROM file_state").run();
+    resetVectorIndex(db, embedder.dim);
+  }
+  setMeta(db, "embedding_id", embedder.id);
 
   // Phase 3: upsert each pending item, keyed by path.
   const now = clock.nowIso();

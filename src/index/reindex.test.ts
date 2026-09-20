@@ -339,3 +339,47 @@ describe("reindex and a changed embedder", () => {
     expect(vectorIndexDim(db)).toBe(1024);
   });
 });
+
+describe("a rebuild that fails", () => {
+  /** An embedder that agrees to exist and then refuses to work. */
+  function brokenEmbedder(): EmbeddingClient {
+    return {
+      id: "broken-model/dim768",
+      dim: 768,
+      async embed() { throw new Error("Cannot reach Ollama at http://localhost:11434"); },
+    };
+  }
+
+  test("reindex_leaves_the_old_index_serving_when_the_new_embedder_fails", async () => {
+    // The failure this guards is mundane: you ask for the rebuild, and Ollama
+    // is down or the model was never pulled. Destroying the index first and
+    // finding that out second leaves the store with no retrieval at all, which
+    // is strictly worse than not having tried.
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    await expect(reindex({ root, db, embedder: brokenEmbedder(), scopes: ["personal"], forceEmbedder: true }))
+      .rejects.toThrow(/Cannot reach Ollama/);
+
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
+    expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 1 });
+    // And the stamp still names the embedder whose vectors are actually in there.
+    expect(getMeta(db, "embedding_id")).toBe("fake-bow/dim768");
+  });
+
+  test("reindex_reembeds_files_that_did_not_change_when_rebuilding", async () => {
+    // The old code got this for free by wiping file_state up front. Deferring
+    // that wipe would silently turn a rebuild into "drop every vector and
+    // re-insert none", because untouched files look unchanged.
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const other: EmbeddingClient = { ...createFakeEmbedder(), id: "other-model/dim768" };
+    const stats = await reindex({ root, db, embedder: other, scopes: ["personal"], forceEmbedder: true });
+
+    expect(stats).toMatchObject({ indexed: 1, skipped: 0 });
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
+  });
+});
