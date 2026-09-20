@@ -129,10 +129,13 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
   try {
     switch (command) {
       case "reindex": {
-        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true } }, allowPositionals: true });
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, "force-embedder": { type: "boolean" } }, allowPositionals: true });
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        const stats = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
+        // The only place that can consent to re-embedding the whole store:
+        // every other entry point reaches reindex lazily, and consent given by
+        // something running on its own is not consent.
+        const stats = await reindex({ root, db, embedder: embedder(), clock: systemClock, forceEmbedder: Boolean(values["force-embedder"]), ...(values.scope ? { scopes: values.scope } : {}) });
         if (stats.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         out(`indexed ${stats.indexed}, skipped ${stats.skipped}, deleted ${stats.deleted}, errors ${stats.errors}`);
         return 0;

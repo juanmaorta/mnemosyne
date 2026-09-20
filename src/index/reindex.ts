@@ -21,6 +21,29 @@ export interface ReindexStats {
   embeddingMismatch: boolean;
 }
 
+/**
+ * Raised instead of silently rebuilding an index that already holds vectors
+ * from a different embedder.
+ *
+ * The rebuild itself is safe — the index is derived and the Markdown is the
+ * truth. What is not safe is doing it unasked: it costs one embedder call per
+ * engram, it fires from the lazy reindex inside `search`/`context` (so, at the
+ * start of a session), and until it finishes there is no retrieval. An
+ * `OLLAMA_MODEL` that disagrees with the index is a mistyped environment far
+ * more often than a decision.
+ */
+export class EmbedderMismatchError extends Error {
+  constructor(readonly previous: string, readonly current: string) {
+    super(
+      `this index was built with embedder '${previous}' but '${current}' is configured now. `
+      + "Vectors from two models are not comparable, so nothing is rebuilt without being asked. "
+      + "Either point OLLAMA_MODEL back at the old model, or rebuild on purpose with "
+      + "`mneme reindex --force-embedder` — that re-embeds every engram in the store.",
+    );
+    this.name = "EmbedderMismatchError";
+  }
+}
+
 export interface ReindexDeps {
   root: string;
   db: Db;
@@ -28,6 +51,8 @@ export interface ReindexDeps {
   scopes?: string[];
   /** Defaults to the system clock; injected by tests and the bench harness. */
   clock?: Clock;
+  /** Consent to re-embed the whole store because the embedder changed. */
+  forceEmbedder?: boolean;
 }
 
 /** Batch size for embedding round-trips — keeps request bodies bounded on large stores. */
@@ -71,7 +96,7 @@ interface PendingItem {
 }
 
 export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
-  const { db, embedder, root, scopes, clock = systemClock } = deps;
+  const { db, embedder, root, scopes, clock = systemClock, forceEmbedder = false } = deps;
 
   // Vectors produced by different models are not comparable: mixing them would
   // silently corrupt every cosine distance with no error to notice. A changed
@@ -86,6 +111,15 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // the path that covers a store predating the stamp entirely.
   const widthMismatch = vectorIndexDim(db) !== embedder.dim;
   if (embeddingMismatch || widthMismatch) {
+    // An index with nothing in it has nothing to protect: the first run of a
+    // non-default model must not be an error. Past that, the caller says so.
+    const populated = (db.prepare("select count(*) as n from engrams").get() as { n: number }).n > 0;
+    if (populated && !forceEmbedder) {
+      throw new EmbedderMismatchError(
+        previousEmbeddingId ?? `an index ${vectorIndexDim(db)} dimensions wide`,
+        embedder.id,
+      );
+    }
     db.prepare("DELETE FROM file_state").run();
     resetVectorIndex(db, embedder.dim);
   }

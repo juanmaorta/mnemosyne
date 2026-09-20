@@ -102,3 +102,54 @@ describe("runCli", () => {
     expect(lines.join("\n")).toMatch(/not owned/i);
   });
 });
+
+describe("a changed embedder from the CLI", () => {
+  /** Stamps the index as built by someone else, without needing another model. */
+  async function indexStampedBy(root: string, id: string): Promise<void> {
+    expect(await runCli(["reindex", "--root", root], () => {})).toBe(0);
+    const { openDb, setMeta } = await import("./index/db.js");
+    const db = openDb(join(root, ".index", "store.db"));
+    setMeta(db, "embedding_id", id);
+    db.close();
+  }
+
+  test("cli_reindex_refuses_an_index_built_by_another_embedder", async () => {
+    const root = storeWith("yogurtera");
+    await indexStampedBy(root, "other-model/dim768");
+    const errs: string[] = [];
+
+    const code = await runCli(["reindex", "--root", root], () => {}, (s) => errs.push(s));
+
+    expect(code).toBe(1);
+    // The message has to carry the way out, or the user's only move is to guess.
+    expect(errs.join("\n")).toMatch(/--force-embedder/);
+    expect(errs.join("\n")).toMatch(/other-model/);
+  });
+
+  test("cli_reindex_rebuilds_when_force_embedder_is_passed", async () => {
+    const root = storeWith("yogurtera");
+    await indexStampedBy(root, "other-model/dim768");
+    const lines: string[] = [];
+
+    const code = await runCli(["reindex", "--force-embedder", "--root", root], (s) => lines.push(s), () => {});
+
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/indexed 1/);
+  });
+
+  test("cli_context_still_serves_the_old_digest_instead_of_breaking", async () => {
+    // Session start must never fail. With the embedder disagreeing, the lazy
+    // reindex refuses — and the digest is served from the index already there,
+    // degraded but present, which is the whole point of not rebuilding unasked.
+    const root = storeWith("yogurtera");
+    await indexStampedBy(root, "other-model/dim768");
+    const lines: string[] = [];
+    const errs: string[] = [];
+
+    const code = await runCli(["context", "--root", root, "--scope", "personal"], (s) => lines.push(s), (s) => errs.push(s));
+
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(errs.join("\n")).toMatch(/degraded/);
+  });
+});

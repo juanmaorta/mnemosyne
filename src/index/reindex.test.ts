@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { openDb, getMeta, vectorIndexDim } from "./db.js";
-import { reindex } from "./reindex.js";
+import { EmbedderMismatchError, reindex } from "./reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import type { EmbeddingClient } from "../embeddings.js";
 import { readTelemetry } from "../telemetry/events.js";
@@ -54,14 +54,16 @@ describe("reindex", () => {
 
   test("reindex_reembeds_everything_when_the_embedding_model_changes", async () => {
     // Vectors from two models are not comparable — a silent mix would corrupt
-    // every cosine distance without any error surfacing.
+    // every cosine distance without any error surfacing. That rebuild still
+    // happens — since MNE-70 it happens when asked, because rebuilding unasked
+    // at session start is its own kind of failure.
     const root = store();
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
     expect(getMeta(db, "embedding_id")).toBe("fake-bow/dim768");
 
     const otherModel: EmbeddingClient = { ...createFakeEmbedder(), id: "other-model/dim768" };
-    const stats = await reindex({ root, db, embedder: otherModel, scopes: ["personal"] });
+    const stats = await reindex({ root, db, embedder: otherModel, scopes: ["personal"], forceEmbedder: true });
 
     expect(stats.embeddingMismatch).toBe(true);
     expect(stats.indexed).toBe(1); // re-embedded, not skipped as unchanged
@@ -262,7 +264,7 @@ describe("reindex vector width", () => {
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
-    const stats = await reindex({ root, db, embedder: createFakeEmbedder(1024), scopes: ["personal"] });
+    const stats = await reindex({ root, db, embedder: createFakeEmbedder(1024), scopes: ["personal"], forceEmbedder: true });
 
     expect(stats).toMatchObject({ embeddingMismatch: true, indexed: 1, skipped: 0, errors: 0 });
     expect(vectorIndexDim(db)).toBe(1024);
@@ -277,5 +279,63 @@ describe("reindex vector width", () => {
 
     const events = readTelemetry(root).filter((e) => e.kind === "engram.indexed");
     expect(events[0]).toMatchObject({ embeddingId: "fake-bow/dim1024", dim: 1024 });
+  });
+});
+
+describe("reindex and a changed embedder", () => {
+  /** The same fake vectors under a different model name. */
+  function otherModel(dim?: number): EmbeddingClient {
+    const inner = createFakeEmbedder(dim);
+    return { ...inner, id: `other-model/dim${inner.dim}` };
+  }
+
+  test("reindex_refuses_to_rebuild_an_index_built_by_another_embedder", async () => {
+    // Rebuilding is not free and it is not silent-safe: it costs one embedder
+    // call per engram, it happens at session start because that is when the
+    // lazy reindex runs, and there is no search until it finishes. An
+    // environment variable that disagrees with the index is a mistake far more
+    // often than an intention, so it has to be said out loud.
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    await expect(reindex({ root, db, embedder: otherModel(), scopes: ["personal"] }))
+      .rejects.toThrow(EmbedderMismatchError);
+    // And the index it refused to touch is still there, still serving.
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
+  });
+
+  test("reindex_says_both_sides_and_how_to_proceed", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    await expect(reindex({ root, db, embedder: otherModel(), scopes: ["personal"] }))
+      .rejects.toThrow(/fake-bow.*other-model|other-model.*fake-bow/s);
+  });
+
+  test("reindex_rebuilds_when_the_change_is_asked_for", async () => {
+    const root = store();
+    const db = openDb(":memory:");
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const stats = await reindex({ root, db, embedder: otherModel(), scopes: ["personal"], forceEmbedder: true });
+
+    expect(stats.embeddingMismatch).toBe(true);
+    expect(stats.indexed).toBe(1);
+    expect(getMeta(db, "embedding_id")).toBe("other-model/dim768");
+  });
+
+  test("reindex_builds_a_fresh_index_at_any_width_without_being_asked_twice", async () => {
+    // Nothing to lose and nothing to surprise: an empty index adopts whatever
+    // embedder shows up first. Refusing here would make the very first run of a
+    // non-default model an error, which is absurd.
+    const root = store();
+    const db = openDb(":memory:");
+
+    const stats = await reindex({ root, db, embedder: otherModel(1024), scopes: ["personal"] });
+
+    expect(stats.indexed).toBe(1);
+    expect(vectorIndexDim(db)).toBe(1024);
   });
 });

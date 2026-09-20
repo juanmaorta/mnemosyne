@@ -58,10 +58,24 @@ does not know, declare its width with `OLLAMA_EMBEDDING_DIM`; without it the cli
 start rather than guess, because a wrong dimension writes vectors into an index table of another
 width. A declared width that the model then contradicts is rejected on the first batch.
 
-Changing the model invalidates the index: vectors from two models are not comparable, so the next
-`mneme reindex` sees the fingerprint (or the table width) differ, rebuilds the vector table and
-re-embeds every engram — it prints `warning: embedding model changed; index fully rebuilt`. The
-index is derived and disposable, so nothing is lost but the time to re-embed the store.
+Changing the model invalidates the index: vectors from two models are not comparable. Mnemosyne
+notices — the fingerprint, or the table's width, differs from what the index was built with — and
+**refuses, rather than rebuilding on its own**:
+
+```sh
+mneme reindex --force-embedder    # re-embeds every engram, on purpose
+```
+
+The refusal is the point. Rebuilding costs one embedder call per engram, the lazy reindex inside
+`search` and `context` means it would fire at the start of a session, and until it finishes there
+is no retrieval. An `OLLAMA_MODEL` that disagrees with the index is a mistyped environment far
+more often than a decision — a shell profile the session-start hook never reads is enough to
+cause it. A fresh, empty index has nothing to protect and adopts whatever embedder shows up
+first, so the first run of a non-default model is not an error.
+
+`mneme context` never fails over this: it serves the digest from the index already on disk and
+warns that it is degraded. Nothing is lost either way — the Markdown is the truth and the index
+is derived.
 
 Build and run the CLI (`mneme`, alias `mem`):
 
@@ -458,7 +472,7 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 |-----|---------|---------|
 | `MNEMOSYNE_ROOT` | `~/memory` | Store root (overridden by `--root`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
-| `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it forces a full reindex |
+| `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it needs `mneme reindex --force-embedder` |
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
