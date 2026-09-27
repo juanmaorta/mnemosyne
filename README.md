@@ -66,6 +66,10 @@ notices — the fingerprint, or the table's width, differs from what the index w
 mneme reindex --force-embedder    # re-embeds every engram, on purpose
 ```
 
+Nomic embeddings also use `search_document:` for indexed notes and `search_query:` for searches.
+This changes the fingerprint even for an existing `nomic-embed-text` installation, so the first
+run after upgrading asks for the same explicit rebuild.
+
 The refusal is the point. Rebuilding costs one embedder call per engram, the lazy reindex inside
 `search` and `context` means it would fire at the start of a session, and until it finishes there
 is no retrieval. An `OLLAMA_MODEL` that disagrees with the index is a mistyped environment far

@@ -28,8 +28,10 @@ export const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
  */
 export const DEFAULT_EMBEDDING_DIM = MODEL_DIMS[DEFAULT_EMBEDDING_MODEL]!;
 
+export type EmbeddingRole = "document" | "query";
+
 export interface EmbeddingClient {
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], role?: EmbeddingRole): Promise<number[][]>;
   /**
    * Model+dimension fingerprint, stamped into the index. Vectors from two
    * different models are not comparable, so a change here has to invalidate
@@ -91,16 +93,25 @@ export function createOllamaClient(
   const host = config.host ?? base.host;
   const model = config.model ?? base.model;
   const dim = resolveEmbeddingDim(model, config.dim ?? base.declaredDim);
+  const modelBase = model.split(":", 1)[0];
+  const needsTaskPrefix = modelBase === "nomic-embed-text" || modelBase === "nomic-embed-text-v2-moe";
   return {
-    id: `${model}/dim${dim}`,
+    // A prefix changes the embedding space even when the model and width stay
+    // the same. The new fingerprint makes reindex require an explicit rebuild.
+    id: `${model}/dim${dim}${needsTaskPrefix ? "/task-prefix-v1" : ""}`,
     dim,
-    async embed(texts) {
+    async embed(texts, role: EmbeddingRole = "document") {
       let res: Response;
       try {
         res = await fetchImpl(`${host}/api/embed`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ model, input: texts }),
+          body: JSON.stringify({
+            model,
+            input: needsTaskPrefix
+              ? texts.map((text) => `${role === "query" ? "search_query" : "search_document"}: ${text}`)
+              : texts,
+          }),
         });
       } catch (cause) {
         throw new Error(

@@ -45,7 +45,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   // recency term must agree on "now", or a slow embed call would skew scoring.
   const now = clock.now();
   materializeHotState(db, root, scopes, now);
-  const [q] = await embedder.embed([opts.query]);
+  const [q] = await embedder.embed([opts.query], "query");
   const rows = db.prepare(
     `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
             1.0 - vec_distance_cosine(v.embedding, ?) as relevance,

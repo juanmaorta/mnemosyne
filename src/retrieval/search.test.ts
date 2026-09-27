@@ -9,6 +9,7 @@ import { search, searchExplain } from "./search.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { fixedClock, systemClock } from "../clock.js";
 import { recordAccess } from "../hotstate.js";
+import type { EmbeddingClient } from "../embeddings.js";
 
 function note(root: string, scope: string, slug: string, desc: string, body: string) {
   mkdirSync(join(root, scope), { recursive: true });
@@ -28,6 +29,20 @@ async function indexed() {
 }
 
 describe("search", () => {
+  test("search_embeds_the_query_with_the_query_role", async () => {
+    const { db, root } = await indexed();
+    const fake = createFakeEmbedder();
+    const roles: string[] = [];
+    const embedder: EmbeddingClient = {
+      ...fake,
+      async embed(texts, role) {
+        roles.push(role ?? "missing");
+        return fake.embed(texts, role);
+      },
+    };
+    await search({ db, root, embedder, clock: systemClock }, { query: "yogurt" });
+    expect(roles).toEqual(["query"]);
+  });
   test("search_ranks_relevant_engram_first", async () => {
     const { db, root } = await indexed();
     const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock }, { query: "yogurt maker control" });

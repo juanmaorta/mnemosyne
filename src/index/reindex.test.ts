@@ -33,6 +33,21 @@ describe("reindex", () => {
     expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
   });
 
+  test("reindex_embeds_notes_with_the_document_role", async () => {
+    const root = store();
+    const fake = createFakeEmbedder();
+    const roles: string[] = [];
+    const embedder: EmbeddingClient = {
+      ...fake,
+      async embed(texts, role) {
+        roles.push(role ?? "missing");
+        return fake.embed(texts, role);
+      },
+    };
+    await reindex({ root, db: openDb(":memory:"), embedder, scopes: ["personal"] });
+    expect(roles).toEqual(["document"]);
+  });
+
   test("reindex_skips_unchanged_files_on_second_run", async () => {
     const root = store();
     const db = openDb(":memory:");

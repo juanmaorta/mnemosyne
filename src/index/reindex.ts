@@ -167,7 +167,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
     const chunk = pending.slice(i, i + EMBED_BATCH_SIZE);
     const texts = chunk.map((p) => `${p.engram.description}\n\n${p.body}`);
-    const embedded = await embedder.embed(texts);
+    const embedded = await embedder.embed(texts, "document");
     vectors.push(...embedded);
   }
 

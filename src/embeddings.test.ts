@@ -70,7 +70,27 @@ describe("embedding model configuration", () => {
 
   test("model_defaults_to_nomic_embed_text_when_the_env_is_unset", () => {
     vi.stubEnv("OLLAMA_MODEL", undefined);
-    expect(createOllamaClient().id).toBe("nomic-embed-text/dim768");
+    expect(createOllamaClient().id).toBe("nomic-embed-text/dim768/task-prefix-v1");
+  });
+
+  test("nomic_prefixes_documents_and_queries_and_fingerprints_the_new_embedding_space", async () => {
+    const fetchImpl = okResponse(768);
+    const client = createOllamaClient({ model: "nomic-embed-text" }, fetchImpl as unknown as typeof fetch);
+    await client.embed(["a document"], "document");
+    await client.embed(["a query"], "query");
+    const [, docInit] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [, queryInit] = fetchImpl.mock.calls[1] as unknown as [string, RequestInit];
+    expect(JSON.parse(docInit.body as string).input).toEqual(["search_document: a document"]);
+    expect(JSON.parse(queryInit.body as string).input).toEqual(["search_query: a query"]);
+    expect(client.id).toBe("nomic-embed-text/dim768/task-prefix-v1");
+  });
+
+  test("other models receive the original unprefixed input", async () => {
+    const fetchImpl = okResponse(1024);
+    const client = createOllamaClient({ model: "bge-m3" }, fetchImpl as unknown as typeof fetch);
+    await client.embed(["a document"], "document");
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).input).toEqual(["a document"]);
   });
 
   test("dimension_is_derived_from_the_model_not_from_a_constant", () => {
