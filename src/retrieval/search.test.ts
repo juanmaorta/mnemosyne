@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
-import { search, searchExplain } from "./search.js";
+import { search, searchExplain, resolveMinCos, NOMIC_MIN_COS } from "./search.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { fixedClock, systemClock } from "../clock.js";
 import { recordAccess } from "../hotstate.js";
@@ -29,6 +29,28 @@ async function indexed() {
 }
 
 describe("search", () => {
+  test("defaults_the_floor_only_for_calibrated_nomic_embeddings", () => {
+    expect(resolveMinCos("nomic-embed-text/dim768/task-prefix-v1")).toBe(NOMIC_MIN_COS);
+    expect(resolveMinCos("nomic-embed-text:latest/dim768/task-prefix-v1")).toBe(NOMIC_MIN_COS);
+    expect(resolveMinCos("nomic-embed-text-v2-moe/dim768/task-prefix-v1")).toBeNull();
+    expect(resolveMinCos("other/dim768")).toBeNull();
+    expect(resolveMinCos("other/dim768", 0.6)).toBe(0.6);
+    expect(() => resolveMinCos("other/dim768", Number.NaN)).toThrow(/min-cos/);
+  });
+
+  test("filters_on_raw_cosine_before_the_blended_top-k_cut", async () => {
+    const { db, root } = await indexed();
+    const deps = { db, root, embedder: createFakeEmbedder(), clock: systemClock };
+    const query = "yogurt maker control";
+    const baseline = await searchExplain(deps, { query, k: 3 });
+    const byCos = [...baseline.candidates].sort((a, b) => b.signals.relevanceCosine - a.signals.relevanceCosine);
+    const floor = (byCos[0]!.signals.relevanceCosine + byCos[1]!.signals.relevanceCosine) / 2;
+    const result = await searchExplain(deps, { query, k: 3, minCos: floor });
+    expect(result.candidates.filter((c) => c.included).map((c) => c.slug)).toEqual([byCos[0]!.slug]);
+    expect(result.candidates.filter((c) => !c.included).every((c) => c.signals.relevanceCosine < floor)).toBe(true);
+    expect(result.candidates).toHaveLength(3); // diagnostics retain discarded candidates
+  });
+
   test("search_embeds_the_query_with_the_query_role", async () => {
     const { db, root } = await indexed();
     const fake = createFakeEmbedder();

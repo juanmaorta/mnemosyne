@@ -23,6 +23,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
     `query: "${res.query}"  scopes: [${res.scopes.join(", ")}]  k=${res.k}  ${res.candidates.length} candidates`,
     `weights: recency ${w.recency} · importance ${w.importance} · relevance ${w.relevance}`,
     "score axes: each signal scaled to [0,1] among these candidates; scores are relative to this query",
+    `minimum raw cosine: ${res.minCos === null ? "off" : f3(res.minCos)}`,
   ];
 
   if (res.candidates.length === 0) {
@@ -31,7 +32,11 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
 
   const threshold = res.candidates[0]!.threshold;
   const limit = opts.limit === undefined ? DEFAULT_EXPLAIN_ROWS : opts.limit;
-  const shown = limit === null ? res.candidates : res.candidates.slice(0, Math.max(limit, res.k));
+  let lastIncluded = -1;
+  for (let i = res.candidates.length - 1; i >= 0; i--) {
+    if (res.candidates[i]!.included) { lastIncluded = i; break; }
+  }
+  const shown = limit === null ? res.candidates : res.candidates.slice(0, Math.max(limit, res.k, lastIncluded + 1));
   const hidden = res.candidates.length - shown.length;
 
   const rows = shown.map((c) => {
@@ -47,7 +52,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
       f3(c.signals.importanceNorm).padStart(7),
       f3(c.signals.relevanceCosine).padStart(7),
       blend ? `${f3(blend.recency)}/${f3(blend.importance)}/${f3(blend.relevance)}` : "        —        ",
-      `  ${c.slug} [${c.scope}]`,
+      `  ${c.slug} [${c.scope}]${res.minCos !== null && c.signals.relevanceCosine < res.minCos ? " (below cosine floor)" : ""}`,
     ].join(" ");
   });
 
@@ -62,7 +67,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
     ...rows,
     ...(hidden > 0 ? [`  … ${hidden} more below the cut line (--all to show)`] : []),
     "",
-    `cut line (threshold): ${f3(threshold)}`,
+    `top-k score cut line: ${res.candidates.some((c) => c.included) ? f3(threshold) : "none"}`,
     ...(anyNeverRead ? ["* decay measured from creation (never accessed)"] : []),
   ].join("\n");
 }

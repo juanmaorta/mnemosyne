@@ -90,7 +90,7 @@ npm install && npm run build
 mneme reindex [--scope <scope>]
 
 # Two-tier search: ranked refs + snippet + score (not whole docs). Reindexes lazily first.
-mneme search "<query>" [--scope <scope>] [-k <n>]
+mneme search "<query>" [--scope <scope>] [-k <n>] [--min-cos <number>]
 
 # Fetch one engram in full by slug (reinforces it — decay-on-access).
 # --json prints exactly one object: {slug, scope, path, content, revision}
@@ -132,6 +132,21 @@ mneme trace <slug>                                  # one engram's event history
 mneme snapshot [--list]                             # record / list health over time
 mneme purge-telemetry --scope <s>                   # drop a scope from the log (simulates; --apply writes)
 ```
+
+Search filters candidates on their **raw cosine** before ranking by the blended score.
+With `nomic-embed-text` and task prefixes, the default floor is `0.70`; other embedding
+models have no default floor until calibrated. `--min-cos` overrides it for a query, and
+`MNEMOSYNE_MIN_COS` sets a process-wide override (`-1` effectively disables it).
+When nothing qualifies, search prints the best candidate and its cosine and exits with
+status `2` (ordinary errors use `1`). `explain` shows candidates rejected by the floor.
+The ambient `context` digest has no query vector, so a cosine floor cannot apply there.
+
+The default was chosen from a small, reproducible local Nomic check: 18 answerable
+and 18 unrelated English/Spanish queries, with a positive minimum of `0.735` and
+a negative maximum of `0.664` after task prefixes. Run `npm run bench:cosine` with
+Ollama serving `nomic-embed-text` to repeat it. This synthetic corpus does not prove
+the same separation for a larger or different store; adjust the floor if its
+false-positive or false-negative rate warrants it.
 
 ### Writing memories (`mneme add`)
 
@@ -482,6 +497,7 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
 | `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it needs `mneme reindex --force-embedder` |
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
+| `MNEMOSYNE_MIN_COS` | `0.70` for prefixed `nomic-embed-text`; off for other models | Raw cosine floor for search (overridden by `--min-cos`) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
 | `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json` |

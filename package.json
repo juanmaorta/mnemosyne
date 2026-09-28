@@ -24,6 +24,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench:cosine": "node scripts/calibrate-cosine.mjs",
     "migrate": "tsc && node dist/bin/migrate.js",
     "typecheck": "tsc --noEmit"
   },

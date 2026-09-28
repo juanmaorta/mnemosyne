@@ -3,14 +3,13 @@ import { storePaths, DEFAULT_SCOPE } from "./store.js";
 import { resolveRoot } from "./config.js";
 import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
-import { searchInstrumented } from "./retrieval/instrumented.js";
+import { searchExplainInstrumented } from "./retrieval/instrumented.js";
 import { newCorrId } from "./telemetry/corr.js";
 import { computeStats } from "./observability/stats.js";
 import { formatExplain } from "./observability/explain.js";
 import { traceEngram, formatTrace } from "./observability/trace.js";
 import { writeSnapshot, readSnapshots } from "./observability/snapshot.js";
 import { formatSnapshotSeries } from "./observability/format.js";
-import { searchExplain } from "./retrieval/search.js";
 import { formatStats } from "./observability/format.js";
 import { emitEvent } from "./telemetry/events.js";
 import { loadTelemetryConfig } from "./telemetry/config.js";
@@ -116,6 +115,24 @@ function parseImportance(raw: string): number | null {
   return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
 }
 
+function configuredMinCos(flag: string | undefined): number | undefined {
+  const raw = flag ?? process.env.MNEMOSYNE_MIN_COS;
+  if (raw === undefined) return undefined;
+  if (raw.trim() === "") throw new Error("--min-cos must be a number between -1 and 1.");
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < -1 || value > 1) {
+    throw new Error("--min-cos must be a number between -1 and 1.");
+  }
+  return value;
+}
+
+function emptySearchMessage(candidates: { slug: string; scope: string; signals: { relevanceCosine: number } }[], minCos: number | null): string {
+  const best = candidates.reduce<(typeof candidates)[number] | undefined>((acc, candidate) =>
+    !acc || candidate.signals.relevanceCosine > acc.signals.relevanceCosine ? candidate : acc, undefined);
+  if (!best) return "No relevant results; the scope is empty or unindexed.";
+  return `No relevant results; best candidate: ${best.slug} [${best.scope}] at cos ${best.signals.relevanceCosine.toFixed(3)}${minCos === null ? "" : ` (minimum ${minCos.toFixed(3)})`}.`;
+}
+
 function embedder(): EmbeddingClient {
   return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
 }
@@ -141,28 +158,31 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "search": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" } }, allowPositionals: true });
         const query = positionals.join(" ").trim();
         if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
         const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
-        const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) };
+        const minCos = configuredMinCos(values["min-cos"]);
+        const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }) };
         if (values.explain) {
           // Diagnostic path: still instrumented, so an explained search is not
           // a hole in the log — then rendered candidate-by-candidate.
           const corrIdX = newCorrId(systemClock);
           const deps = { db, root, embedder: embedder(), clock: systemClock };
-          await searchInstrumented(deps, searchOpts, corrIdX);
-          out(formatExplain(await searchExplain(deps, searchOpts), values.all ? { limit: null } : {}));
-          return 0;
+          const result = await searchExplainInstrumented(deps, searchOpts, corrIdX);
+          out(formatExplain(result, values.all ? { limit: null } : {}));
+          return result.candidates.some((c) => c.included) ? 0 : 2;
         }
         const corrId = newCorrId(systemClock);
-        const hits = await searchInstrumented({ db, root, embedder: embedder(), clock: systemClock }, { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) }, corrId);
+        const result = await searchExplainInstrumented({ db, root, embedder: embedder(), clock: systemClock }, searchOpts, corrId);
+        const hits = result.candidates.filter((c) => c.included);
         for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
+        if (hits.length === 0) out(emptySearchMessage(result.candidates, result.minCos));
         appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
-        return 0;
+        return hits.length === 0 ? 2 : 0;
       }
       case "context": {
         let scope = DEFAULT_SCOPE;
@@ -250,16 +270,16 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "explain": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, all: { type: "boolean" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, all: { type: "boolean" } }, allowPositionals: true });
         const query = positionals.join(" ").trim();
         if (!query) { err("usage: mneme explain \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
         await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
         const deps = { db, root, embedder: embedder(), clock: systemClock };
-        const opts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}) };
-        await searchInstrumented(deps, opts, newCorrId(systemClock));
-        out(formatExplain(await searchExplain(deps, opts), values.all ? { limit: null } : {}));
+        const minCos = configuredMinCos(values["min-cos"]);
+        const opts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }) };
+        out(formatExplain(await searchExplainInstrumented(deps, opts, newCorrId(systemClock)), values.all ? { limit: null } : {}));
         return 0;
       }
       case "snapshot": {

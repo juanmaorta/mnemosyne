@@ -16,6 +16,21 @@ function storeWith(slug: string): string {
 }
 
 describe("runCli", () => {
+  test("search_with_no_relevant_hit_reports_the_best_cosine_and_exits_two", async () => {
+    const root = storeWith("yogurtera");
+    const lines: string[] = [];
+    const code = await runCli(["search", "unrelated query", "--root", root, "--min-cos", "1"], (s) => lines.push(s));
+    expect(code).toBe(2);
+    expect(lines.join("\n")).toMatch(/No relevant results; best candidate: yogurtera.*cos .*minimum 1\.000/);
+  });
+
+  test("search_rejects_an_invalid_cosine_floor", async () => {
+    const root = storeWith("yogurtera");
+    const errors: string[] = [];
+    expect(await runCli(["search", "test", "--root", root, "--min-cos", "2"], () => {}, (s) => errors.push(s))).toBe(1);
+    expect(errors.join("\n")).toMatch(/min-cos/);
+  });
+
   test("cli_reindex_then_search_prints_hit", async () => {
     const root = storeWith("yogurtera");
     const lines: string[] = [];

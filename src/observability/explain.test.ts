@@ -18,6 +18,7 @@ const RESULT: ExplainResult = {
   scopes: ["personal"],
   k: 2,
   weights: { recency: 0.25, importance: 0.25, relevance: 1 },
+  minCos: null,
   candidates: [
     candidate("yogurtera", 0, 0.812345, true, 0.7123, true),
     candidate("router", 1, 0.5, true, 0.3),
@@ -61,6 +62,13 @@ describe("formatExplain", () => {
     expect(out).toContain("personal");
     expect(out).toContain("k=2");
     expect(out).toContain("3 candidates");
+  });
+
+  test("shows_the_raw_cosine_floor_and_rejection_reason", () => {
+    const out = formatExplain({ ...RESULT, minCos: 0.7,
+      candidates: RESULT.candidates.map((c) => ({ ...c, included: c.signals.relevanceCosine >= 0.7 })) });
+    expect(out).toContain("minimum raw cosine: 0.700");
+    expect(out.split("\n").find((l) => l.includes("router"))).toContain("below cosine floor");
   });
 
   test("truncates a long candidate set but never below k", () => {

@@ -19,7 +19,21 @@ export interface SearchHit {
   included: boolean;
 }
 export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient; clock: Clock }
-export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights }
+export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number }
+
+/** Calibrated for nomic-embed-text with search_query/search_document prefixes. */
+export const NOMIC_MIN_COS = 0.70;
+
+export function resolveMinCos(embedderId: string, configured?: number): number | null {
+  if (configured !== undefined) {
+    if (!Number.isFinite(configured) || configured < -1 || configured > 1) {
+      throw new Error("--min-cos must be a number between -1 and 1.");
+    }
+    return configured;
+  }
+  // Other models, including Nomic v2, have different cosine distributions.
+  return /^nomic-embed-text(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId) ? NOMIC_MIN_COS : null;
+}
 
 /**
  * Full ranking result: every candidate considered, included and discarded
@@ -32,6 +46,7 @@ export interface ExplainResult {
   scopes: string[];
   k: number;
   weights: Weights;
+  minCos: number | null;
   candidates: SearchHit[];
 }
 
@@ -40,7 +55,8 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const k = opts.k ?? 10;
   const scopes = opts.scopes ?? listScopes(root);
   const weights = opts.weights ?? DEFAULT_WEIGHTS;
-  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, candidates: [] };
+  const minCos = resolveMinCos(embedder.id, opts.minCos);
+  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, candidates: [] };
   // One clock read for the whole query: hot-state materialization and the
   // recency term must agree on "now", or a slow embed call would skew scoring.
   const now = clock.now();
@@ -89,9 +105,15 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   scored.sort((a, b) => b.score - a.score);
   // The cut line is the score of the last engram that made the top-k. With
   // fewer candidates than k nothing is cut, so it is the lowest score present.
-  const threshold = scored.length >= k ? scored[k - 1]!.score : (scored.at(-1)?.score ?? 0);
-  const candidates = scored.map((h, i) => ({ ...h, rank: i, threshold, included: i < k }));
-  return { query: opts.query, scopes, k, weights, candidates };
+  const eligible = scored.filter((h) => minCos === null || h.signals.relevanceCosine >= minCos);
+  const threshold = eligible.length >= k ? eligible[k - 1]!.score : (eligible.at(-1)?.score ?? 0);
+  let includedCount = 0;
+  const candidates = scored.map((h, i) => {
+    const included = (minCos === null || h.signals.relevanceCosine >= minCos) && includedCount < k;
+    if (included) includedCount++;
+    return { ...h, rank: i, threshold, included };
+  });
+  return { query: opts.query, scopes, k, weights, minCos, candidates };
 }
 
 export async function search(deps: SearchDeps, opts: SearchOptions): Promise<SearchHit[]> {

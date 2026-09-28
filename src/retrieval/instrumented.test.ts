@@ -62,6 +62,17 @@ describe("searchInstrumented", () => {
     expect(q.queryHash).toMatch(/^[0-9a-f]{16}$/);
   });
 
+  test("records_the_cosine_floor_and_empty_result_decision", async () => {
+    const { db, root, embedder } = await indexed();
+    const hits = await searchInstrumented({ db, root, embedder, clock: CLOCK },
+      { query: "yogurt maker control", minCos: 1 }, "floor");
+    expect(hits).toHaveLength(0);
+    const events = readTelemetry(root).filter((e) => e.corrId === "floor");
+    expect(events.find((e) => e.kind === "retrieval.query")).toMatchObject({ minCos: 1, resultCount: 0 });
+    expect(events.filter((e) => e.kind === "retrieval.candidate")).toHaveLength(3);
+    expect(events.filter((e) => e.kind === "retrieval.candidate").every((e) => e.included === false)).toBe(true);
+  });
+
   test("satisfies the reconstruction invariant: score is re-derivable from the log alone", async () => {
     const { db, root, embedder } = await indexed();
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { searchExplain, type SearchDeps, type SearchOptions, type SearchHit } from "./search.js";
+import { searchExplain, type SearchDeps, type SearchOptions, type SearchHit, type ExplainResult } from "./search.js";
 import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
 
 /**
@@ -22,11 +22,11 @@ function queryHash(q: string): string {
  * the `weights` on the correlated query event, and a stored copy could drift
  * from the formula that produced it.
  */
-export async function searchInstrumented(
+export async function searchExplainInstrumented(
   deps: SearchDeps,
   opts: SearchOptions,
   corrId: string,
-): Promise<SearchHit[]> {
+): Promise<ExplainResult> {
   // Measured on the monotonic seam, not the wall clock: this is the number
   // `mneme stats` turns into p50/p95, and it must not move when NTP does.
   const startedAt = deps.clock.monotonicMs();
@@ -43,6 +43,7 @@ export async function searchInstrumented(
       scopes: res.scopes,
       k: res.k,
       weights: res.weights,
+      minCos: res.minCos,
       candidateSetSize: res.candidates.length,
       durationMs,
       resultCount: res.candidates.filter((c) => c.included).length,
@@ -60,5 +61,10 @@ export async function searchInstrumented(
   ];
   emitEvents(deps.root, deps.clock, events);
 
+  return res;
+}
+
+export async function searchInstrumented(deps: SearchDeps, opts: SearchOptions, corrId: string): Promise<SearchHit[]> {
+  const res = await searchExplainInstrumented(deps, opts, corrId);
   return res.candidates.filter((c) => c.included);
 }
