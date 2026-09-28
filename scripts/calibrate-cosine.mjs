@@ -1,67 +1,6 @@
 // Reproducible small-corpus calibration for Nomic's search task prefixes.
 // Run with `node scripts/calibrate-cosine.mjs` while Ollama serves nomic-embed-text.
-const documents = [
-  ["router", "The home network uses an Omada access point and an ISP router for DHCP."],
-  ["plants", "Rhaphidophora tetrasperma cuttings are rooting in water after pruning."],
-  ["invoice", "The freelance invoice for the client was paid by bank transfer in June."],
-  ["museum", "The Uffizi Gallery in Florence holds Botticelli's Birth of Venus."],
-  ["bread", "Sourdough bread ferments overnight before baking in a Dutch oven."],
-  ["doctor", "The appointment with the dermatologist is scheduled for Tuesday morning."],
-  ["docker", "The CI build runs the test suite in a Docker container."],
-  ["camera", "The camera uses a 35 mm lens and manual exposure for portraits."],
-  ["dog", "The dog needs its annual vaccination at the veterinary clinic."],
-  ["tax", "The income tax return includes freelance revenue and deductible expenses."],
-  ["bicycle", "The bicycle needs new brake pads and a chain before the long ride."],
-  ["music", "The amplifier and speakers play music from the network streamer."],
-  ["esquejes", "Los esquejes de Rhaphidophora tetrasperma están en agua y ya tienen raíces."],
-  ["alquiler", "El contrato de alquiler del piso se renueva en noviembre y la fianza es de dos meses."],
-  ["factura", "La factura de consultoría se pagó por transferencia bancaria el 15 de julio."],
-  ["dentista", "La próxima cita con el dentista será el viernes a las diez de la mañana."],
-  ["biblioteca", "El libro de historia del arte se puede recoger en la biblioteca municipal."],
-  ["coche", "El coche necesita cambiar el aceite y revisar los neumáticos antes del viaje."],
-];
-
-const positives = [
-  ["router", "What device gives out IP addresses on my home network?"],
-  ["plants", "How are the tetrasperma cuttings being propagated?"],
-  ["invoice", "How did the client pay the freelance invoice?"],
-  ["museum", "Which Florence museum has Botticelli's Birth of Venus?"],
-  ["bread", "What kind of bread is left to ferment overnight?"],
-  ["doctor", "When is the dermatologist appointment?"],
-  ["docker", "Where do the CI tests run?"],
-  ["camera", "Which lens is used for portraits?"],
-  ["dog", "Where does the dog get its annual vaccination?"],
-  ["tax", "What is included in the income tax return?"],
-  ["bicycle", "What parts should be replaced on the bike?"],
-  ["music", "What plays music from the network streamer?"],
-  ["esquejes", "¿Dónde están enraizando los esquejes de tetrasperma?"],
-  ["alquiler", "¿Cuándo se renueva el alquiler del piso?"],
-  ["factura", "¿Cómo se pagó la factura de consultoría?"],
-  ["dentista", "¿A qué hora es la cita con el dentista?"],
-  ["biblioteca", "¿Dónde puedo recoger el libro de historia del arte?"],
-  ["coche", "¿Qué mantenimiento necesita el coche antes del viaje?"],
-];
-
-const negatives = [
-  "What was the final score of the World Cup match?",
-  "What is the recipe for a gin and tonic cocktail?",
-  "Which programming language does the Mars rover use?",
-  "Where is the nearest train station to the hotel?",
-  "What is the exchange rate between yen and dollars?",
-  "Who won the parliamentary election in Canada?",
-  "How many moons does Saturn have?",
-  "What is the deadline for applying for a passport?",
-  "When does the next lunar eclipse begin?",
-  "What is the price of a Tesla Model 3?",
-  "Who wrote the novel The Left Hand of Darkness?",
-  "How do I change a password in the banking app?",
-  "¿Quién ganó el partido de baloncesto de anoche?",
-  "¿Cuántos satélites tiene el planeta Saturno?",
-  "¿Qué ingredientes lleva la paella valenciana?",
-  "¿Cuál es el precio del billete de tren a Sevilla?",
-  "¿Cuándo es el próximo eclipse lunar?",
-  "¿Quién escribió Cien años de soledad?",
-];
+import { documents, positives, negatives } from "./retrieval-bench-fixtures.mjs";
 
 const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
 const model = process.env.OLLAMA_MODEL ?? "nomic-embed-text";

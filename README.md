@@ -148,6 +148,29 @@ Ollama serving `nomic-embed-text` to repeat it. This synthetic corpus does not p
 the same separation for a larger or different store; adjust the floor if its
 false-positive or false-negative rate warrants it.
 
+To measure how recency and importance alter labeled retrieval results, run
+`npm run bench:retrieval` with Ollama serving `nomic-embed-text`. It reuses the
+same 18 documents, 18 answerable queries, and 18 unrelated queries, adds fixed
+read/creation-age profiles, and sweeps recency weights under two policies for
+never-read notes: decay from creation age or the neutral `exp(-1)` prior. The
+scorecard reports Recall@5, nDCG@5, MRR, top-5 overlap with cosine-only and
+no-recency blended ranking, and the negative-query cosine-floor result. To print
+the complete scorecard with its algorithm version, run:
+
+```sh
+npm run build && node scripts/calibrate-retrieval.mjs --json
+```
+
+The benchmark does not change production defaults; its small, controlled fixture
+is a calibration signal, not a quality claim for a private store.
+
+On the 2026-09-28 Nomic run, the current creation-age policy at recency weight
+`0.25` matched the cosine-only baseline (Recall@5 and nDCG@5 both `1.0`). At
+`0.40`, creation-age nDCG@5 fell to `0.959`; the neutral-prior comparison stayed
+at `1.0` through `0.40`. This fixture supports keeping the current `0.25` and
+creation-age behavior as the conservative tested choice. The full versioned
+scorecard is [`docs/benchmarks/mne74-nomic-scorecard-2026-09-28.json`](docs/benchmarks/mne74-nomic-scorecard-2026-09-28.json).
+
 ### Writing memories (`mneme add`)
 
 `--type feedback|reference|project|user` is required; `feedback` writes an append-only fact,
@@ -509,7 +532,8 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 > (write integration — `mneme add` with fail-closed scope, owner policy, and secret
 > scanner) complete. **Fase 3** (observability, instrumentation & benchmarking) is under way:
 > the clock seam, signal breakdown, telemetry store, lifecycle instrumentation and the
-> `stats`/`explain`/`trace` surface are in; the benchmark harness and its CI gate are not.
+> `stats`/`explain`/`trace` surface and local cosine/recency calibration benches are in;
+> the benchmark CI gate is not wired yet.
 > Then Fase 4 (nightly dreaming/consolidation).
 > See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
 >

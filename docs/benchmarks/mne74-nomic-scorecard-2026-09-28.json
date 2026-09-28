@@ -1,0 +1,1848 @@
+{
+  "benchmark": "mnemosyne-retrieval-calibration-v1",
+  "algoVersion": "1.4.0",
+  "embeddingModel": "nomic-embed-text",
+  "evaluationTime": "2026-09-28T12:00:00.000Z",
+  "dataset": {
+    "documents": 18,
+    "positiveQueries": 18,
+    "negativeQueries": 18,
+    "topK": 5,
+    "cosineFloor": 0.7,
+    "temporalProfiles": {
+      "unread": 7,
+      "readFreshWithin7Days": 5,
+      "readOlderThan30Days": 4
+    }
+  },
+  "cosineBaseline": {
+    "recallAt5": 1,
+    "ndcgAt5": 1,
+    "mrr": 1,
+    "meanTargetRank": 1,
+    "meanTop5OverlapWithCosine": 1,
+    "meanTop5OverlapWithNoRecencyBlend": 1,
+    "targetRankChangedFromCosine": 0,
+    "targetRankChangedFromNoRecencyBlend": 0
+  },
+  "noRecencyBlendBaseline": {
+    "recallAt5": 1,
+    "ndcgAt5": 1,
+    "mrr": 1,
+    "meanTargetRank": 1,
+    "meanTop5OverlapWithCosine": 0.755556,
+    "meanTop5OverlapWithNoRecencyBlend": 1,
+    "targetRankChangedFromCosine": 0,
+    "targetRankChangedFromNoRecencyBlend": 0
+  },
+  "negativeQueries": {
+    "queries": 18,
+    "maxBestCosine": 0.664376,
+    "falsePositivesAtCosineFloor": 0
+  },
+  "recencySweep": [
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.755556,
+        "meanTop5OverlapWithNoRecencyBlend": 1,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.05,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.777778,
+        "meanTop5OverlapWithNoRecencyBlend": 0.922222,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.1,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.733333,
+        "meanTop5OverlapWithNoRecencyBlend": 0.866667,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.15,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.677778,
+        "meanTop5OverlapWithNoRecencyBlend": 0.8,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.25,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.655556,
+        "meanTop5OverlapWithNoRecencyBlend": 0.755556,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.4,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 0.958992,
+        "mrr": 0.944444,
+        "meanTargetRank": 1.111111,
+        "meanTop5OverlapWithCosine": 0.633333,
+        "meanTop5OverlapWithNoRecencyBlend": 0.722222,
+        "targetRankChangedFromCosine": 2,
+        "targetRankChangedFromNoRecencyBlend": 2
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "creation-age",
+      "recencyWeight": 0.6,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 0.917984,
+        "mrr": 0.888889,
+        "meanTargetRank": 1.222222,
+        "meanTop5OverlapWithCosine": 0.577778,
+        "meanTop5OverlapWithNoRecencyBlend": 0.666667,
+        "targetRankChangedFromCosine": 4,
+        "targetRankChangedFromNoRecencyBlend": 4
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.755556,
+        "meanTop5OverlapWithNoRecencyBlend": 1,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.05,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.788889,
+        "meanTop5OverlapWithNoRecencyBlend": 0.933333,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.1,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.744444,
+        "meanTop5OverlapWithNoRecencyBlend": 0.888889,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.15,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.711111,
+        "meanTop5OverlapWithNoRecencyBlend": 0.844444,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.25,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.622222,
+        "meanTop5OverlapWithNoRecencyBlend": 0.744444,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.4,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 1,
+        "mrr": 1,
+        "meanTargetRank": 1,
+        "meanTop5OverlapWithCosine": 0.611111,
+        "meanTop5OverlapWithNoRecencyBlend": 0.7,
+        "targetRankChangedFromCosine": 0,
+        "targetRankChangedFromNoRecencyBlend": 0
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    },
+    {
+      "unreadPolicy": "neutral-prior",
+      "recencyWeight": 0.6,
+      "importanceWeight": 0.25,
+      "relevanceWeight": 1,
+      "metrics": {
+        "recallAt5": 1,
+        "ndcgAt5": 0.917984,
+        "mrr": 0.888889,
+        "meanTargetRank": 1.222222,
+        "meanTop5OverlapWithCosine": 0.555556,
+        "meanTop5OverlapWithNoRecencyBlend": 0.644444,
+        "targetRankChangedFromCosine": 4,
+        "targetRankChangedFromNoRecencyBlend": 4
+      },
+      "queries": [
+        {
+          "query": "What device gives out IP addresses on my home network?",
+          "target": "router",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "How are the tetrasperma cuttings being propagated?",
+          "target": "plants",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "How did the client pay the freelance invoice?",
+          "target": "invoice",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which Florence museum has Botticelli's Birth of Venus?",
+          "target": "museum",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What kind of bread is left to ferment overnight?",
+          "target": "bread",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "When is the dermatologist appointment?",
+          "target": "doctor",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where do the CI tests run?",
+          "target": "docker",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Which lens is used for portraits?",
+          "target": "camera",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "Where does the dog get its annual vaccination?",
+          "target": "dog",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "What is included in the income tax return?",
+          "target": "tax",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What parts should be replaced on the bike?",
+          "target": "bicycle",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "What plays music from the network streamer?",
+          "target": "music",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde están enraizando los esquejes de tetrasperma?",
+          "target": "esquejes",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cuándo se renueva el alquiler del piso?",
+          "target": "alquiler",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Cómo se pagó la factura de consultoría?",
+          "target": "factura",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿A qué hora es la cita con el dentista?",
+          "target": "dentista",
+          "rank": 1,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Dónde puedo recoger el libro de historia del arte?",
+          "target": "biblioteca",
+          "rank": 2,
+          "cosineRank": 1
+        },
+        {
+          "query": "¿Qué mantenimiento necesita el coche antes del viaje?",
+          "target": "coche",
+          "rank": 1,
+          "cosineRank": 1
+        }
+      ]
+    }
+  ],
+  "recommendation": {
+    "unreadPolicy": "creation-age",
+    "recencyWeight": 0.25,
+    "alternatives": {
+      "creation-age": {
+        "recencyWeight": 0.25,
+        "metrics": {
+          "recallAt5": 1,
+          "ndcgAt5": 1,
+          "mrr": 1,
+          "meanTargetRank": 1,
+          "meanTop5OverlapWithCosine": 0.655556,
+          "meanTop5OverlapWithNoRecencyBlend": 0.755556,
+          "targetRankChangedFromCosine": 0,
+          "targetRankChangedFromNoRecencyBlend": 0
+        }
+      },
+      "neutral-prior": {
+        "recencyWeight": 0.4,
+        "metrics": {
+          "recallAt5": 1,
+          "ndcgAt5": 1,
+          "mrr": 1,
+          "meanTargetRank": 1,
+          "meanTop5OverlapWithCosine": 0.611111,
+          "meanTop5OverlapWithNoRecencyBlend": 0.7,
+          "targetRankChangedFromCosine": 0,
+          "targetRankChangedFromNoRecencyBlend": 0
+        }
+      }
+    },
+    "rule": "for each unread policy, highest tested recency weight with Recall@5 and nDCG@5 at least equal to the cosine-only baseline; selected policy matches current creation-age behavior"
+  },
+  "limitations": [
+    "Small controlled corpus; use results as a calibration signal, not as a quality claim for a user's private store.",
+    "The positive labels identify one expected document per query; negative queries have no relevant document.",
+    "Temporal and importance profiles are synthetic and fixed for reproducibility.",
+    "No production defaults are changed automatically; review the scorecard before adopting its recommendation."
+  ]
+}
