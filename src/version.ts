@@ -4,4 +4,4 @@
  * attributable to a specific algo version. BUMP THIS by hand whenever
  * scoring.ts (or later decay/dreaming) changes behavior.
  */
-export const ALGO_VERSION = "1.2.0";
+export const ALGO_VERSION = "1.3.0";

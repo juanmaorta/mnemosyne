@@ -58,7 +58,7 @@ describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () 
   });
 
   test("an unread note's recency is measured from its creation", () => {
-    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 14 * DAY, accessCount: 0 });
+    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - DEFAULT_TAU_MS, accessCount: 0 });
     expect(never.signals.accessed).toBe(false);
     expect(never.signals.recencyNorm).toBeCloseTo(Math.exp(-1), 10);
   });
@@ -69,11 +69,12 @@ describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () 
     expect(newNote.signals.recencyNorm).toBeGreaterThan(old.signals.recencyNorm);
   });
 
-  // Only reachable once the axis is retention(strength) rather than plain
-  // recency: recencyNorm reads last_access alone, so two engrams read at the
-  // same instant tie regardless of how many times each was read. Tracked as
-  // the option-B follow-up in the diagnosis.
-  test.todo("more accesses outrank fewer, all else equal");
+  test("more accesses outrank fewer at the same age and relevance", () => {
+    const one = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 30 * DAY, accessCount: 1, strength: 2 });
+    const many = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 30 * DAY, accessCount: 4, strength: 5 });
+    expect(many.signals.recencyNorm).toBeGreaterThan(one.signals.recencyNorm);
+    expect(many.score).toBeGreaterThan(one.score);
+  });
 });
 
 describe("scoreBreakdown", () => {
@@ -131,6 +132,23 @@ describe("scoreBreakdown", () => {
 });
 
 describe("retention / reinforce", () => {
+  test("the 30-day base interval keeps a monthly recall measurable", () => {
+    const now = 60 * 24 * 3600 * 1000;
+    const monthAgo = now - 30 * 24 * 3600 * 1000;
+    expect(retention(now, monthAgo, 1)).toBeCloseTo(Math.exp(-1), 10);
+    expect(retention(now, monthAgo, 2)).toBeCloseTo(Math.exp(-0.5), 10);
+  });
+  test("calibration separates a monthly recalled note from an untouched one", () => {
+    const day = 24 * 3600 * 1000;
+    const now = 90 * day;
+    const monthAgo = now - 30 * day;
+    const separates = (tauDays: number) =>
+      retention(now, monthAgo, 2, tauDays * day) > 0.5
+      && retention(now, monthAgo, 1, tauDays * day) < 0.5;
+    expect(separates(14)).toBe(false); // a monthly recall decays too quickly
+    expect(separates(30)).toBe(true);
+    expect(separates(60)).toBe(false); // an unread note stays too fresh
+  });
   test("reinforce_increments_strength_and_count", () => {
     expect(reinforce({ strength: INITIAL_STRENGTH, accessCount: 0 })).toEqual({ strength: 2, accessCount: 1 });
   });

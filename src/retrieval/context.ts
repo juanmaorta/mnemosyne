@@ -17,7 +17,8 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
   const rows = db
     .prepare(
       `select e.slug as slug, e.scope as scope, e.description as description, e.importance as importance,
-              e.created as created, h.last_access as lastAccess, h.access_count as accessCount
+              e.created as created, h.last_access as lastAccess, h.access_count as accessCount,
+              h.strength as strength, h.retention as retention
        from engrams e
        left join hot_state h on h.scope = e.scope and h.slug = e.slug
        -- Superseded notes are excluded HERE and nowhere else. The digest is a
@@ -31,6 +32,7 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
     .all(scope) as {
     slug: string; scope: string; description: string; importance: number; created: string;
     lastAccess: string | null; accessCount: number | null;
+    strength: number | null; retention: number | null;
   }[];
 
   const scored = rows.map((r) => ({
@@ -43,6 +45,8 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
           nowMs,
           lastAccessMs: r.lastAccess === null ? null : Date.parse(r.lastAccess),
           accessCount: r.accessCount ?? 0,
+          strength: r.strength ?? 1,
+          retentionNorm: r.retention,
           importance: r.importance,
           relevanceCosine: 0, // no query at session start
         },

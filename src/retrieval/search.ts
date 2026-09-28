@@ -49,20 +49,24 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const rows = db.prepare(
     `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
             1.0 - vec_distance_cosine(v.embedding, ?) as relevance,
-            h.last_access as lastAccess, h.access_count as accessCount
+            h.last_access as lastAccess, h.access_count as accessCount,
+            h.strength as strength, h.retention as retention
      from vec_engrams v
      join engrams e on e.id = v.rowid
      left join hot_state h on h.scope = e.scope and h.slug = e.slug
      where e.scope in (${scopes.map(() => "?").join(",")})`,
   ).all(toBlob(q!), ...scopes) as
     { slug: string; scope: string; snippet: string; importance: number; relevance: number;
-      lastAccess: string | null; accessCount: number | null }[];
+      lastAccess: string | null; accessCount: number | null;
+      strength: number | null; retention: number | null }[];
 
   const raw = rows.map((r) => {
     const { signals } = scoreBreakdown({
       nowMs: now,
       lastAccessMs: r.lastAccess ? Date.parse(r.lastAccess) : null,
       accessCount: r.accessCount ?? 0,
+      strength: r.strength ?? 1,
+      retentionNorm: r.retention,
       importance: r.importance,
       relevanceCosine: r.relevance,
     }, weights);

@@ -6,7 +6,8 @@ import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { search } from "./search.js";
-import { systemClock } from "../clock.js";
+import { fixedClock, systemClock } from "../clock.js";
+import { getHotState, recordAccess } from "../hotstate.js";
 
 function note(root: string, slug: string, importance: number, body: string) {
   mkdirSync(join(root, "personal"), { recursive: true });
@@ -57,5 +58,29 @@ describe("blended search", () => {
       { query: "yogurt maker control" });
 
     expect(hits[0]!.slug).toBe("yogurtera");
+  });
+
+  test("search_uses_persisted_retention_so_repeated_reads_win_at_equal_cosine", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mneme-blend-"));
+    mkdirSync(join(root, ".index"), { recursive: true });
+    note(root, "one", 5, "yogurt maker control");
+    note(root, "many", 5, "yogurt maker control");
+    const db = openDb(join(root, ".index", "store.db"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+    const accessAt = "2026-07-01T10:00:00.000Z";
+    recordAccess(db, root, "personal", "one", accessAt);
+    recordAccess(db, root, "personal", "many", accessAt);
+    recordAccess(db, root, "personal", "many", accessAt);
+    const before = getHotState(db, "personal", "many")!.accessCount;
+
+    const hits = await search(
+      { db, root, embedder: createFakeEmbedder(), clock: fixedClock(Date.parse("2026-07-31T10:00:00.000Z")) },
+      { query: "yogurt maker control" },
+    );
+
+    expect(hits[0]!.slug).toBe("many");
+    expect(hits[0]!.signals.relevanceCosine).toBeCloseTo(hits[1]!.signals.relevanceCosine, 10);
+    expect(hits[0]!.signals.recencyNorm).toBeGreaterThan(hits[1]!.signals.recencyNorm);
+    expect(getHotState(db, "personal", "many")!.accessCount).toBe(before);
   });
 });

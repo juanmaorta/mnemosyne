@@ -415,7 +415,8 @@ Ranking blends relevance (semantic) + recency + importance, relevance-primary by
 Each signal is scaled across the candidates in the current search before blending, so a
 search score describes rank within that query and cannot be compared with another query's
 score. For a note never read, recency uses its creation date.
-Recall reinforces a memory; ignored memories decay (spaced repetition). Hot state lives
+Recall raises its strength and slows retention decay (30-day base interval); ignored memories
+decay. Hot state lives
 only in the local index — the `.md` files are never mutated by retrieval.
 
 ### Telemetry, and purging a scope from it

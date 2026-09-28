@@ -1,9 +1,8 @@
 export interface Weights { recency: number; importance: number; relevance: number }
 export const DEFAULT_WEIGHTS: Weights = { recency: 0.25, importance: 0.25, relevance: 1 };
-export const DEFAULT_TAU_MS = 14 * 24 * 3600 * 1000;
-export const INITIAL_STRENGTH = 1;
-
 const DAY_MS = 24 * 3600 * 1000;
+export const DEFAULT_TAU_MS = 30 * DAY_MS;
+export const INITIAL_STRENGTH = 1;
 
 export function recencyScore(nowMs: number, lastAccessMs: number, tauMs: number = DEFAULT_TAU_MS): number {
   const dt = Math.max(0, nowMs - lastAccessMs);
@@ -60,7 +59,7 @@ export interface ScoreSignals {
    * actually earned recency.
    */
   recencyRaw: number;
-  /** exp(-dt/tau) in [0,1], from last access or creation for never-read notes. */
+  /** retention(now, last access or creation, strength) in [0,1]. */
   recencyNorm: number;
   importanceRaw: number;
   importanceNorm: number;
@@ -75,16 +74,17 @@ export interface ScoreSignals {
 }
 
 export function scoreBreakdown(
-  input: { nowMs: number; lastAccessMs: number | null; accessCount: number; importance: number; relevanceCosine: number },
+  input: { nowMs: number; lastAccessMs: number | null; accessCount: number; importance: number;
+    relevanceCosine: number; strength?: number; retentionNorm?: number | null | undefined },
   w: Weights = DEFAULT_WEIGHTS,
 ): { score: number; signals: ScoreSignals } {
   const accessed = input.accessCount > 0 && input.lastAccessMs !== null;
   const recencyRaw = input.lastAccessMs !== null ? Math.max(0, input.nowMs - input.lastAccessMs) : 0;
   // Hot state seeds last_access from created when there are no read events.
-  // This makes the age of an unread note a measured value rather than a fixed
-  // prior shared by every unread note. Candidate-relative scaling in search
-  // keeps that age from overwhelming a narrower cosine range.
-  const recencyNorm = input.lastAccessMs === null ? 0 : recencyScore(input.nowMs, input.lastAccessMs);
+  // The persisted retention is materialized at the same `nowMs` as scoring;
+  // standalone callers can derive it from the same curve.
+  const recencyNorm = input.retentionNorm ?? (input.lastAccessMs === null
+    ? 0 : retention(input.nowMs, input.lastAccessMs, input.strength ?? INITIAL_STRENGTH));
   const importanceNormV = importanceNorm(input.importance);
   const relevanceCosine = Math.max(0, Math.min(1, input.relevanceCosine));
   const score = blendedScore(
@@ -97,9 +97,9 @@ export function scoreBreakdown(
   };
 }
 
-export function retention(nowMs: number, lastAccessMs: number, strength: number): number {
+export function retention(nowMs: number, lastAccessMs: number, strength: number, tauMs: number = DEFAULT_TAU_MS): number {
   const dt = Math.max(0, nowMs - lastAccessMs);
-  return Math.exp(-dt / (strength * DAY_MS));
+  return Math.exp(-dt / (strength * tauMs));
 }
 
 export function reinforce(prev: { strength: number; accessCount: number }): { strength: number; accessCount: number } {
