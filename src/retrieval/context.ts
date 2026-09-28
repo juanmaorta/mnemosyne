@@ -1,6 +1,6 @@
 import type { Db } from "../index/db.js";
 import { materializeHotState } from "../hotstate.js";
-import { scoreBreakdown } from "../scoring.js";
+import { scoreBreakdown, blendedScore, normalizeCandidateSignals } from "../scoring.js";
 
 export interface ContextEntry {
   slug: string;
@@ -33,16 +33,12 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
     lastAccess: string | null; accessCount: number | null;
   }[];
 
-  return rows
-    .map((r) => ({
+  const scored = rows.map((r) => ({
       slug: r.slug,
       scope: r.scope,
       description: r.description,
       created: r.created,
-      // Same scorer as `search`, deliberately: this used to inline its own copy
-      // of the recency rule, which is how the inverted prior survived here
-      // after being fixed in scoring.ts. One implementation, one behaviour.
-      score: scoreBreakdown(
+      signals: scoreBreakdown(
         {
           nowMs,
           lastAccessMs: r.lastAccess === null ? null : Date.parse(r.lastAccess),
@@ -51,8 +47,15 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
           relevanceCosine: 0, // no query at session start
         },
         CONTEXT_WEIGHTS,
-      ).score,
-    }))
+      ).signals,
+    }));
+  const normalized = normalizeCandidateSignals(scored.map(({ signals }) => ({
+    recency: signals.recencyNorm,
+    importance: signals.importanceNorm,
+    relevance: 0,
+  })));
+  return scored
+    .map(({ signals: _signals, ...entry }, i) => ({ ...entry, score: blendedScore(normalized[i]!, CONTEXT_WEIGHTS) }))
     .sort((a, b) => b.score - a.score || b.created.localeCompare(a.created) || a.slug.localeCompare(b.slug));
 }
 

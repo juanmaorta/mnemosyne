@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { recencyScore, importanceNorm, blendedScore, retention, reinforce, scoreBreakdown, DEFAULT_TAU_MS, INITIAL_STRENGTH, DEFAULT_WEIGHTS, UNACCESSED_RECENCY_PRIOR } from "./scoring.js";
+import { recencyScore, importanceNorm, blendedScore, retention, reinforce, scoreBreakdown, DEFAULT_TAU_MS, INITIAL_STRENGTH, DEFAULT_WEIGHTS } from "./scoring.js";
 
 describe("recencyScore", () => {
   test("recencyScore_is_1_at_zero_age", () => {
@@ -57,20 +57,16 @@ describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () 
     expect(read.score).toBeGreaterThanOrEqual(unread.score);
   });
 
-  test("the unaccessed prior sits inside the decay curve, not at its top", () => {
-    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: null, accessCount: 0 });
-    expect(never.signals.recencyNorm).toBeLessThan(1);
-    expect(never.signals.recencyNorm).toBeGreaterThan(0);
-    // Exactly the value the decay itself yields at one time constant.
+  test("an unread note's recency is measured from its creation", () => {
+    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 14 * DAY, accessCount: 0 });
+    expect(never.signals.accessed).toBe(false);
     expect(never.signals.recencyNorm).toBeCloseTo(Math.exp(-1), 10);
   });
 
-  test("an access older than the time constant scores below the prior", () => {
-    // The prior means "unknown, treated as one half-life old". An access older
-    // than that is genuinely colder than no information at all.
-    const stale = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 60 * DAY, accessCount: 3 });
-    const never = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: null, accessCount: 0 });
-    expect(stale.signals.recencyNorm).toBeLessThan(never.signals.recencyNorm);
+  test("unread notes of different ages no longer share a fixed prior", () => {
+    const old = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - 60 * DAY, accessCount: 0 });
+    const newNote = scoreBreakdown({ ...base, nowMs: now, lastAccessMs: now - DAY, accessCount: 0 });
+    expect(newNote.signals.recencyNorm).toBeGreaterThan(old.signals.recencyNorm);
   });
 
   // Only reachable once the axis is retention(strength) rather than plain
@@ -81,18 +77,18 @@ describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () 
 });
 
 describe("scoreBreakdown", () => {
-  test("never_accessed_note_gets_the_prior_and_exposes_each_signal", () => {
+  test("never_accessed_note_uses_its_creation_age_and_exposes_each_signal", () => {
     const { score, signals } = scoreBreakdown({
-      nowMs: 1000, lastAccessMs: null, accessCount: 0, importance: 10, relevanceCosine: 0.5,
+      nowMs: 1000 + DEFAULT_TAU_MS, lastAccessMs: 1000, accessCount: 0, importance: 10, relevanceCosine: 0.5,
     });
     expect(signals.accessed).toBe(false);
-    expect(signals.recencyNorm).toBe(UNACCESSED_RECENCY_PRIOR); // mid-curve, not the top of the axis
-    expect(signals.recencyRaw).toBe(0);
+    expect(signals.recencyNorm).toBeCloseTo(Math.exp(-1), 10);
+    expect(signals.recencyRaw).toBe(DEFAULT_TAU_MS);
     expect(signals.importanceRaw).toBe(10);
     expect(signals.importanceNorm).toBe(1);
     expect(signals.relevanceCosine).toBe(0.5);
     const w = DEFAULT_WEIGHTS, total = w.recency + w.importance + w.relevance;
-    expect(score).toBeCloseTo((w.recency * UNACCESSED_RECENCY_PRIOR + w.importance * 1 + w.relevance * 0.5) / total, 10);
+    expect(score).toBeCloseTo((w.recency * Math.exp(-1) + w.importance * 1 + w.relevance * 0.5) / total, 10);
   });
 
   test("accessed_note_uses_recencyScore_for_recencyNorm", () => {
@@ -112,7 +108,7 @@ describe("scoreBreakdown", () => {
       nowMs: 1000 + DEFAULT_TAU_MS, lastAccessMs: 1000, accessCount: 0, importance: 5, relevanceCosine: 0.5,
     });
     expect(signals.accessed).toBe(false);
-    expect(signals.recencyNorm).toBe(UNACCESSED_RECENCY_PRIOR); // prior, not the seeded age
+    expect(signals.recencyNorm).toBeCloseTo(Math.exp(-1), 10);
     expect(signals.recencyRaw).toBe(DEFAULT_TAU_MS); // but the real age survives
   });
 

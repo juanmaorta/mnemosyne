@@ -22,6 +22,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
   const header = [
     `query: "${res.query}"  scopes: [${res.scopes.join(", ")}]  k=${res.k}  ${res.candidates.length} candidates`,
     `weights: recency ${w.recency} · importance ${w.importance} · relevance ${w.relevance}`,
+    "score axes: each signal scaled to [0,1] among these candidates; scores are relative to this query",
   ];
 
   if (res.candidates.length === 0) {
@@ -34,9 +35,10 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
   const hidden = res.candidates.length - shown.length;
 
   const rows = shown.map((c) => {
-    // A trailing marker beats hiding the value: the neutral 1.000 is real, it
-    // just wasn't earned, and a reader comparing rows needs to see which.
+    // Raw decay remains visible; the marker distinguishes creation-age from
+    // access-age. The scaled blend beside it reconstructs the score.
     const recency = `${f3(c.signals.recencyNorm)}${c.signals.accessed ? " " : "*"}`;
+    const blend = c.signals.normalized;
     return [
       String(c.rank).padStart(4),
       c.included ? " ✓ " : " ✗ ",
@@ -44,12 +46,13 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
       recency.padStart(8),
       f3(c.signals.importanceNorm).padStart(7),
       f3(c.signals.relevanceCosine).padStart(7),
+      blend ? `${f3(blend.recency)}/${f3(blend.importance)}/${f3(blend.relevance)}` : "        —        ",
       `  ${c.slug} [${c.scope}]`,
     ].join(" ");
   });
 
-  const columns = ["rank", "   ", "  score", "    recN", "   impN", "    cos", "  slug [scope]"].join(" ");
-  const anyNeutralised = shown.some((c) => !c.signals.accessed);
+  const columns = ["rank", "   ", "  score", "  decay", "   impN", "    cos", "scaled r/i/c", "  slug [scope]"].join(" ");
+  const anyNeverRead = shown.some((c) => !c.signals.accessed);
 
   return [
     ...header,
@@ -60,6 +63,6 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
     ...(hidden > 0 ? [`  … ${hidden} more below the cut line (--all to show)`] : []),
     "",
     `cut line (threshold): ${f3(threshold)}`,
-    ...(anyNeutralised ? ["* recency neutralised (never accessed)"] : []),
+    ...(anyNeverRead ? ["* decay measured from creation (never accessed)"] : []),
   ].join("\n");
 }

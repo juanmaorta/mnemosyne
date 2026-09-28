@@ -49,11 +49,11 @@ describe("formatExplain", () => {
   });
 
   test("marks a never-accessed engram so its neutral recency is not misread", () => {
-    // recencyNorm 1 on an unaccessed engram means "neutralised", not "just read".
+    // The marker distinguishes creation-age decay from access-age decay.
     const out = formatExplain(RESULT);
     expect(out.split("\n").find((l) => l.includes("router"))).toMatch(/1\.000\s*\*/);
     expect(out.split("\n").find((l) => l.includes("yogurtera"))).not.toMatch(/1\.000\s*\*/);
-    expect(out).toContain("* recency neutralised (never accessed)");
+    expect(out).toContain("* decay measured from creation (never accessed)");
   });
 
   test("shows the query context and the cut line", () => {

@@ -412,6 +412,9 @@ does not own. The digest is the current scope's ambient view — `mneme search "
 recalls across every scope on this machine.
 
 Ranking blends relevance (semantic) + recency + importance, relevance-primary by default.
+Each signal is scaled across the candidates in the current search before blending, so a
+search score describes rank within that query and cannot be compared with another query's
+score. For a note never read, recency uses its creation date.
 Recall reinforces a memory; ignored memories decay (spaced repetition). Hot state lives
 only in the local index — the `.md` files are never mutated by retrieval.
 

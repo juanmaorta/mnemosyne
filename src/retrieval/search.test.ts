@@ -83,10 +83,11 @@ describe("search", () => {
     const fresh = await search({ db, root, embedder, clock: fixedClock(t0) }, q);
     const stale = await search({ db, root, embedder, clock: fixedClock(t0 + 90 * 24 * 3600 * 1000) }, q);
 
-    // Same engram wins either way; only its recency term decays with the clock.
+    // Same engram wins either way. Relative ranking scores may stay equal when
+    // every candidate's axis moves together, but the raw decay must change.
     expect(fresh[0]!.slug).toBe("yogurtera");
     expect(stale[0]!.slug).toBe("yogurtera");
-    expect(fresh[0]!.score).toBeGreaterThan(stale[0]!.score);
+    expect(fresh[0]!.signals.recencyNorm).toBeGreaterThan(stale[0]!.signals.recencyNorm);
   });
 
   test("each_hit_carries_its_signal_breakdown_rank_and_threshold", async () => {
@@ -103,11 +104,10 @@ describe("search", () => {
     expect(hits.every((h) => h.threshold === hits[0]!.threshold)).toBe(true);
     expect(hits.every((h) => h.included)).toBe(true);
 
-    // The score must be recomputable from the exposed signals alone —
-    // that is the whole point of the breakdown.
-    const w = hits[0]!.weights, s = hits[0]!.signals, total = w.recency + w.importance + w.relevance;
+    // The score must be recomputable from the candidate-relative signals.
+    const w = hits[0]!.weights, s = hits[0]!.signals.normalized!, total = w.recency + w.importance + w.relevance;
     expect(hits[0]!.score).toBeCloseTo(
-      (w.recency * s.recencyNorm + w.importance * s.importanceNorm + w.relevance * s.relevanceCosine) / total,
+      (w.recency * s.recency + w.importance * s.importance + w.relevance * s.relevance) / total,
       10,
     );
   });

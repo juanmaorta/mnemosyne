@@ -72,9 +72,9 @@ describe("searchInstrumented", () => {
     const q = evs.find((e) => e.kind === "retrieval.query")!;
     const top = evs.find((e) => e.kind === "retrieval.candidate" && e.rank === 0)!;
     const w = q.weights as { recency: number; importance: number; relevance: number };
-    const s = top.signals as { recencyNorm: number; importanceNorm: number; relevanceCosine: number };
+    const s = top.signals as { normalized: { recency: number; importance: number; relevance: number } };
 
-    const recomputed = (w.recency * s.recencyNorm + w.importance * s.importanceNorm + w.relevance * s.relevanceCosine)
+    const recomputed = (w.recency * s.normalized.recency + w.importance * s.normalized.importance + w.relevance * s.normalized.relevance)
       / (w.recency + w.importance + w.relevance);
 
     expect(recomputed).toBeCloseTo(hits[0]!.score, 10);

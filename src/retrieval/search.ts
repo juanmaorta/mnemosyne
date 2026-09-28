@@ -1,6 +1,6 @@
 import type { Db } from "../index/db.js";
 import type { EmbeddingClient } from "../embeddings.js";
-import { scoreBreakdown, DEFAULT_WEIGHTS, type Weights, type ScoreSignals } from "../scoring.js";
+import { scoreBreakdown, blendedScore, normalizeCandidateSignals, DEFAULT_WEIGHTS, type Weights, type ScoreSignals } from "../scoring.js";
 import { materializeHotState } from "../hotstate.js";
 import { listScopes } from "../index/walk.js";
 import { toBlob } from "../index/vecBlob.js";
@@ -58,15 +58,29 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
     { slug: string; scope: string; snippet: string; importance: number; relevance: number;
       lastAccess: string | null; accessCount: number | null }[];
 
-  const scored = rows.map((r) => {
-    const { score, signals } = scoreBreakdown({
+  const raw = rows.map((r) => {
+    const { signals } = scoreBreakdown({
       nowMs: now,
       lastAccessMs: r.lastAccess ? Date.parse(r.lastAccess) : null,
       accessCount: r.accessCount ?? 0,
       importance: r.importance,
       relevanceCosine: r.relevance,
     }, weights);
-    return { slug: r.slug, scope: r.scope, snippet: r.snippet, score, signals, weights };
+    return { slug: r.slug, scope: r.scope, snippet: r.snippet, signals };
+  });
+  const normalized = normalizeCandidateSignals(raw.map(({ signals }) => ({
+    recency: signals.recencyNorm,
+    importance: signals.importanceNorm,
+    relevance: signals.relevanceCosine,
+  })));
+  const scored = raw.map((candidate, i) => {
+    const blend = normalized[i]!;
+    return {
+      ...candidate,
+      score: blendedScore(blend, weights),
+      signals: { ...candidate.signals, normalized: blend },
+      weights,
+    };
   });
   scored.sort((a, b) => b.score - a.score);
   // The cut line is the score of the last engram that made the top-k. With
