@@ -164,6 +164,30 @@ npm run build && node scripts/calibrate-retrieval.mjs --json
 The benchmark does not change production defaults; its small, controlled fixture
 is a calibration signal, not a quality claim for a private store.
 
+For a private, per-scope 5b-golden evaluation, prepare and review a local query
+set, then run it against the current retrieval implementation:
+
+```sh
+npm run bench:golden -- prepare --scope personal
+# Review ~/.cache/mnemosyne/5b-golden/scope-<hash>.json locally:
+# edit questions and graded cluster relevance, then set approved=true.
+npm run bench:golden -- run --scope personal
+```
+
+Omit `--scope` to process every scope in the local store, or repeat for each
+scope. Preparation embeds the real corpus with local Ollama and generates
+up to 25 questions per scope (or every document for smaller scopes) using the
+local `gemma4:e2b` model by default. The
+script refuses non-local Ollama hosts and cloud models. Queries are generated
+from user situations without copying distinctive note terms; cosine-near
+documents receive graded relevance suggestions that must be reviewed by hand.
+The private review set and scorecards live under `~/.cache/mnemosyne/5b-golden/`,
+outside the repository. The runner uses an in-memory SQLite index, reads access
+events without modifying them, and reports graded nDCG@10/MRR plus cold-model
+and warm-model p50/p95 latency. Never commit local review sets.
+Queries approved with an empty relevance array are treated as unanswerable and
+reported separately by false-positive rate; they do not depress nDCG/MRR.
+
 On the 2026-09-28 Nomic run, the current creation-age policy at recency weight
 `0.25` matched the cosine-only baseline (Recall@5 and nDCG@5 both `1.0`). At
 `0.40`, creation-age nDCG@5 fell to `0.959`; the neutral-prior comparison stayed
@@ -532,7 +556,7 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 > (write integration — `mneme add` with fail-closed scope, owner policy, and secret
 > scanner) complete. **Fase 3** (observability, instrumentation & benchmarking) is under way:
 > the clock seam, signal breakdown, telemetry store, lifecycle instrumentation and the
-> `stats`/`explain`/`trace` surface and local cosine/recency calibration benches are in;
+> `stats`/`explain`/`trace` surface and local cosine, recency, and 5b-golden benches are in;
 > the benchmark CI gate is not wired yet.
 > Then Fase 4 (nightly dreaming/consolidation).
 > See [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md).
