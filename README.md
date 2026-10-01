@@ -172,6 +172,9 @@ npm run bench:golden -- prepare --scope personal
 # Review ~/.cache/mnemosyne/5b-golden/scope-<hash>.json locally:
 # edit questions and graded cluster relevance, then set approved=true.
 npm run bench:golden -- run --scope personal
+
+# Diagnose each reviewed query against production ranking and pure cosine.
+npm run bench:golden -- diagnose --scope personal
 ```
 
 Omit `--scope` to process every scope in the local store, or repeat for each
@@ -187,6 +190,15 @@ events without modifying them, and reports graded nDCG@10/MRR plus cold-model
 and warm-model p50/p95 latency. Never commit local review sets.
 Queries approved with an empty relevance array are treated as unanswerable and
 reported separately by false-positive rate; they do not depress nDCG/MRR.
+`diagnose` writes a private scorecard with query IDs, ranks, cosine values, and
+score signals and unanswerable-query false positives; it never includes query
+text, slugs, or note text. It compares
+the production blend and cosine floor with pure cosine (recency and importance
+weights zero, floor disabled). If the corpus has changed since review, the
+command refuses by default. `--allow-corpus-drift` makes an explicitly marked
+diagnostic run on the current corpus and excludes queries whose graded notes
+are gone. That run uses the current time for decay, so its metrics are not
+directly comparable with the original scorecard.
 
 On the 2026-09-28 Nomic run, the current creation-age policy at recency weight
 `0.25` matched the cosine-only baseline (Recall@5 and nDCG@5 both `1.0`). At

@@ -15,6 +15,7 @@ import { searchExplain } from "../dist/retrieval/search.js";
 import { fixedClock } from "../dist/clock.js";
 import { ALGO_VERSION } from "../dist/version.js";
 import { percentile, queryMetrics, summarizeEvaluation } from "../dist/golden-metrics.js";
+import { diagnoseQuery, diagnosticTime, rankingMetadataDigest, summarizeDiagnostics } from "../dist/golden-diagnostics.js";
 
 const DEFAULT_QUERY_MODEL = "gemma4:e2b";
 const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
@@ -27,13 +28,14 @@ const OUTPUT_ROOT = resolve(process.env.MNEMOSYNE_GOLDEN_DIR ?? join(homedir(), 
 
 function options(argv) {
   const [command, ...rest] = argv;
-  if (!["prepare", "run"].includes(command)) {
-    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run> [--scope <scope>] [--force]");
+  if (!["prepare", "run", "diagnose"].includes(command)) {
+    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run|diagnose> [--scope <scope>] [--force] [--allow-corpus-drift]");
   }
-  const opts = { command, scopes: [], force: false };
+  const opts = { command, scopes: [], force: false, allowCorpusDrift: false };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--scope" && rest[i + 1]) opts.scopes.push(rest[++i]);
     else if (rest[i] === "--force") opts.force = true;
+    else if (rest[i] === "--allow-corpus-drift" && command === "diagnose") opts.allowCorpusDrift = true;
     else throw new Error(`unknown option: ${rest[i]}`);
   }
   return opts;
@@ -242,7 +244,7 @@ async function prepareScope(scope, opts) {
     createdAt: evaluationTime,
     evaluationTime,
     scope,
-    corpus: { documents: documents.length, skippedInvalidOrSuperseded: skipped, sha256: corpusDigest(documents) },
+    corpus: { documents: documents.length, skippedInvalidOrSuperseded: skipped, sha256: corpusDigest(documents), rankingSha256: rankingMetadataDigest(documents) },
     embeddingModel,
     queryModel,
     clusterCosineThreshold: threshold,
@@ -289,36 +291,55 @@ async function evaluatePass({ queries, docs, db, embedder, now, warmup }) {
   return { metrics: summarizeEvaluation(all), latency: summarizeLatencies(latencies), perQuery: all };
 }
 
-async function runScope(scope, embeddingModel) {
+function loadReviewedScope(scope, allowCorpusDrift = false) {
   const path = scopeFile(scope);
   if (!existsSync(path)) throw new Error(`No local review set for scope '${scope}'. Run prepare first.`);
   const reviewSet = JSON.parse(readFileSync(path, "utf8"));
   const pending = reviewSet.queries.filter((query) => query.approved !== true);
   if (pending.length) throw new Error(`Scope '${scope}' has ${pending.length} queries not human-reviewed. Approve them in ${path} before running.`);
   const { documents, skipped } = readCorpus(ROOT, scope);
-  if (corpusDigest(documents) !== reviewSet.corpus.sha256) throw new Error(`Corpus changed since review set creation for scope '${scope}'. Re-run prepare and review the refreshed queries.`);
-  if (skipped !== reviewSet.corpus.skippedInvalidOrSuperseded) throw new Error(`Corpus validation changed since review set creation for scope '${scope}'.`);
+  const rankingMetadataUnverified = !reviewSet.corpus.rankingSha256;
+  const contentChanged = corpusDigest(documents) !== reviewSet.corpus.sha256 || skipped !== reviewSet.corpus.skippedInvalidOrSuperseded;
+  const rankingMetadataChanged = !rankingMetadataUnverified && rankingMetadataDigest(documents) !== reviewSet.corpus.rankingSha256;
+  const corpusChanged = contentChanged || rankingMetadataChanged;
+  if (corpusChanged && !allowCorpusDrift) throw new Error(`Corpus changed since review set creation for scope '${scope}'. Re-run prepare and review the refreshed queries.`);
   const documentSlugs = new Set(documents.map((doc) => doc.slug));
   const queryIds = new Set();
+  const excludedQueryIds = [];
   for (const query of reviewSet.queries) {
     if (!query.id || queryIds.has(query.id)) throw new Error(`Review set for '${scope}' has a missing or duplicate query id.`);
     queryIds.add(query.id);
     if (typeof query.query !== "string" || query.query.trim().length < 8) throw new Error(`Review set for '${scope}' has an empty or too-short query (${query.id}).`);
-    if (!documentSlugs.has(query.anchorSlug) || !Array.isArray(query.relevance)) throw new Error(`Review set for '${scope}' has invalid relevance labels (${query.id}).`);
+    if (!Array.isArray(query.relevance)) throw new Error(`Review set for '${scope}' has invalid relevance labels (${query.id}).`);
     const judged = new Set();
+    let missingDocument = !documentSlugs.has(query.anchorSlug);
     for (const item of query.relevance) {
-      if (!documentSlugs.has(item.slug) || judged.has(item.slug) || !Number.isInteger(item.grade) || item.grade < 1 || item.grade > 3) {
+      if (judged.has(item.slug) || !Number.isInteger(item.grade) || item.grade < 1 || item.grade > 3) {
         throw new Error(`Review set for '${scope}' has an invalid graded document in ${query.id}.`);
       }
+      if (!documentSlugs.has(item.slug)) missingDocument = true;
       judged.add(item.slug);
     }
+    if (missingDocument) {
+      if (!allowCorpusDrift) throw new Error(`Review set for '${scope}' has an invalid graded document in ${query.id}.`);
+      excludedQueryIds.push(query.id);
+    }
   }
-  const queries = reviewSet.queries.map((query) => ({ ...query, scope }));
+  return { reviewSet, documents, queries: reviewSet.queries.filter((query) => !excludedQueryIds.includes(query.id)).map((query) => ({ ...query, scope })), corpusChanged, rankingMetadataUnverified, excludedQueryIds };
+}
+
+async function indexReviewedScope(documents, embeddingModel) {
   const client = clientWithKeepAlive(embeddingModel, "5m");
   const vectors = [];
   for (let i = 0; i < documents.length; i += 24) vectors.push(...await client.embed(documents.slice(i, i + 24).map((doc) => doc.text), "document"));
   const db = openDb(":memory:");
   buildMemoryIndex(db, documents, vectors, client.dim);
+  return { client, db };
+}
+
+async function runScope(scope, embeddingModel) {
+  const { reviewSet, documents, queries } = loadReviewedScope(scope);
+  const { client, db } = await indexReviewedScope(documents, embeddingModel);
   const now = Date.parse(reviewSet.evaluationTime ?? reviewSet.createdAt);
   if (!Number.isFinite(now)) throw new Error(`Review set for '${scope}' has an invalid evaluation time.`);
   // Cold pass unloads the model after each query. Warm pass includes a model warm-up,
@@ -357,6 +378,52 @@ async function runScope(scope, embeddingModel) {
   console.log(`local scorecard: ${output}`);
 }
 
+async function diagnoseScope(scope, embeddingModel, allowCorpusDrift) {
+  const { reviewSet, documents, queries, corpusChanged, rankingMetadataUnverified, excludedQueryIds } = loadReviewedScope(scope, allowCorpusDrift);
+  const { client, db } = await indexReviewedScope(documents, embeddingModel);
+  try {
+    const reviewedAt = Date.parse(reviewSet.evaluationTime ?? reviewSet.createdAt);
+    if (!Number.isFinite(reviewedAt)) throw new Error(`Review set for '${scope}' has an invalid evaluation time.`);
+    const now = diagnosticTime(reviewedAt, corpusChanged || rankingMetadataUnverified, Date.now());
+    const deps = { db, root: ROOT, embedder: client, clock: fixedClock(now) };
+    const perQuery = [];
+    for (const query of queries) {
+      const opts = { query: query.query, scopes: [scope], k: documents.length };
+      const blend = await searchExplain(deps, opts);
+      const cosine = await searchExplain(deps, { ...opts, weights: { recency: 0, importance: 0, relevance: 1 }, minCos: -1 });
+      perQuery.push(diagnoseQuery(query.id, query.relevance,
+        blend.candidates.filter((candidate) => candidate.included),
+        cosine.candidates.filter((candidate) => candidate.included), blend.minCos));
+    }
+    const report = {
+      benchmark: "mnemosyne-5b-diagnosis-v1", algoVersion: ALGO_VERSION,
+      scope, evaluationTime: new Date(now).toISOString(), reviewedAt: new Date(reviewedAt).toISOString(), embeddingModel,
+      corpusDocuments: documents.length, reviewedCorpusDocuments: reviewSet.corpus.documents,
+      corpusChanged, rankingMetadataUnverified,
+      reviewedCorpusSha256: reviewSet.corpus.sha256, currentCorpusSha256: corpusDigest(documents),
+      reviewedRankingSha256: reviewSet.corpus.rankingSha256 ?? null, currentRankingSha256: rankingMetadataDigest(documents),
+      queryCount: queries.length, excludedQueryIds, topK: TOP_K,
+      summary: summarizeDiagnostics(perQuery), perQuery,
+      limitations: [
+        "Cause embedder-or-label requires manual inspection of the private review set; it is not an automatic verdict on the embedding model.",
+        ...(corpusChanged ? ["The corpus changed after query review. These metrics cannot be compared directly with the original 5b scorecard."] : []),
+        ...(rankingMetadataUnverified ? ["This older review set has no ranking-metadata digest; changes in importance since review cannot be verified."] : []),
+        ...(excludedQueryIds.length ? ["Queries whose anchor or graded documents are absent from the current corpus were excluded."] : []),
+        "Only query IDs and numeric signals are present; queries, slugs, and note text remain local to the private review set.",
+      ],
+    };
+    const output = scopeScorecardFile(scope, `${embeddingModel}-diagnosis`);
+    writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+    console.log(`diagnosis scope=${scope} queries=${queries.length} excluded=${excludedQueryIds.length} corpusChanged=${corpusChanged}`);
+    console.log(`nDCG@10 blended=${report.summary.blended.meanNdcgAt10?.toFixed(3)} cosine-only=${report.summary.cosine.meanNdcgAt10?.toFixed(3)}`);
+    console.log(`causes=${JSON.stringify(report.summary.causes)}`);
+    console.log(`unanswerable=${JSON.stringify(report.summary.unanswerable)}`);
+    console.log(`local diagnosis: ${output}`);
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   localHostOnly();
   const opts = options(process.argv.slice(2));
@@ -367,7 +434,8 @@ async function main() {
   await assertLocalModel(embeddingModel);
   for (const scope of scopes) {
     if (opts.command === "prepare") await prepareScope(scope, opts);
-    else await runScope(scope, embeddingModel);
+    else if (opts.command === "run") await runScope(scope, embeddingModel);
+    else await diagnoseScope(scope, embeddingModel, opts.allowCorpusDrift);
   }
 }
 
