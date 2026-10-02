@@ -11,11 +11,13 @@ import { listEngramFiles, listScopes } from "../dist/index/walk.js";
 import { createOllamaClient } from "../dist/embeddings.js";
 import { openDb, resetVectorIndex } from "../dist/index/db.js";
 import { toBlob } from "../dist/index/vecBlob.js";
-import { searchExplain } from "../dist/retrieval/search.js";
+import { searchExplain, resolveMinCos, NOMIC_MIN_COS } from "../dist/retrieval/search.js";
+import { readEvents } from "../dist/events.js";
 import { fixedClock } from "../dist/clock.js";
 import { ALGO_VERSION } from "../dist/version.js";
 import { percentile, queryMetrics, summarizeEvaluation } from "../dist/golden-metrics.js";
 import { diagnoseQuery, diagnosticTime, rankingMetadataDigest, summarizeDiagnostics } from "../dist/golden-diagnostics.js";
+import { assertCalibrationReviewSet, compareCalibrationArms, rankCalibrationCandidates, selectEligibleConfigurations } from "../dist/golden-calibration.js";
 
 const DEFAULT_QUERY_MODEL = "gemma4:e2b";
 const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
@@ -28,8 +30,8 @@ const OUTPUT_ROOT = resolve(process.env.MNEMOSYNE_GOLDEN_DIR ?? join(homedir(), 
 
 function options(argv) {
   const [command, ...rest] = argv;
-  if (!["prepare", "run", "diagnose"].includes(command)) {
-    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run|diagnose> [--scope <scope>] [--force] [--allow-corpus-drift]");
+  if (!["prepare", "run", "diagnose", "calibrate"].includes(command)) {
+    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run|diagnose|calibrate> [--scope <scope>] [--force] [--allow-corpus-drift]");
   }
   const opts = { command, scopes: [], force: false, allowCorpusDrift: false };
   for (let i = 0; i < rest.length; i++) {
@@ -99,6 +101,26 @@ function corpusDigest(documents) {
   const hash = createHash("sha256");
   for (const doc of documents) hash.update(`${doc.scope}\0${doc.slug}\0${doc.created}\0${doc.text}\0`);
   return hash.digest("hex");
+}
+
+function eventsDigest(root, scope) {
+  const hash = createHash("sha256");
+  const events = readEvents(root, [scope]);
+  for (const key of [...events.keys()].sort()) {
+    hash.update(key);
+    for (const event of events.get(key).slice().sort((a, b) => a.ts.localeCompare(b.ts) || a.kind.localeCompare(b.kind))) {
+      hash.update(JSON.stringify(event));
+    }
+  }
+  return hash.digest("hex");
+}
+
+function currentFingerprint(scope) {
+  const { documents, skipped } = readCorpus(ROOT, scope);
+  return {
+    contentSha256: corpusDigest(documents), rankingSha256: rankingMetadataDigest(documents),
+    eventsSha256: eventsDigest(ROOT, scope), documents: documents.length, skipped,
+  };
 }
 
 function cosine(a, b) {
@@ -296,7 +318,7 @@ function loadReviewedScope(scope, allowCorpusDrift = false) {
   if (!existsSync(path)) throw new Error(`No local review set for scope '${scope}'. Run prepare first.`);
   const reviewSet = JSON.parse(readFileSync(path, "utf8"));
   const pending = reviewSet.queries.filter((query) => query.approved !== true);
-  if (pending.length) throw new Error(`Scope '${scope}' has ${pending.length} queries not human-reviewed. Approve them in ${path} before running.`);
+  if (pending.length) throw new Error(`Scope '${scope}' has ${pending.length} queries not reviewed. Approve them in ${path} before running.`);
   const { documents, skipped } = readCorpus(ROOT, scope);
   const rankingMetadataUnverified = !reviewSet.corpus.rankingSha256;
   const contentChanged = corpusDigest(documents) !== reviewSet.corpus.sha256 || skipped !== reviewSet.corpus.skippedInvalidOrSuperseded;
@@ -312,7 +334,7 @@ function loadReviewedScope(scope, allowCorpusDrift = false) {
     if (typeof query.query !== "string" || query.query.trim().length < 8) throw new Error(`Review set for '${scope}' has an empty or too-short query (${query.id}).`);
     if (!Array.isArray(query.relevance)) throw new Error(`Review set for '${scope}' has invalid relevance labels (${query.id}).`);
     const judged = new Set();
-    let missingDocument = !documentSlugs.has(query.anchorSlug);
+    let missingDocument = query.anchorSlug !== null && !documentSlugs.has(query.anchorSlug);
     for (const item of query.relevance) {
       if (judged.has(item.slug) || !Number.isInteger(item.grade) || item.grade < 1 || item.grade > 3) {
         throw new Error(`Review set for '${scope}' has an invalid graded document in ${query.id}.`);
@@ -326,6 +348,118 @@ function loadReviewedScope(scope, allowCorpusDrift = false) {
     }
   }
   return { reviewSet, documents, queries: reviewSet.queries.filter((query) => !excludedQueryIds.includes(query.id)).map((query) => ({ ...query, scope })), corpusChanged, rankingMetadataUnverified, excludedQueryIds };
+}
+
+function calibrationConfigurations(floor) {
+  const blend = { recency: 0.25, importance: 0.25, relevance: 1 };
+  const cosineWeights = { recency: 0, importance: 0, relevance: 1 };
+  const arms = [
+    { name: "production", config: { weights: blend, floor } },
+    { name: "blend-no-floor", config: { weights: blend, floor: null } },
+    { name: "cosine-with-floor", config: { weights: cosineWeights, floor } },
+    { name: "pure-cosine", config: { weights: cosineWeights, floor: null } },
+  ];
+  const grid = [];
+  for (const recency of [0, 0.05, 0.10, 0.15, 0.20, 0.25]) {
+    for (const importance of [0, 0.05, 0.10, 0.15, 0.20, 0.25]) {
+      for (const candidateFloor of [null, 0.65, 0.66, 0.67, 0.68, 0.69, 0.70, 0.71, 0.72]) {
+        grid.push({ name: `r${recency.toFixed(2)}-i${importance.toFixed(2)}-f${candidateFloor === null ? "off" : candidateFloor.toFixed(2)}`,
+          config: { weights: { recency, importance, relevance: 1 }, floor: candidateFloor } });
+      }
+    }
+  }
+  return { arms, grid };
+}
+
+async function calibrateScope(scope, embeddingModel) {
+  const { reviewSet, documents, queries } = loadReviewedScope(scope);
+  const before = currentFingerprint(scope);
+  assertCalibrationReviewSet(reviewSet, {
+    contentSha256: before.contentSha256, rankingSha256: before.rankingSha256,
+    documentSlugs: new Set(documents.map((doc) => doc.slug)),
+  });
+  const now = Date.parse(reviewSet.evaluationTime ?? reviewSet.createdAt);
+  if (!Number.isFinite(now)) throw new Error(`Review set for '${scope}' has an invalid evaluation time.`);
+  const { client, db } = await indexReviewedScope(documents, embeddingModel);
+  try {
+    const floor = resolveMinCos(client.id);
+    if (floor !== NOMIC_MIN_COS) throw new Error("MNE-76 calibration requires local nomic-embed-text with its calibrated cosine floor.");
+    const { arms: armConfigs, grid: gridConfigs } = calibrationConfigurations(floor);
+    const production = armConfigs[0].config;
+    const deps = { db, root: ROOT, embedder: client, clock: fixedClock(now) };
+    const cases = [];
+    for (const query of queries) {
+      const result = await searchExplain(deps, { query: query.query, scopes: [scope], k: documents.length });
+      const candidates = result.candidates.map((item) => ({
+        slug: item.slug, cosine: item.signals.relevanceCosine, normalized: item.signals.normalized,
+      }));
+      if (candidates.some((item) => !item.normalized)) throw new Error(`Missing normalized signals in ${scope}/${query.id}.`);
+      const actualTop10 = result.candidates.filter((item) => item.included).slice(0, TOP_K).map((item) => item.slug);
+      const reconstructed = rankCalibrationCandidates(candidates, production, TOP_K);
+      if (JSON.stringify(actualTop10) !== JSON.stringify(reconstructed)) {
+        throw new Error(`Calibration failed to reproduce production order for ${scope}/${query.id}.`);
+      }
+      cases.push({ id: query.id, relevance: query.relevance, candidates });
+    }
+    const after = currentFingerprint(scope);
+    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`Corpus or access events changed during calibration of '${scope}'; no scorecard written.`);
+    const arms = compareCalibrationArms(cases, armConfigs, TOP_K);
+    const grid = compareCalibrationArms(cases, gridConfigs, TOP_K).map(({ name, config, result }) => ({
+      name, config, answerable: result.answerable, unanswerable: result.unanswerable,
+    }));
+    const report = {
+      benchmark: "mnemosyne-5b-calibration-v1", algoVersion: ALGO_VERSION,
+      scope, evaluationTime: new Date(now).toISOString(), embeddingModel,
+      queryCount: queries.length, answerableCount: queries.filter((query) => query.relevance.length > 0).length,
+      unanswerableCount: queries.filter((query) => query.relevance.length === 0).length,
+      corpus: before, topK: TOP_K, arms, grid,
+      limitations: [
+        "Queries and labels are locally reviewed; they are not committed to git.",
+        "A grid search on this small private set can overfit. A candidate requires further validation before changing production defaults.",
+      ],
+    };
+    const output = scopeScorecardFile(scope, `${embeddingModel}-calibration`);
+    writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+    console.log(`calibration scope=${scope} queries=${queries.length} negatives=${report.unanswerableCount}`);
+    for (const arm of arms) console.log(`${arm.name}: nDCG@10=${arm.result.answerable.meanNdcgAt10?.toFixed(3)} MRR=${arm.result.answerable.mrr?.toFixed(3)} false-positive=${arm.result.unanswerable.falsePositives}/${arm.result.unanswerable.queries}`);
+    console.log(`local calibration scorecard: ${output}`);
+    return report;
+  } finally {
+    db.close();
+  }
+}
+
+function reportJointCalibration(reports) {
+  const byScope = new Map(reports.map((report) => [report.scope, report]));
+  const personal = byScope.get("personal");
+  const privateScope = byScope.get("private");
+  if (!personal || !privateScope) return;
+  if (personal.evaluationTime !== privateScope.evaluationTime) {
+    throw new Error("Joint calibration requires the same reviewed evaluation time for both scopes.");
+  }
+  const productionFor = (report) => report.arms.find((arm) => arm.name === "production").result;
+  const personalBaseline = productionFor(personal);
+  const privateBaseline = productionFor(privateScope);
+  const rows = privateScope.grid.map((row, i) => ({
+    name: row.name,
+    scopes: {
+      private: { ndcg: row.answerable.meanNdcgAt10, falsePositives: row.unanswerable.falsePositives },
+      personal: { ndcg: personal.grid[i].answerable.meanNdcgAt10, falsePositives: personal.grid[i].unanswerable.falsePositives },
+    },
+  }));
+  const eligible = selectEligibleConfigurations(rows, [
+    { scope: "private", minNdcg: 0.70, maxFalsePositives: privateBaseline.unanswerable.falsePositives },
+    { scope: "personal", minNdcg: personalBaseline.answerable.meanNdcgAt10, maxFalsePositives: personalBaseline.unanswerable.falsePositives },
+  ]);
+  eligible.sort((a, b) => rows.find((row) => row.name === b).scopes.private.ndcg - rows.find((row) => row.name === a).scopes.private.ndcg);
+  const output = join(OUTPUT_ROOT, "calibration-joint.json");
+  writeFileSync(output, `${JSON.stringify({ benchmark: "mnemosyne-5b-calibration-joint-v1", scopes: ["personal", "private"],
+    evaluatedConfigurations: rows.length, targetPrivateNdcgAt10: 0.70,
+    production: { personal: personalBaseline, private: privateBaseline },
+    eligibleCount: eligible.length, bestEligible: eligible[0] ?? null,
+    eligible: eligible.map((name) => rows.find((row) => row.name === name)),
+  }, null, 2)}\n`, { mode: 0o600 });
+  console.log(`joint eligibility: ${eligible.length}/${rows.length}; best=${eligible[0] ?? "none"}; local scorecard: ${output}`);
 }
 
 async function indexReviewedScope(documents, embeddingModel) {
@@ -432,11 +566,14 @@ async function main() {
   if (scopes.length === 0 || scopes.some((scope) => !available.includes(scope))) throw new Error("Choose an existing scope from the local memory store.");
   const embeddingModel = process.env.OLLAMA_MODEL ?? DEFAULT_EMBEDDING_MODEL;
   await assertLocalModel(embeddingModel);
+  const calibrationReports = [];
   for (const scope of scopes) {
     if (opts.command === "prepare") await prepareScope(scope, opts);
     else if (opts.command === "run") await runScope(scope, embeddingModel);
-    else await diagnoseScope(scope, embeddingModel, opts.allowCorpusDrift);
+    else if (opts.command === "diagnose") await diagnoseScope(scope, embeddingModel, opts.allowCorpusDrift);
+    else calibrationReports.push(await calibrateScope(scope, embeddingModel));
   }
+  if (opts.command === "calibrate") reportJointCalibration(calibrationReports);
 }
 
 main().catch((error) => {

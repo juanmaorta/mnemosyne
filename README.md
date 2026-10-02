@@ -175,6 +175,10 @@ npm run bench:golden -- run --scope personal
 
 # Diagnose each reviewed query against production ranking and pure cosine.
 npm run bench:golden -- diagnose --scope personal
+
+# Once each local set is revalidated and has at least ten reviewed
+# unanswerable questions, compare ranking weights and cosine floors.
+npm run bench:golden -- calibrate
 ```
 
 Omit `--scope` to process every scope in the local store, or repeat for each
@@ -199,6 +203,18 @@ command refuses by default. `--allow-corpus-drift` makes an explicitly marked
 diagnostic run on the current corpus and excludes queries whose graded notes
 are gone. That run uses the current time for decay, so its metrics are not
 directly comparable with the original scorecard.
+
+`calibrate` requires a reviewed set whose content and ranking-metadata hashes
+match the current corpus. It refuses stale sets, unapproved questions, or fewer
+than ten reviewed unanswerable questions per scope. For each query, it captures
+the full candidate set once, checks that rescoring reproduces production's
+top ten, then compares production, blend without floor, cosine with floor, and
+pure cosine. A declared grid sweeps recency and importance weights from `0` to
+`0.25` in steps of `0.05`, and cosine floors from `0.65` to `0.72` plus off.
+Before writing a scorecard it verifies that neither the corpus nor access
+events changed during the run. Scorecards, including any locally reviewed
+questions and labels, stay under `MNEMOSYNE_GOLDEN_DIR`; only query IDs and
+numeric summaries belong in git.
 
 On the 2026-09-28 Nomic run, the current creation-age policy at recency weight
 `0.25` matched the cosine-only baseline (Recall@5 and nDCG@5 both `1.0`). At
