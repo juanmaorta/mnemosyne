@@ -1,6 +1,6 @@
 import type { Db } from "../index/db.js";
 import type { EmbeddingClient } from "../embeddings.js";
-import { scoreBreakdown, blendedScore, normalizeCandidateSignals, DEFAULT_WEIGHTS, type Weights, type ScoreSignals } from "../scoring.js";
+import { scoreBreakdown, blendedScore, normalizeCandidateSignals, type Weights, type ScoreSignals } from "../scoring.js";
 import { materializeHotState } from "../hotstate.js";
 import { listScopes } from "../index/walk.js";
 import { toBlob } from "../index/vecBlob.js";
@@ -20,6 +20,15 @@ export interface SearchHit {
 }
 export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient; clock: Clock }
 export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number }
+
+/**
+ * Search ranks by cosine relevance alone. Recency and importance keep their
+ * role in the `context` digest (`CONTEXT_WEIGHTS`), not in the search
+ * candidate: an old or never-read note must not lose its place for that reason.
+ * This is search-local on purpose — the shared `DEFAULT_WEIGHTS` is untouched.
+ * Callers can still pass `SearchOptions.weights` to request a blend.
+ */
+export const SEARCH_WEIGHTS: Weights = { recency: 0, importance: 0, relevance: 1 };
 
 /** Calibrated for nomic-embed-text with search_query/search_document prefixes. */
 export const NOMIC_MIN_COS = 0.70;
@@ -54,7 +63,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const { db, root, embedder, clock } = deps;
   const k = opts.k ?? 10;
   const scopes = opts.scopes ?? listScopes(root);
-  const weights = opts.weights ?? DEFAULT_WEIGHTS;
+  const weights = opts.weights ?? SEARCH_WEIGHTS;
   const minCos = resolveMinCos(embedder.id, opts.minCos);
   if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, candidates: [] };
   // One clock read for the whole query: hot-state materialization and the
@@ -102,7 +111,11 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
       weights,
     };
   });
-  scored.sort((a, b) => b.score - a.score);
+  // Deterministic order: score desc, then scope then slug. The tiebreak makes
+  // equal-cosine results stable and reproducible instead of leaning on the row
+  // order the DB happened to return.
+  scored.sort((a, b) =>
+    b.score - a.score || a.scope.localeCompare(b.scope) || a.slug.localeCompare(b.slug));
   // The cut line is the score of the last engram that made the top-k. With
   // fewer candidates than k nothing is cut, so it is the lowest score present.
   const eligible = scored.filter((h) => minCos === null || h.signals.relevanceCosine >= minCos);

@@ -38,6 +38,18 @@ describe("search", () => {
     expect(() => resolveMinCos("other/dim768", Number.NaN)).toThrow(/min-cos/);
   });
 
+  test("search_default_weights_are_cosine_only", async () => {
+    // Tarea A: search ranks by cosine. Recency and importance keep their role
+    // in the `context` digest, not in the search candidate. The default must be
+    // {recency:0, importance:0, relevance:1}, not the shared blended default.
+    const { db, root } = await indexed();
+    const res = await searchExplain(
+      { db, root, embedder: createFakeEmbedder(), clock: systemClock },
+      { query: "yogurt maker control" },
+    );
+    expect(res.weights).toEqual({ recency: 0, importance: 0, relevance: 1 });
+  });
+
   test("filters_on_raw_cosine_before_the_blended_top-k_cut", async () => {
     const { db, root } = await indexed();
     const deps = { db, root, embedder: createFakeEmbedder(), clock: systemClock };

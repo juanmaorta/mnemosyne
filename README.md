@@ -133,7 +133,11 @@ mneme snapshot [--list]                             # record / list health over 
 mneme purge-telemetry --scope <s>                   # drop a scope from the log (simulates; --apply writes)
 ```
 
-Search filters candidates on their **raw cosine** before ranking by the blended score.
+Search filters candidates on their **raw cosine** and then ranks by cosine relevance
+alone (ties broken deterministically by scope then slug); recency and importance keep
+their role in the `context` digest, not in the search candidate, so an old or never-read
+note does not lose its place for that reason. Callers can still pass explicit
+`SearchOptions.weights` to request the recency+importance blend instead.
 With `nomic-embed-text` and task prefixes, the default floor is `0.70`; other embedding
 models have no default floor until calibrated. `--min-cos` overrides it for a query, and
 `MNEMOSYNE_MIN_COS` sets a process-wide override (`-1` effectively disables it).

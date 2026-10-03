@@ -73,14 +73,40 @@ describe("blended search", () => {
     recordAccess(db, root, "personal", "many", accessAt);
     const before = getHotState(db, "personal", "many")!.accessCount;
 
+    // The search default is cosine-only; this test is about the blend, so it
+    // asks for recency weight explicitly (the old shared default).
     const hits = await search(
       { db, root, embedder: createFakeEmbedder(), clock: fixedClock(Date.parse("2026-07-31T10:00:00.000Z")) },
-      { query: "yogurt maker control" },
+      { query: "yogurt maker control", weights: { recency: 0.25, importance: 0.25, relevance: 1 } },
     );
 
     expect(hits[0]!.slug).toBe("many");
     expect(hits[0]!.signals.relevanceCosine).toBeCloseTo(hits[1]!.signals.relevanceCosine, 10);
     expect(hits[0]!.signals.recencyNorm).toBeGreaterThan(hits[1]!.signals.recencyNorm);
     expect(getHotState(db, "personal", "many")!.accessCount).toBe(before);
+  });
+
+  test("search_breaks_equal_cosine_ties_by_slug_not_recency_or_importance", async () => {
+    // Equal tokens → equal cosine. "bbb" has higher importance and real,
+    // recent reads; "aaa" has neither. The cosine-only default must ignore both
+    // and fall back to a deterministic scope→slug tiebreak, so "aaa" leads.
+    const root = mkdtempSync(join(tmpdir(), "mneme-blend-"));
+    mkdirSync(join(root, ".index"), { recursive: true });
+    note(root, "aaa", 1, "yogurt maker control");
+    note(root, "bbb", 10, "yogurt maker control");
+    const db = openDb(join(root, ".index", "store.db"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+    const accessAt = "2026-07-30T10:00:00.000Z";
+    recordAccess(db, root, "personal", "bbb", accessAt);
+    recordAccess(db, root, "personal", "bbb", accessAt);
+
+    const hits = await search(
+      { db, root, embedder: createFakeEmbedder(), clock: fixedClock(Date.parse("2026-07-31T10:00:00.000Z")) },
+      { query: "yogurt maker control" },
+    );
+
+    expect(hits.map((h) => h.slug)).toEqual(["aaa", "bbb"]);
+    expect(hits[0]!.signals.relevanceCosine).toBeCloseTo(hits[1]!.signals.relevanceCosine, 10);
+    expect(hits[0]!.score).toBeCloseTo(hits[1]!.score, 10);
   });
 });
