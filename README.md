@@ -145,6 +145,14 @@ When nothing qualifies, search prints the best candidate and its cosine and exit
 status `2` (ordinary errors use `1`). `explain` shows candidates rejected by the floor.
 The ambient `context` digest has no query vector, so a cosine floor cannot apply there.
 
+A search hit is a **candidate, not an answer**: read it with `get` before relying on it,
+and treat an empty result as "nothing cleared the floor", not "nothing exists". When the
+floor rejects everything, one bounded floorless retry — `--min-cos=-1 -k 3` — can surface
+an answerable note sitting just under the cut (validated in MNE-78: it rescued answerable
+notes at cosine 0.63–0.69 with no new false positives). Read up to three and **abstain if
+none actually supports the answer**. This is a deliberate single retry, not a reason to
+lower the floor globally.
+
 The default was chosen from a small, reproducible local Nomic check: 18 answerable
 and 18 unrelated English/Spanish queries, with a positive minimum of `0.735` and
 a negative maximum of `0.664` after task prefixes. Run `npm run bench:cosine` with
@@ -387,6 +395,10 @@ Persistent memory lives in Mnemosyne (CLI: `mneme`). Use it instead of any built
 memory store.
 
 - Recall before assuming: `mneme search "<topic>"`, then `mneme get <slug>` for the full note.
+- A hit is a candidate, not an answer: open it with `mneme get <slug>` before trusting it. An
+  empty search means nothing cleared the relevance floor, not that nothing exists — if it
+  matters, retry once without the floor (`mneme search "<topic>" --min-cos=-1 -k 3`), read up
+  to three, and if no note supports the answer, say you don't have it rather than guess.
 - Save what is durable — a preference, a project constraint, a reference:
   `mneme add "<content>" --type feedback|reference|project|user --slug <kebab-slug>`
 - Rewrite a note you already wrote: `mneme get <slug> --json`, then
