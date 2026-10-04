@@ -50,6 +50,13 @@ export interface SourceRef {
   revision: string;
 }
 
+/** A source read into memory: its `revision` and `content` come from the SAME
+ *  bytes, so a reader never records a revision that disagrees with the text it
+ *  used (and a file mutated after the read cannot split the two apart). */
+export interface LoadedSource extends SourceRef {
+  content: string;
+}
+
 /**
  * The change budget, checked before anything could be written. Absolute counts,
  * deliberately: this delivery has only creations, so there is no denominator to
@@ -134,8 +141,28 @@ function stableId(scope: string, p: ProposedNote): string {
  * frontmatter (its filename is a ULID). Any cited slug that resolves to nothing
  * in THIS scope is collected and raised together, so a mistake names all of its
  * parts at once.
+ *
+ * Exported because synthesis (MNE-52) reads its source group through exactly the
+ * same maintenance-read primitive: same scope boundary, same revisions, same
+ * absence of reinforcement.
  */
-function readSources(root: string, scope: string, slugs: string[]): SourceRef[] {
+export function readSources(root: string, scope: string, slugs: string[]): SourceRef[] {
+  return loadSources(root, scope, slugs).map((s) => ({
+    slug: s.slug,
+    path: s.path,
+    isFact: s.isFact,
+    revision: s.revision,
+  }));
+}
+
+/**
+ * Like `readSources`, but keeps each source's bytes in memory — one read per
+ * file, with revision and content taken from the same Buffer. Synthesis needs
+ * the text, and reading it twice (once for the revision, once for the prompt)
+ * would open a window where the recorded revision no longer describes the text
+ * that was synthesized. Reading once closes it.
+ */
+export function loadSources(root: string, scope: string, slugs: string[]): LoadedSource[] {
   assertSafeScope(scope);
   const paths = storePaths(root);
   const scopeDir = paths.scopeDir(scope);
@@ -144,28 +171,31 @@ function readSources(root: string, scope: string, slugs: string[]): SourceRef[] 
   const noteFiles = new Set<string>(
     safeReaddir(scopeDir).filter((n) => n.endsWith(".md")).map((n) => n.slice(0, -3)),
   );
-  // Facts share a `name`, so a slug can map to several fact files.
-  const factsByName = new Map<string, string[]>();
+  // Facts share a `name`, so a slug can map to several fact files. Read each
+  // fact's bytes once here and index them by name.
+  const factsByName = new Map<string, { path: string; buf: Buffer }[]>();
   for (const name of safeReaddir(factsDir)) {
     if (!name.endsWith(".md")) continue;
     const path = join(factsDir, name);
-    const slug = parseFrontmatter(readFileSync(path, "utf8")).data["name"];
+    const buf = readFileSync(path);
+    const slug = parseFrontmatter(buf.toString("utf8")).data["name"];
     if (typeof slug === "string") {
       const list = factsByName.get(slug) ?? [];
-      list.push(path);
+      list.push({ path, buf });
       factsByName.set(slug, list);
     }
   }
 
-  const out: SourceRef[] = [];
+  const out: LoadedSource[] = [];
   const missing: string[] = [];
   for (const slug of slugs) {
     if (noteFiles.has(slug)) {
       const path = join(scopeDir, `${slug}.md`);
-      out.push({ slug, path, isFact: false, revision: revisionOf(readFileSync(path)) });
+      const buf = readFileSync(path);
+      out.push({ slug, path, isFact: false, revision: revisionOf(buf), content: buf.toString("utf8") });
     } else if (factsByName.has(slug)) {
-      for (const path of factsByName.get(slug)!) {
-        out.push({ slug, path, isFact: true, revision: revisionOf(readFileSync(path)) });
+      for (const { path, buf } of factsByName.get(slug)!) {
+        out.push({ slug, path, isFact: true, revision: revisionOf(buf), content: buf.toString("utf8") });
       }
     } else {
       missing.push(slug);
