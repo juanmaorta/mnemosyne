@@ -32,6 +32,10 @@ export interface GeneratorConfig {
   /** Optional RNG seed. With a fixed seed (and model) a run is reproducible even
    *  above temperature 0. Omitted → Ollama picks its own. */
   seed?: number;
+  /** Bearer token for an authenticated endpoint (e.g. Ollama cloud). Sent only
+   *  when present; never logged or stored. The caller resolves it from an env
+   *  var (see make-generator), so a key never lands in a config file. */
+  apiKey?: string;
 }
 
 export interface GenerationResult {
@@ -78,6 +82,7 @@ export function createLocalGenerator(
   const maxOutputChars = config.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const temperature = config.temperature ?? DEFAULT_TEMPERATURE;
   const seed = config.seed;
+  const apiKey = config.apiKey;
 
   return {
     id: model,
@@ -102,7 +107,10 @@ export function createLocalGenerator(
       try {
         res = await fetchImpl(`${host}/api/generate`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          },
           body: JSON.stringify({
             model,
             prompt,

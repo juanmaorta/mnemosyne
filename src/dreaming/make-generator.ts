@@ -30,8 +30,23 @@ export function createDreamingGenerator(
   const policy = loadRemotePolicy(remotePolicyPath(opts.root));
   const endpoint = resolveEndpoint({ scope: opts.scope, policy, localHost });
 
+  // Resolve the Bearer token from the NAMED env var, never from disk. Fail closed:
+  // an opted-in remote whose key is missing must not run (and must not fall back
+  // to local with content already shaped for the remote).
+  let apiKey: string | undefined;
+  if (endpoint.remote && endpoint.apiKeyEnv !== undefined) {
+    apiKey = process.env[endpoint.apiKeyEnv];
+    if (apiKey === undefined || apiKey.trim() === "") {
+      throw new Error(`remote dreaming endpoint needs API key env '${endpoint.apiKeyEnv}', but it is unset`);
+    }
+  }
+
   const inner = createLocalGenerator(
-    { host: endpoint.host, ...(endpoint.model !== undefined ? { model: endpoint.model } : {}) },
+    {
+      host: endpoint.host,
+      ...(endpoint.model !== undefined ? { model: endpoint.model } : {}),
+      ...(apiKey !== undefined ? { apiKey } : {}),
+    },
     fetchImpl,
   );
   if (!endpoint.remote) return inner;

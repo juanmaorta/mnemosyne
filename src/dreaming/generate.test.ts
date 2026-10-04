@@ -42,6 +42,30 @@ describe("createLocalGenerator", () => {
     expect(cap.body!.model).toBe("qwen2.5:7b");
   });
 
+  test("sends an Authorization header when an apiKey is configured", async () => {
+    const cap: { init?: RequestInit } = {};
+    const capFetch = (async (_url: string, init?: RequestInit) => {
+      if (init) cap.init = init;
+      return new Response(JSON.stringify({ response: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    await createLocalGenerator({ apiKey: "secret-k" }, capFetch).generate("hola");
+
+    expect((cap.init!.headers as Record<string, string>).authorization).toBe("Bearer secret-k");
+  });
+
+  test("sends no Authorization header when no apiKey is configured", async () => {
+    const cap: { init?: RequestInit } = {};
+    const capFetch = (async (_url: string, init?: RequestInit) => {
+      if (init) cap.init = init;
+      return new Response(JSON.stringify({ response: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    await createLocalGenerator({}, capFetch).generate("hola");
+
+    expect((cap.init!.headers as Record<string, string>).authorization).toBeUndefined();
+  });
+
   test("never follows redirects (a 3xx must not re-send the body to another host)", async () => {
     const cap: { init?: RequestInit } = {};
     const capturingFetch = (async (_url: string, init?: RequestInit) => {

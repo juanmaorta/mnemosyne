@@ -18,12 +18,18 @@ con las memorias.
 ```jsonc
 {
   "remote": {
-    "endpoint": "https://ollama.mi-infra.example",  // tu cloud o tu GPU en LAN/VPN
-    "model": "qwen2.5:32b",                           // modelo en ese endpoint
-    "allowScopes": ["personal"]                       // SOLO estos scopes salen
+    "endpoint": "https://ollama.com",       // tu cloud o tu GPU en LAN/VPN
+    "model": "gemma4:31b-cloud",            // modelo en ese endpoint
+    "apiKeyEnv": "OLLAMA_API_KEY",          // env var con el Bearer token (NO la clave)
+    "allowScopes": ["personal"]             // SOLO estos scopes salen
   }
 }
 ```
+
+La clave **no** se guarda en el fichero: `apiKeyEnv` nombra la **variable de entorno** de la
+que leerla. Si el endpoint está opted-in y la env var falta, falla cerrado (no llama, no cae a
+local). La clave solo se envía como `Authorization: Bearer` en el path remoto; nunca se
+escribe en disco, logs, telemetría ni frontmatter.
 
 Sin fichero, o mal formado, o `allowScopes` vacío → **todo sigue local** (fail-closed).
 

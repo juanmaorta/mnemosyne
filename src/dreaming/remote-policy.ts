@@ -21,6 +21,9 @@ export interface RemoteGenerationPolicy {
   endpoint?: string;
   /** Optional model override used only on the remote endpoint. */
   model?: string;
+  /** Name of the env var holding the Bearer token for the remote endpoint. The
+   *  KEY itself is never stored here — only which env var to read it from. */
+  apiKeyEnv?: string;
   /** Scopes explicitly opted in to remote generation. Empty = none. */
   allowScopes: string[];
 }
@@ -54,13 +57,14 @@ export function loadRemotePolicy(path: string): RemoteGenerationPolicy {
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
     const remote = (raw as { remote?: unknown })?.remote;
     if (remote !== null && typeof remote === "object") {
-      const r = remote as { endpoint?: unknown; model?: unknown; allowScopes?: unknown };
+      const r = remote as { endpoint?: unknown; model?: unknown; apiKeyEnv?: unknown; allowScopes?: unknown };
       const allowScopes = Array.isArray(r.allowScopes)
         ? r.allowScopes.filter((s): s is string => typeof s === "string")
         : [];
       return {
         ...(typeof r.endpoint === "string" ? { endpoint: r.endpoint } : {}),
         ...(typeof r.model === "string" ? { model: r.model } : {}),
+        ...(typeof r.apiKeyEnv === "string" ? { apiKeyEnv: r.apiKeyEnv } : {}),
         allowScopes,
       };
     }
@@ -73,6 +77,8 @@ export function loadRemotePolicy(path: string): RemoteGenerationPolicy {
 export interface ResolvedEndpoint {
   host: string;
   model?: string;
+  /** Env var name to read the Bearer token from; only on the remote path. */
+  apiKeyEnv?: string;
   remote: boolean;
 }
 
@@ -108,10 +114,12 @@ export function resolveEndpoint(opts: {
   const useEndpoint =
     endpoint !== undefined && policy.allowScopes.includes(scope) && isUsableHttpUrl(endpoint);
   if (useEndpoint) {
+    const remote = !isLoopbackHost(endpoint);
     return {
       host: endpoint,
       ...(policy.model !== undefined ? { model: policy.model } : {}),
-      remote: !isLoopbackHost(endpoint),
+      ...(remote && policy.apiKeyEnv !== undefined ? { apiKeyEnv: policy.apiKeyEnv } : {}),
+      remote,
     };
   }
   // Not opted in (or unusable endpoint): only honour a loopback localHost.

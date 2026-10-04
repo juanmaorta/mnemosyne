@@ -32,9 +32,9 @@ describe("loadRemotePolicy", () => {
   test("malformed file fails closed", () => {
     expect(loadRemotePolicy(policyFile("{ not json"))).toEqual({ allowScopes: [] });
   });
-  test("parses endpoint, model and allowScopes", () => {
-    const p = loadRemotePolicy(policyFile(JSON.stringify({ remote: { endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] } })));
-    expect(p).toEqual({ endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] });
+  test("parses endpoint, model, apiKeyEnv and allowScopes", () => {
+    const p = loadRemotePolicy(policyFile(JSON.stringify({ remote: { endpoint: "https://infra.example", model: "qwen2.5:32b", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] } })));
+    expect(p).toEqual({ endpoint: "https://infra.example", model: "qwen2.5:32b", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] });
   });
   test("ignores non-string scopes", () => {
     const p = loadRemotePolicy(policyFile(JSON.stringify({ remote: { endpoint: "https://x", allowScopes: ["personal", 3, null] } })));
@@ -50,6 +50,13 @@ describe("resolveEndpoint", () => {
   test("endpoint + scope opted in → remote with model", () => {
     const r = resolveEndpoint({ scope: "personal", policy: { endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] }, localHost: LOCAL });
     expect(r).toEqual({ host: "https://infra.example", model: "qwen2.5:32b", remote: true });
+  });
+
+  test("carries apiKeyEnv on the remote path, not the local one", () => {
+    const remote = resolveEndpoint({ scope: "personal", policy: { endpoint: "https://infra.example", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] }, localHost: LOCAL });
+    expect(remote).toMatchObject({ remote: true, apiKeyEnv: "OLLAMA_API_KEY" });
+    const local = resolveEndpoint({ scope: "acme", policy: { endpoint: "https://infra.example", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] }, localHost: LOCAL });
+    expect(local).toEqual({ host: LOCAL, remote: false });
   });
   test("endpoint but scope NOT opted in → local, never remote", () => {
     const r = resolveEndpoint({ scope: "acme", policy: { endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] }, localHost: LOCAL });
