@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { EngramSchema } from "../schema.js";
 import { serializeFrontmatter } from "../frontmatter.js";
 import { assertNoSecrets, SecretDetectedError } from "../write/validation.js";
+import { findUngrounded } from "./grounding.js";
 import type { SecretFinding } from "../secrets/scanner.js";
 import { loadSources, DEFAULT_BUDGET, type NoteType, type ProposedNote, type SourceRef, type LoadedSource } from "./plan.js";
 import type { LocalGenerator, GenerationResult } from "./generate.js";
@@ -210,6 +211,20 @@ export async function synthesize(opts: SynthesisOptions): Promise<SynthesisResul
       return { sources, prompt, generation, rejection: { reason: "possible secret in the derived note", findings: e.findings } };
     }
     throw e;
+  }
+
+  // Fidelity gate (MNE-86): a derived note may omit source detail, but it must
+  // not ASSERT an identifier absent from its sources. Checked against the loaded
+  // source snapshot, over the whole note (description + body).
+  const ungrounded = findUngrounded(`${parsed.description}\n${parsed.body}`, loaded.map((s) => s.content).join("\n"));
+  if (ungrounded.length > 0) {
+    const detail = ungrounded.map((u) => `${u.token} (${u.kind})`).join(", ");
+    return {
+      sources,
+      prompt,
+      generation,
+      rejection: { reason: `derived note asserts identifiers not grounded in sources: ${detail}` },
+    };
   }
 
   const proposal: ProposedNote = {

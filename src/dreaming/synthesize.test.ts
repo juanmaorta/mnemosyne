@@ -157,6 +157,18 @@ describe("synthesize — bounded dry-run synthesis", () => {
     expect(res.rejection?.findings?.length).toBeGreaterThan(0);
   });
 
+  test("rejects a synthesis that asserts an identifier not grounded in its sources", async () => {
+    const root = store();
+    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "el proyecto proj-orbital es gratis y MIT");
+    // The model corrupts the project name — a classic MNE-80 failure.
+    const corrupted = "Estado del proyecto\nEl proyecto prog-orbital sigue siendo MIT.";
+
+    const res = await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(corrupted), now: NOW });
+
+    expect(res.proposal).toBeUndefined();
+    expect(res.rejection?.reason).toMatch(/fundad|grounded|prog-orbital/i);
+  });
+
   test("a body over the size limit is rejected as not applicable", async () => {
     const root = store();
     writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy");
