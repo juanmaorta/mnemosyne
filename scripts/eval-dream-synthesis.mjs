@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { synthesize } from "../dist/dreaming/synthesize.js";
-import { createLocalGenerator } from "../dist/dreaming/generate.js";
+import { createDreamingGenerator } from "../dist/dreaming/make-generator.js";
 import { scoreCoverage, scoreConciseness, scoreStability, casePassed, renderScorecard } from "../dist/eval/synthesis-score.js";
 
 // Validate BEFORE resolving: resolve("") returns the cwd, which would silently
@@ -34,7 +34,9 @@ const GOLDEN = resolve(process.env.MNEMOSYNE_GOLDEN_DIR ?? join(homedir(), ".cac
 const NOW = "2026-10-04T03:00:00";
 
 const cases = JSON.parse(readFileSync(join(GOLDEN, "cases.json"), "utf8"));
-const generator = createLocalGenerator(); // model + temperature(0) + seed from env/defaults
+// Scope-aware: local by default; honours an opt-in `.dreaming.json` at BASE for a
+// remote endpoint (MNE-83). Egress secret gate applies automatically when remote.
+const generator = createDreamingGenerator({ root: BASE, scope: "personal" });
 const rows = [];
 
 for (const c of cases) {

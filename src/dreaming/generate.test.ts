@@ -42,6 +42,18 @@ describe("createLocalGenerator", () => {
     expect(cap.body!.model).toBe("qwen2.5:7b");
   });
 
+  test("never follows redirects (a 3xx must not re-send the body to another host)", async () => {
+    const cap: { init?: RequestInit } = {};
+    const capturingFetch = (async (_url: string, init?: RequestInit) => {
+      if (init) cap.init = init;
+      return new Response(JSON.stringify({ response: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    await createLocalGenerator({}, capturingFetch).generate("hola");
+
+    expect(cap.init!.redirect).toBe("error");
+  });
+
   test("sends temperature 0 by default (greedy, reproducible dreaming)", async () => {
     const cap: { url?: string; body?: Record<string, unknown> } = {};
     const gen = createLocalGenerator({}, fakeFetch(cap, { response: "x" }));

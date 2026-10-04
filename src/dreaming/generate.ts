@@ -110,6 +110,10 @@ export function createLocalGenerator(
             options,
             ...(opts.system ? { system: opts.system } : {}),
           }),
+          // Never auto-follow a redirect: a 3xx from the (even local) endpoint
+          // would re-send the whole body to another host, slipping past the scope
+          // and secret egress gates. A redirect is an error here, not a hop.
+          redirect: "error",
           signal: controller.signal,
         });
       } catch (cause) {
