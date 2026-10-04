@@ -44,6 +44,9 @@ export interface SynthesisOptions {
   now: string;
   /** Applicability size cap for the derived body; defaults to the plan budget's. */
   maxNoteChars?: number;
+  /** RNG seed forwarded to the generator so re-running the same case is
+   *  reproducible even if the generator is shared across cases (MNE-81). */
+  seed?: number;
 }
 
 export interface SynthesisResult {
@@ -147,7 +150,10 @@ export async function synthesize(opts: SynthesisOptions): Promise<SynthesisResul
   const sources: SourceRef[] = loaded.map((s) => ({ slug: s.slug, path: s.path, isFact: s.isFact, revision: s.revision }));
 
   const prompt = buildPrompt(loaded, group.topic);
-  const generation = await generator.generate(prompt, { system: SYSTEM_PROMPT });
+  const generation = await generator.generate(prompt, {
+    system: SYSTEM_PROMPT,
+    ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+  });
 
   const parsed = parseGeneration(generation.text);
   if (!parsed) {

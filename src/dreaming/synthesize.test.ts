@@ -24,13 +24,14 @@ function writeFact(root: string, scope: string, slug: string, ulid: string, body
 }
 
 /** A generator that returns canned text and records what it was asked. */
-function fakeGen(text: string, cap?: { prompt?: string; system?: string }): LocalGenerator {
+function fakeGen(text: string, cap?: { prompt?: string; system?: string; seed?: number }): LocalGenerator {
   return {
     id: "fake-model",
     async generate(prompt, opts) {
       if (cap) {
         cap.prompt = prompt;
         if (opts?.system !== undefined) cap.system = opts.system;
+        if (opts?.seed !== undefined) cap.seed = opts.seed;
       }
       return { text, durationMs: 0, inputTokens: 1, outputTokens: 1 };
     },
@@ -172,6 +173,16 @@ describe("synthesize — bounded dry-run synthesis", () => {
       synthesize({ root, scope: "personal", group: group({ sources: [] }), generator: spy, now: NOW }),
     ).rejects.toThrow(/empty source group|at least one source/i);
     expect(called).toBe(false);
+  });
+
+  test("passes a configured seed through to the generator (reproducible re-run)", async () => {
+    const root = store();
+    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy");
+    const cap: { seed?: number } = {};
+
+    await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(MODEL_OUT, cap), now: NOW, seed: 123 });
+
+    expect(cap.seed).toBe(123);
   });
 
   test("derives the note's importance from its sources", async () => {

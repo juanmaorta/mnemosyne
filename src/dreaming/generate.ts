@@ -22,6 +22,16 @@ export interface GeneratorConfig {
   maxPromptChars: number;
   /** Reject the reply if generation runs away past this. */
   maxOutputChars: number;
+  /**
+   * Sampling temperature. Defaults to 0 (greedy): a dreaming synthesis must be
+   * reproducible so the same sources yield the same note and the fidelity gate
+   * is not a coin-flip (MNE-80 found non-determinism flipped coverage between
+   * runs). Raise it only to deliberately explore variation.
+   */
+  temperature: number;
+  /** Optional RNG seed. With a fixed seed (and model) a run is reproducible even
+   *  above temperature 0. Omitted → Ollama picks its own. */
+  seed?: number;
 }
 
 export interface GenerationResult {
@@ -36,7 +46,9 @@ export interface GenerationResult {
 export interface LocalGenerator {
   /** The model id, recorded in the dreaming plan for provenance. */
   id: string;
-  generate(prompt: string, opts?: { system?: string }): Promise<GenerationResult>;
+  /** Per-call overrides win over the generator's config, so one generator can
+   *  serve several cases each with its own seed. */
+  generate(prompt: string, opts?: { system?: string; temperature?: number; seed?: number }): Promise<GenerationResult>;
 }
 
 /** Decided 2026-10-03 (MNE-57): local qwen, swappable via `DREAMING_MODEL`. */
@@ -44,6 +56,8 @@ const DEFAULT_DREAMING_MODEL = "qwen2.5:7b";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_PROMPT_CHARS = 32_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 8_000;
+/** Greedy by default (MNE-81): reproducible synthesis for the fidelity gate. */
+const DEFAULT_TEMPERATURE = 0;
 
 function defaults(): { host: string; model: string } {
   return {
@@ -62,6 +76,8 @@ export function createLocalGenerator(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxPromptChars = config.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS;
   const maxOutputChars = config.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
+  const temperature = config.temperature ?? DEFAULT_TEMPERATURE;
+  const seed = config.seed;
 
   return {
     id: model,
@@ -69,6 +85,15 @@ export function createLocalGenerator(
       if (prompt.length > maxPromptChars) {
         throw new Error(`Dreaming prompt (${prompt.length} chars) exceeds the input limit of ${maxPromptChars}.`);
       }
+
+      // Per-call overrides win over config; temperature always goes (default 0),
+      // seed only when one is set, so an unseeded run stays omitted.
+      const effTemperature = opts.temperature ?? temperature;
+      const effSeed = opts.seed ?? seed;
+      const options = {
+        temperature: effTemperature,
+        ...(effSeed !== undefined ? { seed: effSeed } : {}),
+      };
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -82,6 +107,7 @@ export function createLocalGenerator(
             model,
             prompt,
             stream: false,
+            options,
             ...(opts.system ? { system: opts.system } : {}),
           }),
           signal: controller.signal,

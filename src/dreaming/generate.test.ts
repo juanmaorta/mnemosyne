@@ -42,6 +42,45 @@ describe("createLocalGenerator", () => {
     expect(cap.body!.model).toBe("qwen2.5:7b");
   });
 
+  test("sends temperature 0 by default (greedy, reproducible dreaming)", async () => {
+    const cap: { url?: string; body?: Record<string, unknown> } = {};
+    const gen = createLocalGenerator({}, fakeFetch(cap, { response: "x" }));
+
+    await gen.generate("hola");
+
+    expect((cap.body!.options as Record<string, unknown>).temperature).toBe(0);
+  });
+
+  test("sends a configured seed in options; omits it when unset", async () => {
+    const withSeed: { body?: Record<string, unknown> } = {};
+    await createLocalGenerator({ seed: 42 }, fakeFetch(withSeed, { response: "x" })).generate("hola");
+    expect((withSeed.body!.options as Record<string, unknown>).seed).toBe(42);
+
+    const noSeed: { body?: Record<string, unknown> } = {};
+    await createLocalGenerator({}, fakeFetch(noSeed, { response: "x" })).generate("hola");
+    expect((noSeed.body!.options as Record<string, unknown>)).not.toHaveProperty("seed");
+  });
+
+  test("per-call opts override temperature and seed", async () => {
+    const cap: { body?: Record<string, unknown> } = {};
+    const gen = createLocalGenerator({ seed: 1 }, fakeFetch(cap, { response: "x" }));
+
+    await gen.generate("hola", { temperature: 0.7, seed: 99 });
+
+    const opts = cap.body!.options as Record<string, unknown>;
+    expect(opts.temperature).toBe(0.7);
+    expect(opts.seed).toBe(99);
+  });
+
+  test("the same seed produces an identical request body across calls", async () => {
+    const a: { body?: Record<string, unknown> } = {};
+    const b: { body?: Record<string, unknown> } = {};
+    await createLocalGenerator({ seed: 7 }, fakeFetch(a, { response: "x" })).generate("mismo prompt");
+    await createLocalGenerator({ seed: 7 }, fakeFetch(b, { response: "x" })).generate("mismo prompt");
+
+    expect(a.body).toEqual(b.body);
+  });
+
   test("throws a clear error when the daemon is unreachable", async () => {
     const boom = (async () => {
       throw new Error("ECONNREFUSED");
