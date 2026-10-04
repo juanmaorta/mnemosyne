@@ -97,6 +97,20 @@ describe("synthesize — bounded dry-run synthesis", () => {
     expect(sys).toContain("no resuelv");
   });
 
+  test("the system prompt is extractive: verbatim data, no invented identifiers, concise", async () => {
+    const root = store();
+    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy");
+    const cap: { system?: string } = {};
+
+    await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(MODEL_OUT, cap), now: NOW });
+
+    const sys = (cap.system ?? "").toLowerCase();
+    expect(sys).toContain("exacta");          // copy data verbatim
+    expect(sys).toContain("no inventes");     // no fabrication
+    expect(sys).toContain("identificador");   // names/IPs/numbers must not be altered
+    expect(sys).toContain("concis");          // keep it short (c1/c5 were verbose)
+  });
+
   test("maintenance reads leave sources byte-identical and write no index/reinforcement", async () => {
     const root = store();
     writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy a las 3am");
@@ -152,6 +166,19 @@ describe("synthesize — bounded dry-run synthesis", () => {
 
     expect(res.proposal).toBeUndefined();
     expect(res.rejection?.reason).toMatch(/size|limit/i);
+  });
+
+  test("accepts a single-paragraph generation (no title/body split) as a note", async () => {
+    const root = store();
+    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy");
+    const oneParagraph = "WLED: light.wled era el segmento 0; borrarla apagó los LEDs 1-20. Fix: repuntar a light.wled_monitor_main.";
+
+    const res = await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(oneParagraph), now: NOW });
+
+    expect(res.rejection).toBeUndefined();
+    expect(res.proposal).toBeDefined();
+    expect(res.proposal!.body).toContain("segmento 0");
+    expect(res.proposal!.description.length).toBeGreaterThan(0);
   });
 
   test("an empty generation is rejected (fails the schema)", async () => {
