@@ -27,6 +27,7 @@
     "bench:cosine": "node scripts/calibrate-cosine.mjs",
     "bench:retrieval": "npm run build && node scripts/calibrate-retrieval.mjs",
     "bench:golden": "npm run build && node scripts/bench-golden.mjs",
+    "eval:dream": "npm run build && node scripts/eval-dream-synthesis.mjs",
     "migrate": "tsc && node dist/bin/migrate.js",
     "typecheck": "tsc --noEmit"
   },
