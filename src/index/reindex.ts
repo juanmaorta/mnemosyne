@@ -10,6 +10,7 @@ import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { EngramSchema, type Engram } from "../schema.js";
 import { toBlob } from "./vecBlob.js";
+import { retryOnBusy } from "./retry-busy.js";
 import { systemClock, type Clock } from "../clock.js";
 
 export interface ReindexStats {
@@ -234,8 +235,10 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       // INSERT, and if another process committed in between SQLite answers
       // SQLITE_BUSY_SNAPSHOT — which busy_timeout does NOT retry, because the
       // read snapshot can no longer be rewound. BEGIN IMMEDIATE takes the write
-      // lock up front, where busy_timeout does apply.
-      upsert.immediate();
+      // lock up front, where busy_timeout does apply. Under a storm the timeout
+      // itself can expire and throw SQLITE_BUSY; retryOnBusy waits a little
+      // longer rather than booking that transient loss as a swallowed error.
+      retryOnBusy(() => upsert.immediate());
       stats.indexed++;
       indexedEvents.push({
         kind: "engram.indexed",
@@ -270,7 +273,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       stats.deleted++;
     }
   });
-  prune.immediate(); // same BEGIN IMMEDIATE reasoning as the upsert above
+  retryOnBusy(() => prune.immediate()); // same BEGIN IMMEDIATE + busy retry as the upsert above
   // One append for the whole run: a full reindex touches every engram in the
   // store, so per-event writes would put hundreds of syscalls in a command the
   // SessionStart hook runs.
