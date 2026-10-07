@@ -34,13 +34,6 @@ export function getEngram(db: Db, slug: string, scope?: string): EngramDoc {
   return { ...row, content: readFileSync(row.path, "utf8") };
 }
 
-/** Reads the engram and records a `get` access event, reinforcing its hot state. */
-export function getEngramAndRecord(db: Db, root: string, slug: string, clock: Clock, scope?: string): EngramDoc {
-  const doc = getEngram(db, slug, scope);
-  recordAccess(db, root, doc.scope, doc.slug, clock.nowIso());
-  return doc;
-}
-
 /**
  * Same lookup and the same reinforcement, but the file is read ONCE as bytes:
  * `content` is that buffer decoded and `revision` is its hash. Reading twice
