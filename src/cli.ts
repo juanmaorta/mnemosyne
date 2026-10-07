@@ -158,9 +158,13 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "search": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" } }, allowPositionals: true });
         const query = positionals.join(" ").trim();
-        if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N]"); return 1; }
+        if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N] [--json]"); return 1; }
+        // --explain renders a human diagnostic table; --json is a machine contract.
+        // Silently letting explain win would hand a `--json` caller un-parseable
+        // text, so refuse the combination instead of ignoring one of the two.
+        if (values.json && values.explain) { err("search: --json and --explain cannot be combined (explain output is not JSON); use `explain` for the diagnostic view."); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
         const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
@@ -179,8 +183,15 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const corrId = newCorrId(systemClock);
         const result = await searchExplainInstrumented({ db, root, embedder: embedder(), clock: systemClock }, searchOpts, corrId);
         const hits = result.candidates.filter((c) => c.included);
-        for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}${h.isDerived ? " (derived)" : ""}  [${h.scope}]  ${h.snippet}`);
-        if (hits.length === 0) out(emptySearchMessage(result.candidates, result.minCos));
+        if (values.json) {
+          // Machine contract: one JSON array, nothing else — even when empty. The
+          // "nothing relevant" signal travels in the exit code (2), as it does for
+          // the human path, not as prose a parser would choke on.
+          out(JSON.stringify(hits.map((h) => ({ slug: h.slug, scope: h.scope, score: h.score, snippet: h.snippet, isDerived: h.isDerived }))));
+        } else {
+          for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}${h.isDerived ? " (derived)" : ""}  [${h.scope}]  ${h.snippet}`);
+          if (hits.length === 0) out(emptySearchMessage(result.candidates, result.minCos));
+        }
         appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
         return hits.length === 0 ? 2 : 0;
       }
@@ -197,6 +208,9 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
          */
         const emitCodex = rest.some((a) => a === "codex-session-start" || a === "--emit=codex-session-start")
           && rest.some((a) => a.startsWith("--emit"));
+        // Read before parseArgs for the same reason as emitCodex: the catch below
+        // must still answer in the caller's format even if argument parsing throws.
+        const emitJson = rest.includes("--json");
         /**
          * Root of the store we would log to. Undefined only while the arguments
          * are still unparsed: if parseArgs itself throws we do not know WHICH
@@ -215,6 +229,17 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         /** The one thing stdout ever carries, wrapped if the harness needs it. */
         const emitDigest = (digest: string): void => { out(emitCodex ? codexSessionStartEnvelope(digest) : digest); };
 
+        /**
+         * What stdout carries this run: the JSON envelope for `--json` consumers
+         * (the Hermes provider / MCP wrapper read `context --json` once), or the
+         * plain/codex digest otherwise. `degraded` is read at call time, so push
+         * every degradation BEFORE emitting.
+         */
+        const emitResult = (digest: string, includedSlugs: string[], omitted: number): void => {
+          if (emitJson) { out(JSON.stringify({ scope, budget, digest, included: includedSlugs, omitted, degraded })); return; }
+          emitDigest(digest);
+        };
+
         /** Best-effort by contract, exactly like the digest itself. */
         const emitInjected = (injectedSlugs: string[], droppedForBudget: number): void => {
           if (root === undefined) return;
@@ -229,7 +254,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           });
         };
         try {
-          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" }, cwd: { type: "string" }, emit: { type: "string" } }, allowPositionals: true });
+          const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string" }, budget: { type: "string" }, cwd: { type: "string" }, emit: { type: "string" }, json: { type: "boolean" } }, allowPositionals: true });
           root = resolveRoot(values.root);
           // Codex passes no --cwd: the session directory arrives on the hook's
           // stdin. Never read from a terminal, where there is no payload coming
@@ -247,18 +272,18 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
           const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
-          emitDigest(formatContextDigest(included, scope, omitted));
+          emitResult(formatContextDigest(included, scope, omitted), included.map((e) => e.slug), omitted);
           // What the agent actually saw this session, and what the budget cut.
           // Injection is the point where memory becomes behaviour, so a scorecard
           // that only measured ranking would miss the truncation entirely.
           emitInjected(included.map((e) => e.slug), omitted);
           appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "context", scope, slugs: included.map((e) => e.slug) });
         } catch {
-          emitDigest(formatContextDigest([], scope, 0)); // never break session start
           // A session beginning with NO memory is the single most important
           // thing this log can record, and it used to be the one thing it
-          // recorded nothing about.
+          // recorded nothing about. Push before emitting so `--json` carries it.
           degraded.push("fatal");
+          emitResult(formatContextDigest([], scope, 0), [], 0); // never break session start
           emitInjected([], 0);
         }
         if (degraded.length > 0) {
