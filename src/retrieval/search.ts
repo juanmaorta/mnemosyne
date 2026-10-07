@@ -5,6 +5,7 @@ import { materializeHotState } from "../hotstate.js";
 import { listScopes } from "../index/walk.js";
 import { toBlob } from "../index/vecBlob.js";
 import type { Clock } from "../clock.js";
+import { isDerivedSlug } from "../dreaming/derived.js";
 
 export interface SearchHit {
   slug: string; scope: string; score: number; snippet: string;
@@ -17,6 +18,10 @@ export interface SearchHit {
   threshold: number;
   /** True when the candidate made the top-k. `search` only returns these; `searchExplain` returns both. */
   included: boolean;
+  /** True when this is a dreaming-derived note (slug under the `dream-` prefix).
+   *  A convenience summary of its sources; the sources stay the authoritative
+   *  truth. Purely a marker — it does NOT change the ranking. */
+  isDerived: boolean;
 }
 export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient; clock: Clock }
 export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number }
@@ -124,7 +129,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const candidates = scored.map((h, i) => {
     const included = (minCos === null || h.signals.relevanceCosine >= minCos) && includedCount < k;
     if (included) includedCount++;
-    return { ...h, rank: i, threshold, included };
+    return { ...h, rank: i, threshold, included, isDerived: isDerivedSlug(h.slug) };
   });
   return { query: opts.query, scopes, k, weights, minCos, candidates };
 }

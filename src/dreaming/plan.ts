@@ -20,6 +20,8 @@ import { storePaths } from "../store.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { revisionOf } from "../revision.js";
 import { ALGO_VERSION } from "../version.js";
+import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
+import { systemClock, type Clock } from "../clock.js";
 
 export type NoteType = "user" | "reference" | "project";
 
@@ -314,10 +316,42 @@ export function dreamsDir(root: string, scope: string): string {
  * and is namespaced by scope, so a plan's private contents never leave this box
  * and never land in another scope's space. This writes a REPORT, not the store.
  */
-export function persistPlan(root: string, plan: DreamingPlan): string {
+export function persistPlan(root: string, plan: DreamingPlan, clock: Clock = systemClock): string {
   const dir = dreamsDir(root, plan.scope);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${plan.runId}.json`);
   writeFileSync(path, `${JSON.stringify(plan, null, 2)}\n`);
+  // Durable trace of the run alongside its artifact. Best-effort by contract
+  // (emitEvents swallows failures and honours scope exclusions), so a telemetry
+  // hiccup never fails the persist.
+  emitEvents(root, clock, dreamPlanEvents(plan));
   return path;
+}
+
+/**
+ * The `dream.*` telemetry a run produces: one `dream.run` summarising it and one
+ * `dream.proposal` per proposed derived note, each stamped with the scope so the
+ * central scope policy (events.ts) can enforce the boundary. Pure — the caller
+ * decides when to emit; `dream.applied` is the apply step's to emit (MNE-46).
+ */
+export function dreamPlanEvents(plan: DreamingPlan): TelemetryInput[] {
+  const run: TelemetryInput = {
+    kind: "dream.run",
+    runId: plan.runId,
+    scope: plan.scope,
+    model: plan.model.id,
+    proposals: plan.proposals.length,
+    duplicates: plan.proposals.filter((p) => p.isDuplicate).length,
+    withinBudget: plan.budgetVerdict.within,
+  };
+  const proposals: TelemetryInput[] = plan.proposals.map((p) => ({
+    kind: "dream.proposal",
+    runId: plan.runId,
+    scope: plan.scope,
+    slug: p.slug,
+    sources: p.sources,
+    isDuplicate: p.isDuplicate,
+    proposalId: p.id,
+  }));
+  return [run, ...proposals];
 }

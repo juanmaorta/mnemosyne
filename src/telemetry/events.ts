@@ -7,7 +7,12 @@ import { loadTelemetryConfig } from "./config.js";
 
 export type TelemetryKind =
   | "engram.created" | "engram.indexed" | "retrieval.query" | "retrieval.candidate"
-  | "retrieval.injected" | "access.reinforced"; // dream.* arrives in Fase 4
+  | "retrieval.injected" | "access.reinforced"
+  // Dreaming (Fase 4). `dream.run`/`dream.proposal` are emitted when a plan is
+  // persisted — including a dry-run, so evidence accrues before anything writes.
+  // `dream.applied` is emitted by the apply step (MNE-46) when a derived note is
+  // actually written, and stays unused until that lands.
+  | "dream.run" | "dream.proposal" | "dream.applied";
 
 export interface TelemetryEvent {
   ts: string;

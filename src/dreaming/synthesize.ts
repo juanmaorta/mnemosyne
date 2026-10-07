@@ -22,6 +22,7 @@ import { EngramSchema } from "../schema.js";
 import { serializeFrontmatter } from "../frontmatter.js";
 import { assertNoSecrets, SecretDetectedError } from "../write/validation.js";
 import { findUngrounded } from "./grounding.js";
+import { DERIVED_SLUG_PREFIX } from "./derived.js";
 import type { SecretFinding } from "../secrets/scanner.js";
 import { loadSources, DEFAULT_BUDGET, type NoteType, type ProposedNote, type SourceRef, type LoadedSource } from "./plan.js";
 import type { LocalGenerator, GenerationResult } from "./generate.js";
@@ -63,17 +64,12 @@ export interface SynthesisResult {
   rejection?: { reason: string; findings?: SecretFinding[] };
 }
 
-const DERIVED_SLUG_PREFIX = "dream-";
 const DEFAULT_DERIVED_TYPE: NoteType = "reference";
 
-/**
- * A derived note is recognized by its `sources` (provenance) plus a slug under
- * the reserved `dream-` prefix. The prefix is what gives it a stable identity
- * with the EXISTING schema: no new frontmatter field is needed.
- */
-export function isDerivedSlug(slug: string): boolean {
-  return slug.startsWith(DERIVED_SLUG_PREFIX);
-}
+// `isDerivedSlug`/`DERIVED_SLUG_PREFIX` live in ./derived.js so retrieval can
+// share the exact same test without importing synthesis. Re-exported here
+// because callers (and synthesize.test) already reach for it through this module.
+export { isDerivedSlug } from "./derived.js";
 
 /**
  * Identity from the INPUTS, not the output: the same source group always maps to

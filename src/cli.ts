@@ -179,7 +179,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const corrId = newCorrId(systemClock);
         const result = await searchExplainInstrumented({ db, root, embedder: embedder(), clock: systemClock }, searchOpts, corrId);
         const hits = result.candidates.filter((c) => c.included);
-        for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}  [${h.scope}]  ${h.snippet}`);
+        for (const h of hits) out(`${h.score.toFixed(3)}  ${h.slug}${h.isDerived ? " (derived)" : ""}  [${h.scope}]  ${h.snippet}`);
         if (hits.length === 0) out(emptySearchMessage(result.candidates, result.minCos));
         appendEvalLog(root, { ts: systemClock.nowIso(), cmd: "search", scope: (values.scope ?? []).join(",") || "*", slugs: hits.map((h) => h.slug) });
         return hits.length === 0 ? 2 : 0;

@@ -23,7 +23,11 @@ function f3(v: unknown): string {
  */
 function mentions(ev: TelemetryEvent, slug: string): boolean {
   if (ev.slug === slug) return true;
-  return Array.isArray(ev.injectedSlugs) && (ev.injectedSlugs as unknown[]).includes(slug);
+  if (Array.isArray(ev.injectedSlugs) && (ev.injectedSlugs as unknown[]).includes(slug)) return true;
+  // A dreaming proposal names the SOURCES it derived from: surfacing it on each
+  // source's lifeline is how "a derived note did not bury its sources" stays
+  // observable — the source can see it was consolidated.
+  return Array.isArray(ev.sources) && (ev.sources as unknown[]).includes(slug);
 }
 
 function describe(ev: TelemetryEvent): string {
@@ -39,6 +43,12 @@ function describe(ev: TelemetryEvent): string {
       return `injected into ${String(ev.scope)} context (budget ${String(ev.budget)}, ${String(ev.droppedForBudget)} dropped)`;
     case "access.reinforced":
       return `read — strength ${String(ev.strengthBefore)} → ${String(ev.strengthAfter)}, ${String(ev.accessCountAfter)} access${ev.accessCountAfter === 1 ? "" : "es"}`;
+    case "dream.run":
+      return `dreaming run ${String(ev.runId)} on ${String(ev.scope)} — ${String(ev.proposals)} proposal(s), ${String(ev.duplicates)} dup, model ${String(ev.model)}${ev.withinBudget === false ? " (OVER BUDGET)" : ""}`;
+    case "dream.proposal":
+      return `proposed derived note ${String(ev.slug)} from [${Array.isArray(ev.sources) ? (ev.sources as unknown[]).join(", ") : ""}]${ev.isDuplicate ? " — duplicate, skipped" : ""}`;
+    case "dream.applied":
+      return `applied — derived note ${String(ev.slug)} written from [${Array.isArray(ev.sources) ? (ev.sources as unknown[]).join(", ") : ""}]`;
     default:
       return ev.kind;
   }

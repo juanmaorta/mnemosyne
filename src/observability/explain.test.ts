@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { formatExplain } from "./explain.js";
 import type { ExplainResult } from "../retrieval/search.js";
+import { isDerivedSlug } from "../dreaming/derived.js";
 
 function candidate(slug: string, rank: number, score: number, included: boolean, cos: number, accessed = false) {
   return {
-    slug, scope: "personal", snippet: `${slug} body`, score, rank, included, threshold: 0.5,
+    slug, scope: "personal", snippet: `${slug} body`, score, rank, included, threshold: 0.5, isDerived: isDerivedSlug(slug),
     weights: { recency: 0.25, importance: 0.25, relevance: 1 },
     signals: {
       recencyRaw: 0, recencyNorm: 1, importanceRaw: 5, importanceNorm: 0.444,
