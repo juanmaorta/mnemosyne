@@ -70,6 +70,20 @@ function defaults(): { host: string; model: string } {
   };
 }
 
+/**
+ * `DREAMING_TIMEOUT_MS` makes the per-generation timeout configurable without a
+ * code change: a big local model on a constrained box can need several minutes
+ * just to LOAD before inference starts, far past the 120s default (MNE-92). A
+ * missing, empty, non-numeric or non-positive value is ignored so a typo falls
+ * back to the default rather than to NaN (which would abort instantly).
+ */
+function envTimeoutMs(): number | undefined {
+  const raw = process.env.DREAMING_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export function createLocalGenerator(
   config: Partial<GeneratorConfig> = {},
   fetchImpl: typeof fetch = fetch,
@@ -77,7 +91,7 @@ export function createLocalGenerator(
   const base = defaults();
   const host = config.host ?? base.host;
   const model = config.model ?? base.model;
-  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = config.timeoutMs ?? envTimeoutMs() ?? DEFAULT_TIMEOUT_MS;
   const maxPromptChars = config.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS;
   const maxOutputChars = config.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const temperature = config.temperature ?? DEFAULT_TEMPERATURE;

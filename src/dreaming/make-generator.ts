@@ -20,6 +20,8 @@ export interface DreamingGeneratorOptions {
   scope: string;
   /** Overrides the local endpoint; defaults to OLLAMA_HOST or localhost. */
   localHost?: string;
+  /** Per-generation timeout. Falls back to `DREAMING_TIMEOUT_MS`, then the default. */
+  timeoutMs?: number;
 }
 
 export function createDreamingGenerator(
@@ -46,6 +48,7 @@ export function createDreamingGenerator(
       host: endpoint.host,
       ...(endpoint.model !== undefined ? { model: endpoint.model } : {}),
       ...(apiKey !== undefined ? { apiKey } : {}),
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     },
     fetchImpl,
   );

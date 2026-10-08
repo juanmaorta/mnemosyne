@@ -13,6 +13,8 @@
 //   MNE_DREAM_BASE   isolated copy of the corpus root (never ~/memory directly)
 //   DREAMING_MODEL   generation model (default qwen2.5:7b, read by the client)
 //   MNE_DREAM_SEED   RNG seed for reproducibility (default 42)
+//   DREAMING_TIMEOUT_MS  per-generation timeout (default 120000); raise it for
+//                    big local models that need minutes to load+infer (MNE-92)
 //   MNEMOSYNE_GOLDEN_DIR  golden dir (default ~/.cache/mnemosyne/dream-golden)
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
