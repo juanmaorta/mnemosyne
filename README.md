@@ -517,6 +517,26 @@ Absent or malformed → `personal`-only (fail-closed). A machine never materiali
 does not own. The digest is the current scope's ambient view — `mneme search "<topic>"`
 recalls across every scope on this machine.
 
+**One owner per scope (shared / multi-machine setups).** `.owner` is machine-local and never
+synced, but the `.md` store under a scope often *is* shared across machines (Syncthing). When a
+scope lives on more than one machine, exactly **one** of them should own it; the others must
+exclude it. This matters because every write — and the nightly dreaming consolidation — runs on
+the owner: two machines both owning `personal` would consolidate the same notes twice and can
+collide before the sync catches up. The fail-closed default is the trap here — a machine with no
+`.owner` owns `personal` by default, so a second machine needs an **explicit** `.owner` that
+leaves the shared scope out:
+
+```json
+// On the secondary machine (e.g. a laptop that syncs `personal` but should not own it):
+{ "owns": [] }            // owns nothing — reads and searches still work, writes/dreaming do not
+// …or list only the scopes this machine is the owner of:
+{ "owns": ["work-laptop"] }
+```
+
+Reads and `search` are unaffected by ownership; only writes and dreaming are gated. (The
+nightly dreaming runner is not built yet; until it is, this is a configuration convention —
+the per-run enforcement is tracked with the runner.)
+
 Ranking blends relevance (semantic) + recency + importance, relevance-primary by default.
 Each signal is scaled across the candidates in the current search before blending, so a
 search score describes rank within that query and cannot be compared with another query's
