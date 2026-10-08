@@ -17,7 +17,8 @@ import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramWithRevision } from "./retrieval/get.js";
 import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
-import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined } from "./scope/scopemap.js";
+import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, catchAllScope } from "./scope/scopemap.js";
+import { listScopes } from "./index/walk.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
 import { appendEvalLog } from "./eval/log.js";
@@ -291,6 +292,20 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           // warning. The durable signal is the event above — a hook's stderr
           // reaches nobody reliably when the hook exits 0.
           err(`warning: memory digest degraded (${degraded.join(", ")}); this session may be missing memory.`);
+        }
+        // MNE-59: a home-level catch-all (`~ = <scope>`) is harmless with one
+        // scope but, once a second exists, silently routes any unmapped directory
+        // into that scope — the window where it does damage. Detected daily by
+        // `snapshot`; surfaced here (the one command seen every session) as an
+        // operator warning on stderr, never in the digest. Best-effort.
+        if (root !== undefined) {
+          try {
+            const catchAll = catchAllScope(loadScopeMap(scopeMapPath(root), homedir()), homedir());
+            const scopeCount = listScopes(root).length;
+            if (catchAll !== undefined && scopeCount >= 2) {
+              err(`warning: .scopemap has a catch-all ('~ = ${catchAll}') and ${scopeCount} scopes exist — any unmapped directory writes silently to '${catchAll}'. Map new contexts explicitly, or keep the catch-all on purpose.`);
+            }
+          } catch { /* never break session start over a hygiene check */ }
         }
         return 0;
       }

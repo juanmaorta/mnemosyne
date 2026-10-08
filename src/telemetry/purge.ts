@@ -113,16 +113,21 @@ function redactSnapshots(telemetryDir: string, scope: string, dryRun: boolean): 
   let redacted = 0;
   for (const name of names) {
     const path = join(dir, name);
-    let doc: { stats?: { countsByScope?: Record<string, number> } };
+    let doc: { stats?: { countsByScope?: Record<string, number> }; catchAll?: string };
     try {
       doc = JSON.parse(readFileSync(path, "utf8")) as typeof doc;
     } catch {
       continue;
     }
-    if (doc.stats?.countsByScope === undefined || !(scope in doc.stats.countsByScope)) continue;
+    const inCounts = doc.stats?.countsByScope !== undefined && scope in doc.stats.countsByScope;
+    // A catch-all recorded before this scope was excluded still names it (MNE-59),
+    // so offboarding has to strip it as well, not only the per-scope counts.
+    const inCatchAll = doc.catchAll === scope;
+    if (!inCounts && !inCatchAll) continue;
     redacted++;
     if (dryRun) continue;
-    delete doc.stats.countsByScope[scope];
+    if (inCounts) delete doc.stats!.countsByScope![scope];
+    if (inCatchAll) delete doc.catchAll;
     writeAtomically(path, `${JSON.stringify(doc, null, 2)}\n`);
   }
   return redacted;

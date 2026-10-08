@@ -52,6 +52,25 @@ export function parseScopeMap(text: string, home: string, canonicalize?: Canonic
   return entries;
 }
 
+/**
+ * The scope a home-level catch-all (`~ = <scope>`) maps to, if the map has one.
+ * A catch-all absorbs any unmapped directory under home: harmless with a single
+ * scope (nothing to protect), but with two or more it silently routes new,
+ * unmapped contexts into an existing scope — the boundary hazard MNE-59 warns
+ * about. Checks both spellings since home itself may be a symlink.
+ */
+export function catchAllScope(
+  entries: ScopeMapEntry[],
+  home: string,
+  canonicalize: Canonicalize = realpathOrUndefined,
+): string | undefined {
+  // Home itself may be a symlink and the map may name either spelling, exactly
+  // like the match logic in bestMatch. Compare against both forms of home so a
+  // catch-all written as the resolved path is not missed.
+  const homes = [home, canonicalize(home)].filter((h): h is string => h !== undefined);
+  return entries.find((e) => homes.includes(e.prefix) || (e.canonical !== undefined && homes.includes(e.canonical)))?.scope;
+}
+
 /** Length of the match, or undefined if `prefix` does not contain `cwd`. */
 function matchLength(prefix: string, cwd: string): number | undefined {
   return cwd === prefix || cwd.startsWith(`${prefix}/`) ? prefix.length : undefined;
