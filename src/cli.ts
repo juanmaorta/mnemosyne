@@ -134,7 +134,11 @@ function emptySearchMessage(candidates: { slug: string; scope: string; signals: 
   return `No relevant results; best candidate: ${best.slug} [${best.scope}] at cos ${best.signals.relevanceCosine.toFixed(3)}${minCos === null ? "" : ` (minimum ${minCos.toFixed(3)})`}.`;
 }
 
-function embedder(): EmbeddingClient {
+function embedder(): EmbeddingClient | null {
+  // Tier 0 (MNE-19): no embedder at all. `search`/`context` fall back to BM25
+  // over FTS and `reindex` indexes the FTS table only. Explicit on purpose — it
+  // never masks a transient Ollama failure as a silent quality drop.
+  if (process.env.MNEMOSYNE_EMBEDDER === "none") return null;
   return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
 }
 

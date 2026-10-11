@@ -610,6 +610,7 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
 | `MNEMOSYNE_MIN_COS` | `0.70` for prefixed `nomic-embed-text`; off for other models | Raw cosine floor for search (overridden by `--min-cos`) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
+| `MNEMOSYNE_EMBEDDER` | — | `none` runs tier 0: no embedder, `search`/`context` rank by BM25 over FTS (works without Ollama) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |
 | `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json` |
 

@@ -48,7 +48,8 @@ export class EmbedderMismatchError extends Error {
 export interface ReindexDeps {
   root: string;
   db: Db;
-  embedder: EmbeddingClient;
+  /** Null means tier 0: index the FTS table only, no vectors (MNE-19). */
+  embedder: EmbeddingClient | null;
   scopes?: string[];
   /** Defaults to the system clock; injected by tests and the bench harness. */
   clock?: Clock;
@@ -104,18 +105,21 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // fingerprint therefore invalidates the whole index — safe, because the index
   // is disposable and this function rebuilds it.
   const previousEmbeddingId = getMeta(db, "embedding_id");
-  const embeddingMismatch = previousEmbeddingId !== undefined && previousEmbeddingId !== embedder.id;
+  const embeddingMismatch = embedder !== null && previousEmbeddingId !== undefined && previousEmbeddingId !== embedder.id;
   // The table's own width is checked separately, and against the SCHEMA rather
   // than the stamp: a store created at the default width and then pointed at a
   // 1024-dim model is NOT a model change (there is no previous stamp to differ
   // from), yet every insert would fail against the 768-wide table. This is also
   // the path that covers a store predating the stamp entirely.
-  const widthMismatch = vectorIndexDim(db) !== embedder.dim;
-  if (embeddingMismatch || widthMismatch) {
-    // An index with nothing in it has nothing to protect: the first run of a
-    // non-default model must not be an error. Past that, the caller says so.
-    const populated = (db.prepare("select count(*) as n from engrams").get() as { n: number }).n > 0;
-    if (populated && !forceEmbedder) {
+  const widthMismatch = embedder !== null && vectorIndexDim(db) !== embedder.dim;
+  if (embedder !== null && (embeddingMismatch || widthMismatch)) {
+    // An index with no VECTORS has nothing to protect: the first run of a
+    // non-default model must not be an error — and a tier-0 index (engram rows
+    // but an empty, default-width vector table) is exactly that case, so it must
+    // not demand --force-embedder either. Only actual vectors can be corrupted
+    // by mixing models. Past that, the caller says so.
+    const hasVectors = (db.prepare("select count(*) as n from vec_engrams").get() as { n: number }).n > 0;
+    if (hasVectors && !forceEmbedder) {
       throw new EmbedderMismatchError(
         previousEmbeddingId ?? `an index ${vectorIndexDim(db)} dimensions wide`,
         embedder.id,
@@ -130,6 +134,18 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // would leave the index claiming an embedder whose vectors are not in it.
   const rebuild = embeddingMismatch || widthMismatch;
 
+  // Backfill set (MNE-19): paths that have an engram but no vector — the state a
+  // tier-0 index leaves a note in. Collected in ONE query per run, not per file:
+  // `engrams.path` is unindexed, so a per-file lookup is a full-table scan each
+  // time and goes quadratic on a large store. Skipped entirely when there is no
+  // embedder (tier 0 stays FTS-only) or when a rebuild already re-embeds all.
+  const missingVectorPaths = new Set<string>();
+  if (embedder !== null && !rebuild) {
+    for (const r of db.prepare(
+      "select e.path as path from engrams e left join vec_engrams v on v.rowid = e.id where v.rowid is null",
+    ).all() as { path: string }[]) missingVectorPaths.add(r.path);
+  }
+
   const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0, embeddingMismatch };
   const files = listEngramFiles(root, scopes);
   const seen = new Set(files.map((f) => f.path));
@@ -143,7 +159,10 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     const prev = fileStateOf(db, file.path);
     // A rebuild re-embeds everything: the vectors are about to be dropped, so a
     // file whose bytes did not change still needs its vector written again.
-    if (!rebuild && !needsReindex(prev, curr)) {
+    // Likewise, a file indexed in tier 0 has no vector yet: with an embedder
+    // now present, re-embed it even though its bytes are unchanged (MNE-19).
+    const needsBackfill = missingVectorPaths.has(file.path);
+    if (!rebuild && !needsBackfill && !needsReindex(prev, curr)) {
       stats.skipped++;
       continue;
     }
@@ -164,30 +183,40 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // Ollama unreachable) legitimately aborts the whole run — nothing can be
   // indexed without embeddings — but it no longer costs one HTTP round-trip
   // per file, and a single file's content no longer aborts the entire loop.
+  // Tier 0 (embedder === null): no vectors. The FTS table is still filled in
+  // phase 3, so BM25 search works without an embedder.
   const vectors: number[][] = [];
-  for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
-    const chunk = pending.slice(i, i + EMBED_BATCH_SIZE);
-    const texts = chunk.map((p) => `${p.engram.description}\n\n${p.body}`);
-    const embedded = await embedder.embed(texts, "document");
-    vectors.push(...embedded);
+  if (embedder !== null) {
+    for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
+      const chunk = pending.slice(i, i + EMBED_BATCH_SIZE);
+      const texts = chunk.map((p) => `${p.engram.description}\n\n${p.body}`);
+      const embedded = await embedder.embed(texts, "document");
+      vectors.push(...embedded);
+    }
   }
 
   // The embeddings are in hand, so now the old index can go. Between this line
   // and the end of phase 3 there is no network and no parsing — only local
   // writes — which is as narrow as this window gets without giving up the
   // per-file transactions that keep one bad note from aborting the run.
-  if (rebuild) {
-    db.prepare("DELETE FROM file_state").run();
+  if (rebuild && embedder !== null) {
+    // Drop/resize the vector index (a rebuild re-embeds everything), but DON'T
+    // clear file_state: the `rebuild` flag already forces every walked file past
+    // the phase-1 skip, and the prune below reads file_state to find notes whose
+    // files vanished. Clearing it here would strand a note deleted since the last
+    // index — including a note deleted during a tier-0 window before promotion.
     resetVectorIndex(db, embedder.dim);
   }
-  setMeta(db, "embedding_id", embedder.id);
+  // Only stamp the embedding model when there actually are vectors: a tier-0
+  // run must not claim an embedder whose vectors are not in the index.
+  if (embedder !== null) setMeta(db, "embedding_id", embedder.id);
 
   // Phase 3: upsert each pending item, keyed by path.
   const now = clock.nowIso();
   const indexedEvents: TelemetryInput[] = [];
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i]!;
-    const vec = vectors[i]!;
+    const vec = embedder !== null ? vectors[i]! : null;
     const { file, engram, body, hash, curr } = item;
 
     const upsert = db.transaction(() => {
@@ -216,7 +245,9 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       // sqlite-vec's vec0 xUpdate rejects a bound INTEGER rowid parameter that
       // better-sqlite3 sends as a plain JS number; binding it as a BigInt makes
       // better-sqlite3 emit SQLITE_INTEGER unambiguously and vec0 accepts it.
-      db.prepare("insert into vec_engrams(rowid, embedding) values(?, ?)").run(BigInt(id), toBlob(vec));
+      if (vec !== null) {
+        db.prepare("insert into vec_engrams(rowid, embedding) values(?, ?)").run(BigInt(id), toBlob(vec));
+      }
       db.prepare("insert into fts_engrams(rowid, description, body) values(?, ?, ?)").run(id, engram.description, body);
       db.prepare(
         `insert into file_state(path, mtime, size, hash, indexed_at) values(?, ?, ?, ?, ?)
@@ -244,8 +275,8 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
         kind: "engram.indexed",
         scope: engram.scope,
         slug: engram.name,
-        embeddingId: embedder.id,
-        dim: embedder.dim,
+        embeddingId: embedder === null ? "none" : embedder.id,
+        dim: embedder === null ? 0 : embedder.dim,
         // `hash` means the bytes changed; `mtime` means only the stat did
         // (a touch, or a Syncthing round-trip) yet we re-embedded anyway.
         reason: item.prev === undefined ? "new" : item.prev.hash !== hash ? "hash" : "mtime",

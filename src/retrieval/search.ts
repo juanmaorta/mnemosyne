@@ -23,7 +23,7 @@ export interface SearchHit {
    *  truth. Purely a marker — it does NOT change the ranking. */
   isDerived: boolean;
 }
-export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient; clock: Clock }
+export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient | null; clock: Clock }
 export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number }
 
 /**
@@ -64,31 +64,85 @@ export interface ExplainResult {
   candidates: SearchHit[];
 }
 
+interface CandidateRow {
+  slug: string; scope: string; snippet: string; importance: number; relevance: number;
+  lastAccess: string | null; accessCount: number | null;
+  strength: number | null; retention: number | null;
+}
+
+/**
+ * Turn a free-text query into an FTS5 MATCH expression. Each alphanumeric token
+ * is quoted (so a stray `-`, `*` or `"` is data, not an operator) and the tokens
+ * are OR-ed for recall; BM25 then ranks. Returns null when the query has no
+ * usable terms, so the caller can return nothing instead of a syntax error.
+ */
+export function toFtsMatch(query: string): string | null {
+  const tokens = query.match(/[\p{L}\p{N}]+/gu);
+  if (!tokens || tokens.length === 0) return null;
+  return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+}
+
+/**
+ * Tier 0 (MNE-19): candidates from BM25 over the FTS5 table, no embedder. SQLite's
+ * `bm25()` returns lower = better; we min-max that to a relevance in [0,1] that
+ * feeds the same scoring pipeline as cosine. Min-max (not 1/(1+position)) so that
+ * EQUAL BM25 yields EQUAL relevance — then the deterministic scope/slug tiebreak
+ * in `searchExplain` decides ties instead of the unspecified SQL row order.
+ * There is no cosine here, so no cosine floor applies.
+ */
+function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[] {
+  const match = toFtsMatch(query);
+  if (match === null) return [];
+  const rows = db.prepare(
+    `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
+            h.last_access as lastAccess, h.access_count as accessCount,
+            h.strength as strength, h.retention as retention,
+            bm25(fts_engrams) as bm25
+     from fts_engrams
+     join engrams e on e.id = fts_engrams.rowid
+     left join hot_state h on h.scope = e.scope and h.slug = e.slug
+     where fts_engrams match ? and e.scope in (${scopes.map(() => "?").join(",")})
+     order by bm25(fts_engrams)`,
+  ).all(match, ...scopes) as (Omit<CandidateRow, "relevance"> & { bm25: number })[];
+  if (rows.length === 0) return [];
+  // bm25() is lower = better, so negate: higher = better, matching cosine.
+  const goodness = rows.map((r) => -r.bm25);
+  const min = Math.min(...goodness);
+  const span = Math.max(...goodness) - min;
+  return rows.map(({ bm25: _bm25, ...rest }, i) => ({
+    ...rest,
+    relevance: span === 0 ? 1 : (goodness[i]! - min) / span,
+  }));
+}
+
 export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Promise<ExplainResult> {
   const { db, root, embedder, clock } = deps;
   const k = opts.k ?? 10;
   const scopes = opts.scopes ?? listScopes(root);
   const weights = opts.weights ?? SEARCH_WEIGHTS;
-  const minCos = resolveMinCos(embedder.id, opts.minCos);
+  // Tier 0 has no cosine, so nothing to floor; the floor is a vector-path concept.
+  const minCos = embedder === null ? null : resolveMinCos(embedder.id, opts.minCos);
   if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, candidates: [] };
   // One clock read for the whole query: hot-state materialization and the
   // recency term must agree on "now", or a slow embed call would skew scoring.
   const now = clock.now();
   materializeHotState(db, root, scopes, now);
-  const [q] = await embedder.embed([opts.query], "query");
-  const rows = db.prepare(
-    `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
-            1.0 - vec_distance_cosine(v.embedding, ?) as relevance,
-            h.last_access as lastAccess, h.access_count as accessCount,
-            h.strength as strength, h.retention as retention
-     from vec_engrams v
-     join engrams e on e.id = v.rowid
-     left join hot_state h on h.scope = e.scope and h.slug = e.slug
-     where e.scope in (${scopes.map(() => "?").join(",")})`,
-  ).all(toBlob(q!), ...scopes) as
-    { slug: string; scope: string; snippet: string; importance: number; relevance: number;
-      lastAccess: string | null; accessCount: number | null;
-      strength: number | null; retention: number | null }[];
+  let rows: CandidateRow[];
+  if (embedder === null) {
+    rows = bm25Candidates(db, opts.query, scopes);
+  } else {
+    const [q] = await embedder.embed([opts.query], "query");
+    rows = db.prepare(
+      `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
+              1.0 - vec_distance_cosine(v.embedding, ?) as relevance,
+              h.last_access as lastAccess, h.access_count as accessCount,
+              h.strength as strength, h.retention as retention
+       from vec_engrams v
+       join engrams e on e.id = v.rowid
+       left join hot_state h on h.scope = e.scope and h.slug = e.slug
+       where e.scope in (${scopes.map(() => "?").join(",")})`,
+    ).all(toBlob(q!), ...scopes) as CandidateRow[];
+  }
 
   const raw = rows.map((r) => {
     const { signals } = scoreBreakdown({
