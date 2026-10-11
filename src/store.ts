@@ -25,6 +25,9 @@ export const SCOPEMAP_FILE = ".scopemap";
 /** Machine-local owner policy (never synced); see `.stignore` in Phase 4. */
 export const OWNER_FILE = ".owner";
 
+/** Machine-local config (never synced): tier selection written by `mneme init`. */
+export const CONFIG_FILE = ".config.json";
+
 export interface StorePaths {
   readonly root: string;
   scopeDir(scope: string): string;
@@ -42,6 +45,7 @@ export interface StorePaths {
   readonly indexMd: string;
   readonly scopeMap: string;
   readonly ownerPolicy: string;
+  readonly config: string;
 }
 
 /** A scope maps to a directory name; reject anything that could escape the root. */
@@ -69,6 +73,7 @@ export function storePaths(root: string): StorePaths {
     indexMd: join(root, "INDEX.md"),
     scopeMap: join(root, SCOPEMAP_FILE),
     ownerPolicy: join(root, OWNER_FILE),
+    config: join(root, CONFIG_FILE),
   };
 }
 

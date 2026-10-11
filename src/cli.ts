@@ -15,9 +15,9 @@ import { emitEvent } from "./telemetry/events.js";
 import { loadTelemetryConfig } from "./telemetry/config.js";
 import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramWithRevision } from "./retrieval/get.js";
-import { createOllamaClient, type EmbeddingClient } from "./embeddings.js";
+import { createOllamaClient, probeOllama, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
-import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, catchAllScope } from "./scope/scopemap.js";
+import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, catchAllScope, ensureCatchAllScopeMap } from "./scope/scopemap.js";
 import { listScopes } from "./index/walk.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
@@ -25,13 +25,11 @@ import { appendEvalLog } from "./eval/log.js";
 import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
 import {
-  CODEX_SESSION_START_COMMAND,
   codexHookSnippet,
   codexSessionStartEnvelope,
   cwdFromHookPayload,
   hookSnippet,
-  mergeCodexSessionStartHook,
-  mergeSessionStartHook,
+  installSessionStartHook,
   SESSION_START_COMMAND,
 } from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -134,11 +132,28 @@ function emptySearchMessage(candidates: { slug: string; scope: string; signals: 
   return `No relevant results; best candidate: ${best.slug} [${best.scope}] at cos ${best.signals.relevanceCosine.toFixed(3)}${minCos === null ? "" : ` (minimum ${minCos.toFixed(3)})`}.`;
 }
 
-function embedder(): EmbeddingClient | null {
+/**
+ * The tier for this store: the `MNEMOSYNE_EMBEDDER` env var wins, else the tier
+ * `mneme init` persisted in the store's `.config.json`, else undefined (default
+ * resolution). `"none"` means tier 0. Read from the store's actual root so a
+ * `--root` invocation sees its own config, not the default store's.
+ */
+function configuredTier(root: string): string | undefined {
+  const env = process.env.MNEMOSYNE_EMBEDDER;
+  if (env !== undefined) return env;
+  try {
+    const cfg = JSON.parse(readFileSync(storePaths(root).config, "utf8")) as { embedder?: unknown };
+    return typeof cfg.embedder === "string" ? cfg.embedder : undefined;
+  } catch {
+    return undefined; // no config, unreadable, or malformed → fall through to default
+  }
+}
+
+function embedder(root: string): EmbeddingClient | null {
   // Tier 0 (MNE-19): no embedder at all. `search`/`context` fall back to BM25
   // over FTS and `reindex` indexes the FTS table only. Explicit on purpose — it
   // never masks a transient Ollama failure as a silent quality drop.
-  if (process.env.MNEMOSYNE_EMBEDDER === "none") return null;
+  if (configuredTier(root) === "none") return null;
   return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
 }
 
@@ -157,7 +172,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // The only place that can consent to re-embedding the whole store:
         // every other entry point reaches reindex lazily, and consent given by
         // something running on its own is not consent.
-        const stats = await reindex({ root, db, embedder: embedder(), clock: systemClock, forceEmbedder: Boolean(values["force-embedder"]), ...(values.scope ? { scopes: values.scope } : {}) });
+        const stats = await reindex({ root, db, embedder: embedder(root), clock: systemClock, forceEmbedder: Boolean(values["force-embedder"]), ...(values.scope ? { scopes: values.scope } : {}) });
         if (stats.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         out(`indexed ${stats.indexed}, skipped ${stats.skipped}, deleted ${stats.deleted}, errors ${stats.errors}`);
         return 0;
@@ -172,7 +187,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (values.json && values.explain) { err("search: --json and --explain cannot be combined (explain output is not JSON); use `explain` for the diagnostic view."); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        const lazy = await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
+        const lazy = await reindex({ root, db, embedder: embedder(root), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         const minCos = configuredMinCos(values["min-cos"]);
         const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }) };
@@ -180,13 +195,13 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           // Diagnostic path: still instrumented, so an explained search is not
           // a hole in the log — then rendered candidate-by-candidate.
           const corrIdX = newCorrId(systemClock);
-          const deps = { db, root, embedder: embedder(), clock: systemClock };
+          const deps = { db, root, embedder: embedder(root), clock: systemClock };
           const result = await searchExplainInstrumented(deps, searchOpts, corrIdX);
           out(formatExplain(result, values.all ? { limit: null } : {}));
           return result.candidates.some((c) => c.included) ? 0 : 2;
         }
         const corrId = newCorrId(systemClock);
-        const result = await searchExplainInstrumented({ db, root, embedder: embedder(), clock: systemClock }, searchOpts, corrId);
+        const result = await searchExplainInstrumented({ db, root, embedder: embedder(root), clock: systemClock }, searchOpts, corrId);
         const hits = result.candidates.filter((c) => c.included);
         if (values.json) {
           // Machine contract: one JSON array, nothing else — even when empty. The
@@ -274,7 +289,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           const db = openIndex(root);
           // Serving whatever the index already holds is the right call — a stale
           // digest beats no digest — but it can be arbitrarily old, so say so.
-          try { await reindex({ root, db, embedder: embedder(), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
+          try { await reindex({ root, db, embedder: embedder(root), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
           const ranked = rankContext(db, root, scope, systemClock.now());
           const { included, omitted } = selectWithinBudget(ranked, budget);
           emitResult(formatContextDigest(included, scope, omitted), included.map((e) => e.slug), omitted);
@@ -319,8 +334,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (!query) { err("usage: mneme explain \"<query>\" [--scope s] [-k N]"); return 1; }
         const root = resolveRoot(values.root);
         const db = openIndex(root);
-        await reindex({ root, db, embedder: embedder(), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
-        const deps = { db, root, embedder: embedder(), clock: systemClock };
+        await reindex({ root, db, embedder: embedder(root), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
+        const deps = { db, root, embedder: embedder(root), clock: systemClock };
         const minCos = configuredMinCos(values["min-cos"]);
         const opts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }) };
         out(formatExplain(await searchExplainInstrumented(deps, opts, newCorrId(systemClock)), values.all ? { limit: null } : {}));
@@ -425,21 +440,53 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           out(`Add this to ${settingsPath}:\n\n${snippet}${trustNote}`);
           return 0;
         }
-        let current: Record<string, unknown> = {};
-        try {
-          current = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-            err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${snippet}`);
-            return 1;
-          }
+        if (installSessionStartHook(settingsPath, { codex }) === "parse-error") {
+          err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${snippet}`);
+          return 1;
         }
-        mkdirSync(dirname(settingsPath), { recursive: true });
-        const merged = codex
-          ? mergeCodexSessionStartHook(current, CODEX_SESSION_START_COMMAND)
-          : mergeSessionStartHook(current, SESSION_START_COMMAND);
-        writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
         out(`Installed SessionStart hook into ${settingsPath}.${trustNote}`);
+        return 0;
+      }
+      case "init": {
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, write: { type: "boolean" } }, allowPositionals: true });
+        // Absolute, and independent of the invoking environment: the hook runs in
+        // future sessions with a different cwd and without this process's env, so
+        // a relative or MNEMOSYNE_ROOT-derived path would target the wrong store.
+        const root = resolve(resolveRoot(values.root));
+        const paths = storePaths(root);
+        const settingsPath = join(homedir(), ".claude", "settings.json");
+        // Always bake the absolute store root into the hook, even for the default
+        // location: a bare `mneme context` follows MNEMOSYNE_ROOT at session time
+        // and could read a different store than the one just initialized.
+        // Single-quoted for the shell.
+        const quoteArg = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+        const hookCommand = `${SESSION_START_COMMAND} --root ${quoteArg(root)}`;
+        // Tier: use the embedder if Ollama serves the model, else tier 0 (BM25
+        // over FTS). The probe never throws; anything else just means tier 0.
+        const hasOllama = await probeOllama();
+        if (!values.write) {
+          out([
+            "mneme init (dry run — pass --write to apply):",
+            `  hook:     SessionStart -> "${hookCommand}" in ${settingsPath}`,
+            `  scopemap: ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}')`,
+            `  tier:     ${hasOllama ? "embedder (Ollama detected)" : "0 — no embedder (Ollama not reachable); search/context use BM25"}`,
+          ].join("\n"));
+          return 0;
+        }
+        if (installSessionStartHook(settingsPath, { root }) === "parse-error") {
+          err(`Could not parse ${settingsPath}; not modifying it. Fix or remove it and re-run 'mneme init --write'.`);
+          return 1;
+        }
+        const wroteScopeMap = ensureCatchAllScopeMap(paths.scopeMap, DEFAULT_SCOPE);
+        // Persist the tier so EVERY mneme invocation honours it, not just the
+        // hook. `MNEMOSYNE_EMBEDDER` still overrides this at runtime.
+        mkdirSync(dirname(paths.config), { recursive: true });
+        writeFileSync(paths.config, `${JSON.stringify({ embedder: hasOllama ? "ollama" : "none" }, null, 2)}\n`);
+        out([
+          `Installed SessionStart hook into ${settingsPath}.`,
+          wroteScopeMap ? `Wrote ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}').` : `Left existing ${paths.scopeMap} untouched.`,
+          hasOllama ? "Tier: embedder (Ollama detected)." : "Tier 0: no embedder; search/context use BM25 over FTS.",
+        ].join("\n"));
         return 0;
       }
       case "scan": {
@@ -663,7 +710,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, install-hook, add, update, import-claude.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, add, update, import-claude.`);
         return 1;
     }
   } catch (e) {

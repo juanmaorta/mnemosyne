@@ -85,6 +85,39 @@ function defaults(): { host: string; model: string; declaredDim: string | undefi
   };
 }
 
+/**
+ * Best-effort check that an Ollama server is reachable AND actually serves the
+ * embedding model, for tier selection in `mneme init`. A bare reachability check
+ * is not enough: `/api/tags` returns 200 on a server with only chat models, and
+ * enabling the embedder tier there makes every later search fail with
+ * model-not-found instead of falling back to BM25. Never throws: any failure
+ * (unreachable, timeout, non-OK, model absent) is reported as "not available".
+ */
+export async function probeOllama(
+  host: string = defaults().host,
+  model: string = defaults().model,
+  timeoutMs = 1500,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${host}/api/tags`, { signal: controller.signal });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { models?: { name?: unknown }[] };
+    const names = (data.models ?? []).map((m) => (typeof m.name === "string" ? m.name : "")).filter(Boolean);
+    // An omitted tag means Ollama's `:latest`; an explicit tag must match exactly
+    // (`:0.6b` requested is NOT satisfied by `:8b` installed — the embed would use
+    // the missing one and fail).
+    const wanted = model.includes(":") ? model : `${model}:latest`;
+    return names.some((n) => n === model || n === wanted);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createOllamaClient(
   config: Partial<OllamaConfig> = {},
   fetchImpl: typeof fetch = fetch,

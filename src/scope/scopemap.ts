@@ -1,6 +1,6 @@
 // src/scope/scopemap.ts
-import { readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DEFAULT_SCOPE, storePaths } from "../store.js";
 
 export interface ScopeMapEntry {
@@ -117,6 +117,18 @@ export function realpathOrUndefined(path: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Write a default catch-all `.scopemap` (`~ = <scope>`) when none exists. Used
+ * by `mneme init`. Idempotent: an existing file is left untouched, so it never
+ * clobbers a map the user has curated. Returns whether it wrote.
+ */
+export function ensureCatchAllScopeMap(path: string, scope: string = DEFAULT_SCOPE): boolean {
+  if (existsSync(path)) return false;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `~ = ${scope}\n`);
+  return true;
 }
 
 export function loadScopeMap(path: string, home: string): ScopeMapEntry[] {
