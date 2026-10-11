@@ -11,8 +11,9 @@ export type TelemetryKind =
   // Dreaming (Fase 4). `dream.run`/`dream.proposal` are emitted when a plan is
   // persisted — including a dry-run, so evidence accrues before anything writes.
   // `dream.applied` is emitted by the apply step (MNE-46) when a derived note is
-  // actually written, and stays unused until that lands.
-  | "dream.run" | "dream.proposal" | "dream.applied";
+  // actually written, and stays unused until that lands. `dream.link` records a
+  // proposed associative link (MNE-90), one per link folded into the plan.
+  | "dream.run" | "dream.proposal" | "dream.applied" | "dream.link";
 
 export interface TelemetryEvent {
   ts: string;

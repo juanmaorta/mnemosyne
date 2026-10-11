@@ -22,6 +22,7 @@ import { revisionOf } from "../revision.js";
 import { ALGO_VERSION } from "../version.js";
 import { emitEvents, type TelemetryInput } from "../telemetry/events.js";
 import { systemClock, type Clock } from "../clock.js";
+import type { ProposedLink } from "./links.js";
 
 export type NoteType = "user" | "reference" | "project";
 
@@ -71,15 +72,19 @@ export interface Budget {
   maxNotes: number;
   /** Max characters in a single new note's body. */
   maxNoteChars: number;
+  /** Max NEW associative links per run (MNE-90). */
+  maxLinks: number;
 }
 
 /** Conservative defaults; override per run. Never a switch that enables writes. */
-export const DEFAULT_BUDGET: Budget = { maxNotes: 10, maxNoteChars: 4_000 };
+export const DEFAULT_BUDGET: Budget = { maxNotes: 10, maxNoteChars: 4_000, maxLinks: 20 };
 
 export interface BudgetVerdict {
   within: boolean;
   /** New notes proposed vs the limit. Duplicates do not count — see isDuplicate. */
   notes: { proposed: number; limit: number };
+  /** New links proposed vs the limit (MNE-90). */
+  links: { proposed: number; limit: number };
   /** Bodies over the per-note size cap, REPORTED, never silently trimmed. */
   oversizeNotes: { slug: string; chars: number; limit: number }[];
 }
@@ -93,6 +98,16 @@ export interface PlanProposal extends ProposedNote {
   isDuplicate: boolean;
 }
 
+/**
+ * A proposed associative link, as it lands in the plan. Identity is the
+ * (scope, endpoint pair) — NOT the similarity, which can drift as the index is
+ * rebuilt — so re-running on an unchanged index proposes the same link with the
+ * same id instead of a near-duplicate.
+ */
+export interface PlanLink extends ProposedLink {
+  id: string;
+}
+
 export interface DreamingPlan {
   runId: string;
   scope: string;
@@ -103,6 +118,7 @@ export interface DreamingPlan {
   budgetVerdict: BudgetVerdict;
   sources: SourceRef[];
   proposals: PlanProposal[];
+  links: PlanLink[];
 }
 
 export interface BuildPlanOptions {
@@ -111,6 +127,8 @@ export interface BuildPlanOptions {
   model: { id: string };
   now: string;
   proposals: ProposedNote[];
+  /** Proposed associative links among the scope's notes (MNE-90). */
+  links?: ProposedLink[];
   budget?: Budget;
   /** Injectable for deterministic artifacts; a fresh id is derived otherwise. */
   runId?: string;
@@ -135,6 +153,30 @@ function assertSafeScope(scope: string): void {
 function stableId(scope: string, p: ProposedNote): string {
   const material = [scope, p.slug, [...p.sources].sort().join(","), p.body].join("\n");
   return createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+/** Identity of a link: scope + its (already-sorted) endpoint pair. */
+function stableLinkId(scope: string, link: ProposedLink): string {
+  const material = [scope, link.slugs[0], link.slugs[1]].join("\n");
+  return createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+/**
+ * Both endpoints of every link must be a note file in THIS scope. A missing or
+ * cross-scope endpoint is raised loudly (same as an out-of-scope source), so a
+ * link can never silently reach across the scope boundary.
+ */
+function assertLinkEndpointsInScope(scope: string, scopeDir: string, links: ProposedLink[]): void {
+  const missing = new Set<string>();
+  for (const link of links) {
+    for (const slug of link.slugs) {
+      // Validate the slug shape BEFORE touching the filesystem: a value like
+      // `../work/secret` would otherwise resolve to a note in another scope and
+      // silently defeat the boundary. A real slug has no separators or traversal.
+      if (!KEBAB_SLUG_RE.test(slug) || !existsSync(join(scopeDir, `${slug}.md`))) missing.add(slug);
+    }
+  }
+  if (missing.size > 0) throw new InvalidSourcesError(scope, [...missing]);
 }
 
 /**
@@ -217,6 +259,7 @@ function safeReaddir(dir: string): string[] {
 
 export function buildPlan(opts: BuildPlanOptions): DreamingPlan {
   const { root, scope, model, now, proposals } = opts;
+  const links = opts.links ?? [];
   assertSafeScope(scope);
   const budget = opts.budget ?? DEFAULT_BUDGET;
   const runId = opts.runId ?? deriveRunId(scope, now);
@@ -227,13 +270,16 @@ export function buildPlan(opts: BuildPlanOptions): DreamingPlan {
   const sources = readSources(root, scope, citedSlugs);
 
   const scopeDir = storePaths(root).scopeDir(scope);
+  // Links never cross the scope boundary: every endpoint must be a note here.
+  assertLinkEndpointsInScope(scope, scopeDir, links);
   const planProposals: PlanProposal[] = proposals.map((p) => ({
     ...p,
     id: stableId(scope, p),
     isDuplicate: existsSync(join(scopeDir, `${p.slug}.md`)),
   }));
+  const planLinks: PlanLink[] = links.map((l) => ({ ...l, id: stableLinkId(scope, l) }));
 
-  const budgetVerdict = computeBudgetVerdict(planProposals, budget);
+  const budgetVerdict = computeBudgetVerdict(planProposals, planLinks, budget);
 
   return {
     runId,
@@ -245,6 +291,7 @@ export function buildPlan(opts: BuildPlanOptions): DreamingPlan {
     budgetVerdict,
     sources,
     proposals: planProposals,
+    links: planLinks,
   };
 }
 
@@ -257,14 +304,18 @@ function deriveRunId(scope: string, now: string): string {
  * trimming the plan: the reviewer (and MNE-46) decide what to do, and a plan
  * silently shortened to fit would hide exactly the run worth stopping.
  */
-function computeBudgetVerdict(proposals: PlanProposal[], budget: Budget): BudgetVerdict {
+function computeBudgetVerdict(proposals: PlanProposal[], links: PlanLink[], budget: Budget): BudgetVerdict {
   const fresh = proposals.filter((p) => !p.isDuplicate);
   const oversizeNotes = fresh
     .filter((p) => p.body.length > budget.maxNoteChars)
     .map((p) => ({ slug: p.slug, chars: p.body.length, limit: budget.maxNoteChars }));
   const notes = { proposed: fresh.length, limit: budget.maxNotes };
-  const within = notes.proposed <= budget.maxNotes && oversizeNotes.length === 0;
-  return { within, notes, oversizeNotes };
+  const linksVerdict = { proposed: links.length, limit: budget.maxLinks };
+  const within =
+    notes.proposed <= budget.maxNotes &&
+    linksVerdict.proposed <= budget.maxLinks &&
+    oversizeNotes.length === 0;
+  return { within, notes, links: linksVerdict, oversizeNotes };
 }
 
 /** Human-readable diff: what this run would create, from what, under what budget. */
@@ -290,11 +341,16 @@ export function renderPlan(plan: DreamingPlan): string {
     lines.push(`  ~ ${p.slug} — skipped (a note already holds this slug)`);
   }
 
+  lines.push(`proposed links (${plan.links.length}):`);
+  for (const l of plan.links) {
+    lines.push(`  ↔ ${l.slugs[0]} — ${l.slugs[1]}  [id ${l.id.slice(0, 8)}, cos ${l.similarity.toFixed(3)}]`);
+  }
+
   const v = plan.budgetVerdict;
   if (v.within) {
-    lines.push(`budget: within (notes ${v.notes.proposed}/${v.notes.limit})`);
+    lines.push(`budget: within (notes ${v.notes.proposed}/${v.notes.limit}, links ${v.links.proposed}/${v.links.limit})`);
   } else {
-    const bits = [`notes ${v.notes.proposed}/${v.notes.limit}`];
+    const bits = [`notes ${v.notes.proposed}/${v.notes.limit}`, `links ${v.links.proposed}/${v.links.limit}`];
     if (v.oversizeNotes.length > 0) bits.push(`${v.oversizeNotes.length} oversize`);
     lines.push(`budget: EXCEEDED (${bits.join("; ")})`);
     for (const o of v.oversizeNotes) {
@@ -342,6 +398,7 @@ export function dreamPlanEvents(plan: DreamingPlan): TelemetryInput[] {
     model: plan.model.id,
     proposals: plan.proposals.length,
     duplicates: plan.proposals.filter((p) => p.isDuplicate).length,
+    links: plan.links.length,
     withinBudget: plan.budgetVerdict.within,
   };
   const proposals: TelemetryInput[] = plan.proposals.map((p) => ({
@@ -353,5 +410,13 @@ export function dreamPlanEvents(plan: DreamingPlan): TelemetryInput[] {
     isDuplicate: p.isDuplicate,
     proposalId: p.id,
   }));
-  return [run, ...proposals];
+  const links: TelemetryInput[] = plan.links.map((l) => ({
+    kind: "dream.link",
+    runId: plan.runId,
+    scope: plan.scope,
+    slugs: l.slugs,
+    similarity: l.similarity,
+    linkId: l.id,
+  }));
+  return [run, ...proposals, ...links];
 }

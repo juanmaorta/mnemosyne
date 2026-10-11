@@ -157,7 +157,7 @@ describe("buildPlan — budget verdict", () => {
       proposal({ slug: `note-${i}`, sources: ["fact-a"] }));
 
     const plan = buildPlan({ root, scope: "personal", model: MODEL, now: NOW,
-      budget: { maxNotes: 2, maxNoteChars: 10_000 }, proposals });
+      budget: { maxNotes: 2, maxNoteChars: 10_000, maxLinks: 20 }, proposals });
 
     expect(plan.budgetVerdict.within).toBe(false);
     expect(plan.budgetVerdict.notes).toEqual({ proposed: 3, limit: 2 });
@@ -170,7 +170,7 @@ describe("buildPlan — budget verdict", () => {
     writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "x");
 
     const plan = buildPlan({ root, scope: "personal", model: MODEL, now: NOW,
-      budget: { maxNotes: 10, maxNoteChars: 20 },
+      budget: { maxNotes: 10, maxNoteChars: 20, maxLinks: 20 },
       proposals: [proposal({ body: "this body is definitely longer than twenty chars" })] });
 
     expect(plan.budgetVerdict.within).toBe(false);
@@ -213,7 +213,7 @@ describe("renderPlan", () => {
     const proposals = Array.from({ length: 3 }, (_, i) => proposal({ slug: `n-${i}`, sources: ["fact-a"] }));
 
     const plan = buildPlan({ root, scope: "personal", model: MODEL, now: NOW,
-      budget: { maxNotes: 1, maxNoteChars: 10_000 }, proposals });
+      budget: { maxNotes: 1, maxNoteChars: 10_000, maxLinks: 20 }, proposals });
     const text = renderPlan(plan);
 
     expect(text.toLowerCase()).toContain("budget");
