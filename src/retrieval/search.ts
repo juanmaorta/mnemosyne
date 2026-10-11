@@ -6,6 +6,24 @@ import { listScopes } from "../index/walk.js";
 import { toBlob } from "../index/vecBlob.js";
 import type { Clock } from "../clock.js";
 import { isDerivedSlug } from "../dreaming/derived.js";
+import { readFileSync } from "node:fs";
+import { parseFrontmatter } from "../frontmatter.js";
+
+/**
+ * Read a derived note's `sources` (provenance slugs) from its frontmatter on
+ * disk. Used only to keep a derived note from burying its sources (MNE-87);
+ * best-effort, so a missing or malformed file yields no sources rather than
+ * breaking the search.
+ */
+function readDerivedSources(path: string): string[] {
+  try {
+    const { data } = parseFrontmatter(readFileSync(path, "utf8"));
+    const sources = (data as { sources?: unknown }).sources;
+    return Array.isArray(sources) ? sources.filter((s): s is string => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export interface SearchHit {
   slug: string; scope: string; score: number; snippet: string;
@@ -66,6 +84,8 @@ export interface ExplainResult {
 
 interface CandidateRow {
   slug: string; scope: string; snippet: string; importance: number; relevance: number;
+  /** On disk. Internal only (to read a derived note's `sources`); never surfaced. */
+  path: string;
   lastAccess: string | null; accessCount: number | null;
   strength: number | null; retention: number | null;
 }
@@ -95,6 +115,7 @@ function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[]
   if (match === null) return [];
   const rows = db.prepare(
     `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
+            e.path as path,
             h.last_access as lastAccess, h.access_count as accessCount,
             h.strength as strength, h.retention as retention,
             bm25(fts_engrams) as bm25
@@ -134,6 +155,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
     const [q] = await embedder.embed([opts.query], "query");
     rows = db.prepare(
       `select e.slug as slug, e.scope as scope, e.snippet as snippet, e.importance as importance,
+              e.path as path,
               1.0 - vec_distance_cosine(v.embedding, ?) as relevance,
               h.last_access as lastAccess, h.access_count as accessCount,
               h.strength as strength, h.retention as retention
@@ -154,7 +176,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
       importance: r.importance,
       relevanceCosine: r.relevance,
     }, weights);
-    return { slug: r.slug, scope: r.scope, snippet: r.snippet, signals };
+    return { slug: r.slug, scope: r.scope, snippet: r.snippet, path: r.path, signals };
   });
   const normalized = normalizeCandidateSignals(raw.map(({ signals }) => ({
     recency: signals.recencyNorm,
@@ -179,12 +201,38 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   // fewer candidates than k nothing is cut, so it is the lowest score present.
   const eligible = scored.filter((h) => minCos === null || h.signals.relevanceCosine >= minCos);
   const threshold = eligible.length >= k ? eligible[k - 1]!.score : (eligible.at(-1)?.score ?? 0);
+  const passesFloor = (h: (typeof scored)[number]): boolean =>
+    minCos === null || h.signals.relevanceCosine >= minCos;
+  const included = scored.map(() => false);
   let includedCount = 0;
-  const candidates = scored.map((h, i) => {
-    const included = (minCos === null || h.signals.relevanceCosine >= minCos) && includedCount < k;
-    if (included) includedCount++;
-    return { ...h, rank: i, threshold, included, isDerived: isDerivedSlug(h.slug) };
+  scored.forEach((h, i) => {
+    if (passesFloor(h) && includedCount < k) { included[i] = true; includedCount++; }
   });
+  // MNE-87 (opción 3): a derived note is a convenience summary; it must not bury
+  // its own sources. If an included derived note pushed a source out of the
+  // top-k, rescue that source (same scope, passes the floor) so the
+  // authoritative note stays retrievable. The derived keeps its position — the
+  // source is ADDED, not swapped, so a useful derived #1 is preserved.
+  //
+  // A worklist (not a single forward pass): a summary can cite another summary,
+  // so rescuing a derived source must in turn rescue ITS sources, regardless of
+  // their ranking order. The visited set bounds the walk and tolerates cycles.
+  const indexBySlug = new Map(scored.map((h, i) => [`${h.scope}\u0000${h.slug}`, i]));
+  const worklist = scored.flatMap((h, i) => (included[i] && isDerivedSlug(h.slug) ? [i] : []));
+  const visited = new Set<number>();
+  while (worklist.length > 0) {
+    const i = worklist.pop()!;
+    if (visited.has(i)) continue;
+    visited.add(i);
+    for (const srcSlug of readDerivedSources(scored[i]!.path)) {
+      const j = indexBySlug.get(`${scored[i]!.scope}\u0000${srcSlug}`);
+      if (j === undefined || !passesFloor(scored[j]!)) continue;
+      included[j] = true;
+      if (isDerivedSlug(scored[j]!.slug) && !visited.has(j)) worklist.push(j);
+    }
+  }
+  const candidates = scored.map(({ path: _path, ...h }, i) =>
+    ({ ...h, rank: i, threshold, included: included[i]!, isDerived: isDerivedSlug(h.slug) }));
   return { query: opts.query, scopes, k, weights, minCos, candidates };
 }
 
