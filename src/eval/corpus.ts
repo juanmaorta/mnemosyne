@@ -34,7 +34,12 @@ export interface ControlledCorpusOptions {
 export interface ControlledDoc {
   scope: string;
   slug: string;
-  type: "reference";
+  /**
+   * `reference` for the durable corpus the generator emits; `snapshot` lets a
+   * scenario add ephemeral state notes by hand (MNE-29) to exercise the digest's
+   * exclusion of them.
+   */
+  type: "reference" | "snapshot";
   description: string;
   body: string;
   importance: number;

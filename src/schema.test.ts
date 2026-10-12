@@ -19,6 +19,13 @@ describe("NoteSchema", () => {
     expect(() => NoteSchema.parse({ ...baseNote, type: "feedback" })).toThrow();
   });
 
+  test("accepts an ephemeral snapshot note (MNE-29: a dated photo of state)", () => {
+    // A snapshot is authored and hand-editable like any note, so it is a NOTE
+    // type; what differs is that the ambient digest treats it as ephemeral.
+    expect(NoteSchema.parse({ ...baseNote, name: "estado-2026-10-04", type: "snapshot" }))
+      .toMatchObject({ type: "snapshot" });
+  });
+
   test("rejects hot state leaking into frontmatter", () => {
     expect(() => NoteSchema.parse({ ...baseNote, strength: 0.5 })).toThrow();
     expect(() => NoteSchema.parse({ ...baseNote, last_access: "2026-06-22T10:00:00" })).toThrow();

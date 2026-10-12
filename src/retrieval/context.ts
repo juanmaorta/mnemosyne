@@ -21,13 +21,18 @@ export function rankContext(db: Db, root: string, scope: string, nowMs: number):
               h.strength as strength, h.retention as retention
        from engrams e
        left join hot_state h on h.scope = e.scope and h.slug = e.slug
-       -- Superseded notes are excluded HERE and nowhere else. The digest is a
-       -- handful of lines loaded before the agent's first turn, so a claim that
-       -- something else has replaced is actively misleading there, and its
-       -- importance would happily put it at the top. search and get still serve
-       -- it: nothing is destroyed, the history stays findable, and the note
-       -- names its replacement in superseded_by.
-       where e.scope = ? and e.status <> 'superseded'`,
+       -- Two classes are excluded from the digest HERE and nowhere else; the
+       -- digest is a handful of lines loaded before the agent's first turn.
+       --  · superseded: a claim that something else has replaced is actively
+       --    misleading there, and its importance would happily put it at the top.
+       --  · snapshot (MNE-29): a dated photo of state is the single most likely
+       --    line to be stale at session start, and a flood of them would crowd
+       --    out durable memory (the 'digest as a feed of new untouched notes'
+       --    failure). Snapshots expire by event, not by clock, so there is no
+       --    TTL to check — they simply never enter the ambient view.
+       -- search and get still serve both: nothing is destroyed, the history
+       -- stays findable, and a superseded note names its replacement.
+       where e.scope = ? and e.status <> 'superseded' and e.type <> 'snapshot'`,
     )
     .all(scope) as {
     slug: string; scope: string; description: string; importance: number; created: string;
@@ -67,10 +72,24 @@ function lineFor(e: ContextEntry): string {
   return `- [${e.slug}] ${e.description}`;
 }
 
-export function selectWithinBudget(entries: ContextEntry[], budgetTokens: number): { included: ContextEntry[]; omitted: number } {
+/**
+ * Selectivity guard (MNE-29): the ambient digest is capped at a handful of LINES,
+ * not just a token budget. The token budget alone lets a scope full of tiny
+ * one-line notes inject a disproportionate share of itself — a real case reached
+ * 78% of a scope — which turns the digest into a feed instead of a top-few view.
+ * Tune with `MNEMOSYNE_CONTEXT_MAX_ENTRIES`.
+ */
+export const DEFAULT_CONTEXT_MAX_ENTRIES = 25;
+
+export function selectWithinBudget(
+  entries: ContextEntry[],
+  budgetTokens: number,
+  maxEntries: number = DEFAULT_CONTEXT_MAX_ENTRIES,
+): { included: ContextEntry[]; omitted: number } {
   const included: ContextEntry[] = [];
   let spent = 0;
   for (const e of entries) {
+    if (included.length >= maxEntries) break; // selectivity guard: hard line cap
     const cost = Math.ceil(lineFor(e).length / 4);
     if (spent + cost > budgetTokens) break;
     spent += cost;

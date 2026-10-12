@@ -173,6 +173,8 @@ mneme get <slug> [--scope <scope>] [--json]
 
 # Print the current scope's ambient digest — what a session-start hook injects.
 # Never fails: on any error it prints an empty digest rather than break session start.
+# Capped by a token budget AND by a line count (MNEMOSYNE_CONTEXT_MAX_ENTRIES, default 25)
+# so a scope of many tiny notes cannot flood it. `snapshot` notes never appear here.
 mneme context [--scope <scope>] [--budget <tokens>] [--cwd <path>]
 
 # Scan text or a file for secrets (read-only; exits non-zero on any reject-level finding, never prints a full secret)
@@ -188,7 +190,7 @@ mneme scan --scope <scope> [--scope <scope2>] | --all [--root <path>]
 mneme scope [<path>]
 
 # Write a new memory (fact or authored note). --file supplies the BODY only, never frontmatter
-mneme add "<content>" | --file <path> --type feedback|reference|project|user [--scope s] [--cwd path] [--description d] [--importance n] [--slug s]
+mneme add "<content>" | --file <path> --type feedback|reference|project|user|snapshot [--scope s] [--cwd path] [--description d] [--importance n] [--slug s]
 
 # Rewrite an existing authored note, compare-and-swap on the revision you read
 mneme update <slug> "<body>" | --file <path> --if-match <revision> [--scope s] [--cwd path] [--description d] [--importance n]
@@ -312,8 +314,8 @@ scorecard is [`docs/benchmarks/mne74-nomic-scorecard-2026-09-28.json`](docs/benc
 
 ### Writing memories (`mneme add`)
 
-`--type feedback|reference|project|user` is required; `feedback` writes an append-only fact,
-the others write an authored note. Three gates apply, fail-closed:
+`--type feedback|reference|project|user|snapshot` is required; `feedback` writes an
+append-only fact, the others write an authored note. Three gates apply, fail-closed:
 
 - **Scope**: an unmapped cwd is refused rather than silently defaulting to `personal` — pass
   `--scope` explicitly (see [Scopes](#scopes) below for `.scopemap`).
@@ -351,6 +353,35 @@ slug that any other document in that scope already claims — a fact's filename 
 ULID, so without that check a second fact under a claimed slug would land on disk and then
 be retrievable by nothing (`reindex` counts it as one more `errors`). Each feedback fact is
 its own memory: give it its own `--slug`.
+
+### Snapshots — dated photos of state (`--type snapshot`)
+
+A `snapshot` is an authored note like any other (hand-editable, note = truth, refuses to
+overwrite its slug), but it records *where something stood at a moment* — "this project was
+at B7, tests half-done, on 2026-10-04" — rather than a durable fact. It is the one kind of
+note that is almost always stale soon: the state it photographs moves on.
+
+```sh
+mneme add --type snapshot --slug estado-2026-10-04 --description "estado 2026-10-04" \
+  --file /tmp/estado.md
+```
+
+Two things follow, and both are deliberate:
+
+- **The ambient digest leaves snapshots out.** A session-start digest is a handful of lines
+  of durable memory; a stale photo of state — or a flood of them — does not belong there.
+  You recall a snapshot deliberately with `mneme search` / `mneme get`, where it ranks and
+  reinforces like anything else. Nothing is hidden, only kept out of the always-on view.
+- **No TTL.** A snapshot does not expire by a clock, because you cannot know at write time
+  when its state stops being true — it might be tomorrow or in a month. It expires by an
+  **event**: a newer snapshot, or marking it `--superseded-by` once a later one replaces it,
+  and it decays by `strength` like any note. Choosing a type instead of a TTL is the whole
+  point (MNE-29).
+
+Separately, the ambient digest is capped not only by its token budget but by a hard **line
+count** — `MNEMOSYNE_CONTEXT_MAX_ENTRIES`, default 25 — so a scope of many tiny notes can
+never inject a disproportionate share of itself (a real case reached 78% of a scope). The
+cap keeps `context` a top-few view, not a feed.
 
 ### Rewriting a note (`mneme get --json` → `mneme update --if-match`)
 

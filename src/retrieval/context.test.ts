@@ -6,7 +6,7 @@ import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { recordAccess } from "../hotstate.js";
-import { rankContext, selectWithinBudget, formatContextDigest, type ContextEntry } from "./context.js";
+import { rankContext, selectWithinBudget, formatContextDigest, DEFAULT_CONTEXT_MAX_ENTRIES, type ContextEntry } from "./context.js";
 
 function note(root: string, slug: string, importance: number, desc: string, created = "2026-06-01T10:00:00") {
   mkdirSync(join(root, "personal"), { recursive: true });
@@ -81,6 +81,22 @@ describe("selectWithinBudget", () => {
     expect(included).toHaveLength(2);
     expect(omitted).toBe(0);
   });
+  test("selectWithinBudget_caps_the_entry_count_even_when_the_token_budget_is_ample", () => {
+    // The selectivity guard (MNE-29): a scope with many tiny notes could inject
+    // a disproportionate share of itself under the token budget alone (a real
+    // case hit 78% of a scope). A hard cap on the NUMBER of lines keeps the
+    // ambient digest a handful of lines regardless of how short each one is.
+    const entries = Array.from({ length: 5 }, (_, i) => e(`s${i}`, "short"));
+    const { included, omitted } = selectWithinBudget(entries, 100_000, 2);
+    expect(included.map((x) => x.slug)).toEqual(["s0", "s1"]);
+    expect(omitted).toBe(3);
+  });
+  test("selectWithinBudget_applies_a_default_entry_cap_when_none_is_given", () => {
+    const entries = Array.from({ length: DEFAULT_CONTEXT_MAX_ENTRIES + 7 }, (_, i) => e(`s${i}`, "short"));
+    const { included, omitted } = selectWithinBudget(entries, 100_000);
+    expect(included).toHaveLength(DEFAULT_CONTEXT_MAX_ENTRIES);
+    expect(omitted).toBe(7);
+  });
 });
 
 describe("formatContextDigest", () => {
@@ -143,5 +159,32 @@ describe("rankContext and supersession", () => {
     const ranked = rankContext(db, root, "personal", Date.parse("2026-06-01T10:00:00Z"));
 
     expect(ranked.map((e) => e.slug)).toEqual(["dudosa"]);
+  });
+});
+
+describe("rankContext and ephemeral snapshots (MNE-29)", () => {
+  /** A dated photo of state, written straight to disk. */
+  function snapshot(root: string, slug: string, importance = 9, created = "2026-06-02T10:00:00") {
+    mkdirSync(join(root, "personal"), { recursive: true });
+    writeFileSync(join(root, "personal", `${slug}.md`),
+      ["---", `name: ${slug}`, `description: ${slug} description`, "scope: personal", "type: snapshot",
+        `created: ${created}`, `importance: ${importance}`, "---", `body ${slug}`, ""].join("\n"));
+  }
+
+  test("rankContext_leaves_snapshots_out_of_the_ambient_digest", async () => {
+    // A snapshot is a photo of state, not a durable truth, and it is the single
+    // most likely thing to be stale at session start (its own slug is usually
+    // dated). Even at importance 9 and newer than the durable note, it must not
+    // appear in the ambient digest — it is recalled deliberately via search.
+    const root = mkdtempSync(join(tmpdir(), "mneme-ctx-snap-"));
+    mkdirSync(join(root, ".index"), { recursive: true });
+    note(root, "decision-que-manda", 3, "la decisión durable", "2026-06-01T10:00:00");
+    snapshot(root, "estado-2026-06-02", 9, "2026-06-02T10:00:00");
+    const db = openDb(join(root, ".index", "store.db"));
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
+
+    const ranked = rankContext(db, root, "personal", Date.parse("2026-06-02T10:00:00Z"));
+
+    expect(ranked.map((e) => e.slug)).toEqual(["decision-que-manda"]);
   });
 });

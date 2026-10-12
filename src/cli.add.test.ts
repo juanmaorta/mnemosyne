@@ -25,6 +25,16 @@ describe("runCli add", () => {
     expect(readdirSync(join(root, "personal", "facts")).some((f) => f.endsWith(".md"))).toBe(true);
   });
 
+  test("cli_add_snapshot_writes_an_ephemeral_note", async () => {
+    const root = store();
+    const lines: string[] = [];
+    const code = await runCli(["add", "proyecto a medias, B7 pendiente", "--type", "snapshot", "--scope", "personal", "--description", "estado 2026-06-02", "--slug", "estado-2026-06-02", "--root", root], (s) => lines.push(s));
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/note.*personal/); // a snapshot is a note, not a fact
+    expect(existsSync(join(root, "personal", "estado-2026-06-02.md"))).toBe(true);
+    expect(readFileSync(join(root, "personal", "estado-2026-06-02.md"), "utf8")).toMatch(/type: snapshot/);
+  });
+
   test("cli_add_missing_type_exits_nonzero", async () => {
     const root = store();
     const errs: string[] = [];

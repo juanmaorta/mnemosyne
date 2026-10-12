@@ -66,7 +66,17 @@ const baseFields = {
   superseded_by: Slug.optional(),
 };
 
-export const NOTE_TYPES = ["user", "reference", "project"] as const;
+/**
+ * `snapshot` is an authored note like the rest (hand-editable, note = truth),
+ * but it records a dated PHOTO OF STATE — "where this project stood on 2026-10-04"
+ * — not a durable fact. It never carries its own expiry: a snapshot does not
+ * expire by a clock (you cannot know when its state stops being true at write
+ * time), it expires by an EVENT — a newer snapshot or the work moving on. The
+ * ambient digest therefore leaves snapshots out (see `rankContext`): they are
+ * recalled deliberately via `search`/`get`, not fossilised into session start.
+ * Decay by `strength` and manual supersession apply to them like any note (MNE-29).
+ */
+export const NOTE_TYPES = ["user", "reference", "project", "snapshot"] as const;
 export const FACT_TYPES = ["feedback"] as const;
 
 export const NoteSchema = z

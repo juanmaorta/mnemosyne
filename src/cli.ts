@@ -20,7 +20,7 @@ import { createFakeEmbedder } from "./embeddings.fake.js";
 import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, resolvesViaCatchAll, catchAllIsIntentionalAt, ensureCatchAllScopeMap } from "./scope/scopemap.js";
 import { listScopes } from "./index/walk.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
-import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
+import { rankContext, selectWithinBudget, formatContextDigest, DEFAULT_CONTEXT_MAX_ENTRIES } from "./retrieval/context.js";
 import { appendEvalLog } from "./eval/log.js";
 import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
@@ -47,6 +47,7 @@ import {
   SlugTakenError,
   type EngramType,
 } from "./write/add.js";
+import { NOTE_TYPES, FACT_TYPES } from "./schema.js";
 import {
   updateNote,
   NoChangesError,
@@ -308,7 +309,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           // digest beats no digest — but it can be arbitrarily old, so say so.
           try { await reindex({ root, db, embedder: embedder(root), clock: systemClock, scopes: [scope] }); } catch { degraded.push("reindex-failed"); }
           const ranked = rankContext(db, root, scope, systemClock.now());
-          const { included, omitted } = selectWithinBudget(ranked, budget);
+          // Selectivity guard (MNE-29): cap the number of lines too, not only the
+          // token budget, so a scope of many tiny notes cannot flood the digest.
+          const parsedMax = Number(process.env.MNEMOSYNE_CONTEXT_MAX_ENTRIES);
+          const maxEntries = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : DEFAULT_CONTEXT_MAX_ENTRIES;
+          const { included, omitted } = selectWithinBudget(ranked, budget, maxEntries);
           emitResult(formatContextDigest(included, scope, omitted), included.map((e) => e.slug), omitted);
           // What the agent actually saw this session, and what the budget cut.
           // Injection is the point where memory becomes behaviour, so a scorecard
@@ -607,10 +612,14 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           },
           allowPositionals: true,
         });
-        const usage = 'usage: mneme add "<content>" | --file <path> --type feedback|reference|project|user [--scope s] [--description d] [--importance n] [--slug s]\n'
+        // Kept in sync with the schema so a new type (e.g. snapshot, MNE-29) is
+        // accepted here the moment it is added to NOTE_TYPES/FACT_TYPES.
+        const ADD_TYPES = [...FACT_TYPES, ...NOTE_TYPES] as readonly string[];
+        const typesHelp = ADD_TYPES.join("|");
+        const usage = `usage: mneme add "<content>" | --file <path> --type ${typesHelp} [--scope s] [--description d] [--importance n] [--slug s]\n`
           + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme add --type t [flags] -- \"- uno\"";
         const type = values.type ?? "";
-        if (!["feedback", "reference", "project", "user"].includes(type)) { err("--type is required: feedback | reference | project | user"); return 1; }
+        if (!ADD_TYPES.includes(type)) { err(`--type is required: ${ADD_TYPES.join(" | ")}`); return 1; }
         let importance: number | undefined;
         if (values.importance !== undefined) {
           const parsed = parseImportance(values.importance);

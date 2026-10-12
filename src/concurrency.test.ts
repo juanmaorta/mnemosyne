@@ -54,11 +54,11 @@ function writableStore(): string {
  * command every process runs, or a function of the process index for the cases
  * where each writer must carry its own identity.
  */
-function race(k: number, args: string[] | ((i: number) => string[])): Promise<{ stdout: string; stderr: string }[]> {
+function race(k: number, args: string[] | ((i: number) => string[]), env: NodeJS.ProcessEnv = {}): Promise<{ stdout: string; stderr: string }[]> {
   const argsFor = typeof args === "function" ? args : (): string[] => args;
   return Promise.all(Array.from({ length: k }, (_, i) =>
     execFileAsync(process.execPath, [cli, ...argsFor(i)], {
-      env: { ...process.env, MNEMOSYNE_FAKE_EMBED: "1" },
+      env: { ...process.env, MNEMOSYNE_FAKE_EMBED: "1", ...env },
     })));
 }
 
@@ -95,9 +95,10 @@ describe("concurrent harnesses on one store", () => {
   test("concurrent_context_never_serves_a_truncated_digest", async () => {
     const root = coldStore();
 
-    // --budget is set far above the store so truncation can only come from lock
-    // loss, never from the token budget legitimately cutting the tail.
-    const runs = await race(8, ["context", "--root", root, "--budget", "100000"]);
+    // --budget and the entry cap are both set far above the store so truncation
+    // can only come from lock loss, never from a limit legitimately cutting the
+    // tail (the token budget, or the MNE-29 selectivity cap on line count).
+    const runs = await race(8, ["context", "--root", root, "--budget", "100000"], { MNEMOSYNE_CONTEXT_MAX_ENTRIES: "100000" });
 
     // The SessionStart path swallows every failure to avoid breaking session
     // start, so a losing process serves a SHORT OR EMPTY digest with exit 0 —
