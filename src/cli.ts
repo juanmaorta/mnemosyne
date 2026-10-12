@@ -32,10 +32,11 @@ import {
   installSessionStartHook,
   SESSION_START_COMMAND,
 } from "./hook.js";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
 import { rescanStore, formatStoreFinding, formatRescanSummary } from "./secrets/rescan.js";
+import { complianceLintStore, formatComplianceFinding, formatComplianceSummary, type ComplianceConfig } from "./compliance/lint.js";
 import {
   addMemory,
   ScopeUnresolvedError,
@@ -516,6 +517,61 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const findings = scanForSecrets(text);
         for (const f of findings) out(`${f.severity}  ${f.pattern}  L${f.line}  ${f.masked}`);
         return hasRejectFinding(findings) ? 1 : 0;
+      }
+      case "compliance-lint": {
+        // Exit codes are three-valued ON PURPOSE (acceptance): a hit, an error
+        // and a clean scan must be distinguishable by a cron wrapper.
+        //   0 = clean, 1 = findings, 2 = error (bad usage / config / scope /
+        //   incomplete scan). Every failure path — including parseArgs throwing
+        //   on a bad flag and any unexpected error — maps to 2, never to the
+        //   generic exit 1, so automation never mistakes a failure for a leak.
+        const usage = "usage: mneme compliance-lint --config <path> [--scope <s>]... [--root <path>]";
+        try {
+          const { values } = parseArgs({ args: rest, options: { config: { type: "string" }, scope: { type: "string", multiple: true }, root: { type: "string" } }, allowPositionals: false });
+          if (!values.config) { err(usage); return 2; }
+          const root = resolveRoot(values.root);
+          // The config carries client-entity terms; it must live on the authorized
+          // boundary, NOT inside a synced store — copying it in to scan would be the
+          // very leak this tool guards against. Compare CANONICAL paths so a symlink
+          // (or a symlinked store root) cannot smuggle the config inside the store.
+          let realConfig: string;
+          try {
+            realConfig = realpathSync(resolve(values.config));
+          } catch (error) {
+            err(`compliance-lint: cannot read config at ${values.config}: ${error instanceof Error ? error.message : String(error)}`);
+            return 2;
+          }
+          let realRoot: string;
+          try {
+            realRoot = realpathSync(resolve(root));
+          } catch {
+            realRoot = resolve(root); // store dir may not exist yet; nothing can be inside it
+          }
+          if (realConfig === realRoot || realConfig.startsWith(realRoot + sep)) {
+            err(`compliance-lint: the config resolves inside the store (${realRoot}). Keep client entities on the authorized boundary, not in a synced store.`);
+            return 2;
+          }
+          let config: ComplianceConfig;
+          try {
+            config = JSON.parse(readFileSync(realConfig, "utf8")) as ComplianceConfig;
+          } catch {
+            // A JSON syntax error can echo a snippet of the file (which holds
+            // client entities). Never print the parser's message — just say it is
+            // invalid, so a sensitive term cannot leak into a cron log.
+            err("compliance-lint: config is not valid JSON");
+            return 2;
+          }
+          const summary = complianceLintStore(root, config, (f) => out(formatComplianceFinding(f)), values.scope ? { scopes: values.scope } : {});
+          out(formatComplianceSummary(summary));
+          // An unreadable file means the scan could not see everything: report it
+          // as an error, not a clean pass — a reader must not trust "clean" over a
+          // file nobody could open. Incomplete trumps both clean and findings.
+          if (summary.unreadable.length > 0) return 2;
+          return summary.findings > 0 ? 1 : 0;
+        } catch (error) {
+          err(`compliance-lint: ${error instanceof Error ? error.message : String(error)}`);
+          return 2;
+        }
       }
       case "scope": {
         const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" } }, allowPositionals: true });
