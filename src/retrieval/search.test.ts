@@ -42,6 +42,18 @@ describe("search", () => {
     expect(() => resolveMinCos("other/dim768", Number.NaN)).toThrow(/min-cos/);
   });
 
+  test("v2moe_interim_floor_sits_in_the_measured_clean_gap", () => {
+    // MNE-98: the 0.45 floor from MNE-32 cut real true positives (e.g. "cuál es
+    // el mejor sustrato para aroides" at cos 0.419). Live probing against the
+    // store showed a clean gap: off-topic queries peaked at cos 0.222, genuine
+    // positives bottomed at 0.392. The interim floor must sit inside that gap —
+    // above every off-topic hit, at or below the lowest true positive — pending
+    // the full golden recalibration tracked in MNE-98.
+    expect(NOMIC_V2MOE_MIN_COS).toBe(0.35);
+    expect(NOMIC_V2MOE_MIN_COS).toBeGreaterThan(0.222);
+    expect(NOMIC_V2MOE_MIN_COS).toBeLessThanOrEqual(0.392);
+  });
+
   test("search_default_weights_are_cosine_only", async () => {
     // Tarea A: search ranks by cosine. Recency and importance keep their role
     // in the `context` digest, not in the search candidate. The default must be

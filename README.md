@@ -136,8 +136,10 @@ width. A declared width that the model then contradicts is rejected on the first
 **`nomic-embed-text-v2-moe` is a measured upgrade** (MNE-32). On the local golden set it ranked
 far better than v1 (nDCG@10 0.74 vs 0.28, MRR 0.78 vs 0.30) at the same 768 dimensions, so the
 index table is unchanged. Each model carries its own calibrated cosine floor — v2-moe's
-distribution sits lower, so it uses **0.45** where v1 uses 0.70 (a shared floor would reject the
-wrong candidates); both are applied automatically from the embedder fingerprint. To adopt it:
+distribution sits lower, so it uses **0.35** where v1 uses 0.70 (a shared floor would reject the
+wrong candidates); both are applied automatically from the embedder fingerprint. (That 0.35 is an
+interim floor: the 0.45 adopted in MNE-32 cut genuine positives in real use, and the full
+recalibration from a larger, more realistic golden is tracked in MNE-98.) To adopt it:
 
 ```sh
 ollama pull nomic-embed-text-v2-moe

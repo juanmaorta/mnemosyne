@@ -69,16 +69,24 @@ export const NOMIC_MIN_COS = 0.70;
  * Calibrated for nomic-embed-text-v2-moe (search_query/search_document prefixes).
  *
  * v2-moe has a markedly different cosine distribution from v1: relevant pairs sit
- * lower, so v1's 0.70 would reject nearly everything. 0.45 is the highest floor
- * that still cleared every unanswerable query (0 false positives) while keeping
- * the answerable ranking, measured on the 5b-golden `personal` set (2026-10-12,
- * MNE-32: nDCG@10 0.742, MRR 0.783, 0/14 false positives; vs nomic 0.279/0.304).
+ * lower, so v1's 0.70 would reject nearly everything.
  *
- * The knee is sharp (0.50 collapses answerable quality), and the set is small, so
- * this is a conservative starting floor to REVALIDATE on a larger golden before
- * treating it as final — same caveat the bench itself flags for small-set tuning.
+ * INTERIM VALUE (MNE-98). MNE-32 adopted 0.45 — the highest floor that cleared
+ * every unanswerable query on the small 5b-golden `personal` set — but flagged it
+ * for revalidation. In real use that floor cut genuine positives: "cuál es el
+ * mejor sustrato para aroides" scored cos 0.419 against the right note and was
+ * rejected. Live probing against the store showed a clean separation — off-topic
+ * queries peaked at 0.222, true positives bottomed at 0.392 — so 0.45 sat ABOVE
+ * part of the positive band. 0.35 drops into the gap: above every off-topic hit,
+ * below the lowest true positive, with margin on both sides.
+ *
+ * This is a tactical recall fix from a single note's distribution (n=1), NOT a
+ * recalibration. The proper fix — rebuild the floor from an enlarged, realistic
+ * golden (natural-language AND keyword queries using the notes' own vocabulary,
+ * which the current golden deliberately avoids) — is tracked in MNE-98, and will
+ * also revisit nomic's 0.70, which shows the same over-tight symptom.
  */
-export const NOMIC_V2MOE_MIN_COS = 0.45;
+export const NOMIC_V2MOE_MIN_COS = 0.35;
 
 export function resolveMinCos(embedderId: string, configured?: number): number | null {
   if (configured !== undefined) {
