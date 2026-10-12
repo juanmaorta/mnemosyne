@@ -22,6 +22,76 @@ forgets what doesn't, and connects ideas over time.
 The name: **Mnemosyne**, Titaness of memory, whose spring stood opposite the river Lethe —
 to remember versus to forget. That duality is the whole system.
 
+## Getting started
+
+### Install
+
+Mnemosyne is not on npm yet — build it from source, then let it set itself up in one command:
+
+```sh
+git clone https://github.com/juanmaorta/mnemosyne.git && cd mnemosyne
+npm install && npm run build
+npm link                   # puts `mneme` (and the `mem` alias) on your PATH — the hook needs it too
+mneme init --write
+```
+
+`mneme init --write` is the one-command setup: it installs the session-start hook, writes a
+default `~/memory/.scopemap`, and detects whether [Ollama](https://ollama.com) is serving an
+embedding model. Run `mneme init` with no flags first to preview exactly what it will change.
+
+- **With Ollama** (`ollama pull nomic-embed-text`) you get semantic search.
+- **Without it**, run `mneme init --write` while Ollama is unavailable (or set
+  `MNEMOSYNE_EMBEDDER=none`) to configure **tier 0** — keyword (BM25) search that runs fully
+  offline. An unreachable Ollama is not an automatic fallback: tier 0 is a mode you select.
+
+(`mneme` is the CLI; `mem` is an alias. A one-command installer that skips the build and link
+steps is on the roadmap.)
+
+### What the hook does
+
+The session-start hook runs `mneme context` before your agent's first turn and injects the
+current scope's **ambient digest** — a short, budgeted list of the memories that matter right
+now — so the agent begins every session already knowing, with nothing to prompt from you. It
+is read-only and never blocks a session: on any error it injects an empty digest rather than
+fail. It wires up for Claude Code (`mneme init --write`) and the Codex CLI
+(`mneme install-hook --harness codex --write`); any other agent can still use Mnemosyne by
+calling `mneme` directly — see [Wiring it into an agent](#wiring-it-into-an-agent).
+
+### Where your data lives
+
+Everything is plain files under `~/memory/` (override with `MNEMOSYNE_ROOT`):
+
+- `~/memory/<scope>/*.md` — your memories, one Markdown file each. **This is the source of
+  truth**: hand-editable, and browsable in Obsidian.
+- `~/memory/.index/` — the search index, **derived and disposable**. Rebuilt on demand
+  (`mneme reindex`) and never synced.
+- `~/memory/.telemetry/` — a local diagnostic log (slugs and scope names only — never query
+  text or note content). Machine-local, never synced or backed up.
+
+Memories are partitioned by **scope** (`personal`, a client, a project). A scope is just a
+folder — which is what makes the next part a real delete.
+
+### How to delete it
+
+Because it is all files, deletion is direct — but a complete delete has to reach two things
+that live *outside* the scope folder: the derived index (which keeps a searchable copy of note
+content) and the telemetry log (which keeps the scope's slugs).
+
+```sh
+# Delete one scope completely (e.g. offboarding a client):
+rm -rf ~/memory/<scope>                          # 1. the memories themselves (source of truth)
+rm -rf ~/memory/.index && mneme reindex          # 2. rebuild the index so its copy is gone too
+mneme purge-telemetry --scope <scope> --apply    # 3. drop the scope's slugs from the local log
+
+# Or delete everything Mnemosyne stores — index and telemetry included:
+rm -rf ~/memory
+```
+
+Deleting only the scope folder is **not** a complete delete: the index under `~/memory/.index/`
+still holds the note content until it is rebuilt, and the log under `~/memory/.telemetry/` still
+holds the slugs. See [Telemetry, and purging a scope from it](#telemetry-and-purging-a-scope-from-it)
+and the client-offboarding runbook in [`docs/tasks.md`](docs/tasks.md) for the full procedure.
+
 ## Dreaming, and Anthropic's Dreams API
 
 Anthropic's [Dreams API](https://platform.claude.com/docs/en/managed-agents/dreams) (research
@@ -45,7 +115,10 @@ memory — the clearest illustration available of why the alternative is worth h
 
 ## Usage
 
-Requires [Ollama](https://ollama.com) running locally with the embedding model pulled:
+**Semantic** search uses [Ollama](https://ollama.com) running locally with an embedding model
+pulled. Without it, configure **tier 0** (keyword/BM25 search, no external dependency): run
+`mneme init --write` while Ollama is unavailable, or set `MNEMOSYNE_EMBEDDER=none`. An
+unreachable Ollama is not an automatic fallback — tier 0 is a mode you select.
 
 ```sh
 ollama pull nomic-embed-text
