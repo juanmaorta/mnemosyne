@@ -304,7 +304,7 @@ function deriveRunId(scope: string, now: string): string {
  * trimming the plan: the reviewer (and MNE-46) decide what to do, and a plan
  * silently shortened to fit would hide exactly the run worth stopping.
  */
-function computeBudgetVerdict(proposals: PlanProposal[], links: PlanLink[], budget: Budget): BudgetVerdict {
+export function computeBudgetVerdict(proposals: PlanProposal[], links: PlanLink[], budget: Budget): BudgetVerdict {
   const fresh = proposals.filter((p) => !p.isDuplicate);
   const oversizeNotes = fresh
     .filter((p) => p.body.length > budget.maxNoteChars)

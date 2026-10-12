@@ -21,6 +21,8 @@ import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathO
 import { listScopes } from "./index/walk.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest, DEFAULT_CONTEXT_MAX_ENTRIES } from "./retrieval/context.js";
+import { loadPlan, applyPlan, revertPlan, previewRevert, revalidateSources, partitionProposals, validLinks, PlanNotFoundError, StalePlanError, PlanOverBudgetError, MalformedPlanError } from "./dreaming/apply.js";
+import { renderPlan, computeBudgetVerdict } from "./dreaming/plan.js";
 import { appendEvalLog } from "./eval/log.js";
 import { systemClock } from "./clock.js";
 import { homedir } from "node:os";
@@ -790,8 +792,85 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           err((e as Error).message); return 1;
         }
       }
+      case "dream": {
+        const { values, positionals } = parseArgs({
+          args: rest,
+          options: { run: { type: "string" }, scope: { type: "string" }, root: { type: "string" }, apply: { type: "boolean" } },
+          allowPositionals: true,
+        });
+        const verb = positionals[0];
+        const usage = "usage: mneme dream apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
+          + "       dry-run by default (shows what would change); --apply commits the write.";
+        if (verb !== "apply" && verb !== "revert") { err(usage); return 1; }
+        const run = values.run?.trim();
+        const scope = values.scope?.trim();
+        if (!run || !scope) { err(usage); return 1; }
+        const root = resolveRoot(values.root);
+        const commit = Boolean(values.apply);
+        const now = systemClock.nowIso().slice(0, 19);
+        try {
+          if (verb === "apply") {
+            const plan = loadPlan(root, scope, run);
+            if (!commit) {
+              // Dry run: show exactly the batch --apply would accept. Validate and
+              // filter proposals the same way apply does, so renderPlan never trips
+              // on a malformed one and the budget matches what apply will enforce.
+              const { valid, malformed } = partitionProposals(plan.proposals);
+              const links = validLinks(plan.links);
+              out(renderPlan({ ...plan, proposals: valid, links }));
+              for (const m of malformed) out(`would skip ${m.slug} (invalid-schema)`);
+              const stale = revalidateSources(root, plan);
+              if (stale.length > 0) out(`STALE: ${stale.length} source(s) changed since the plan was built: ${stale.map((s) => s.slug).join(", ")}`);
+              const bv = computeBudgetVerdict(valid, links, plan.budget);
+              if (!bv.within) out(`OVER BUDGET (recomputed): notes ${bv.notes.proposed}/${bv.notes.limit}, links ${bv.links.proposed}/${bv.links.limit}${bv.oversizeNotes.length > 0 ? `, ${bv.oversizeNotes.length} oversize` : ""} — will be rejected on --apply.`);
+              out("(dry run — re-run with --apply to write these derived notes)");
+              return 0;
+            }
+            const res = applyPlan({ root, now, clock: systemClock }, plan);
+            // Report the committed mutation FIRST — it has already happened.
+            for (const a of res.applied) out(`applied ${a.slug} → ${a.path}`);
+            for (const s of res.skipped) out(`skipped ${s.slug} (${s.reason})`);
+            if (res.linksSkipped > 0) out(`links not applied (${res.linksSkipped}): v1 creates derived notes only`);
+            out(`done: ${res.applied.length} applied, ${res.skipped.length} skipped`);
+            // Reindex is a SEPARATE, self-healing step: a failure here does not undo
+            // the writes above (lazy reindex catches up on the next search/context).
+            try {
+              await reindex({ root, db: openIndex(root), embedder: embedder(root), clock: systemClock, scopes: [scope] });
+            } catch (ri) {
+              err(`warning: changes applied, but reindex failed (${(ri as Error).message}). Run \`mneme reindex --scope ${scope}\` to make them searchable.`);
+            }
+            return 0;
+          }
+          // verb === "revert"
+          if (!commit) {
+            const prev = previewRevert({ root, now, clock: systemClock }, scope, run);
+            for (const r of prev.wouldRevert) out(`would revert ${r.slug}`);
+            for (const k of prev.kept) out(`would keep ${k.slug} (${k.reason})`);
+            out(`(dry run — re-run with --apply to revert ${prev.wouldRevert.length} note(s))`);
+            return 0;
+          }
+          const res = revertPlan({ root, now, clock: systemClock }, scope, run);
+          for (const r of res.reverted) out(`reverted ${r.slug}`);
+          for (const k of res.kept) out(`kept ${k.slug} (${k.reason})`);
+          out(`done: ${res.reverted.length} reverted, ${res.kept.length} kept`);
+          try {
+            await reindex({ root, db: openIndex(root), embedder: embedder(root), clock: systemClock, scopes: [scope] });
+          } catch (ri) {
+            err(`warning: changes reverted, but reindex failed (${(ri as Error).message}). Run \`mneme reindex --scope ${scope}\` to update the index.`);
+          }
+          return 0;
+        } catch (e) {
+          if (e instanceof PlanNotFoundError) { err(e.message); return 1; }
+          if (e instanceof MalformedPlanError) { err(e.message); return 1; }
+          if (e instanceof StalePlanError) { err(`${e.message}\nre-build the plan: its sources changed since review.`); return 1; }
+          if (e instanceof PlanOverBudgetError) { err("plan is over budget; re-review and re-build it rather than applying."); return 1; }
+          if (e instanceof NotOwnerError) { err(`this machine does not own scope '${e.scope}'. Declare it in ${storePaths(root).ownerPolicy} ({"owns":[...]}), or apply from a machine that owns it.`); return 1; }
+          if (e instanceof LockBusyError) { err(`another mneme write holds this scope: ${e.lockPath}${e.holder ? ` (held by ${e.holder})` : ""}.`); return 1; }
+          err((e as Error).message); return 1;
+        }
+      }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, add, update, import-claude.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, add, update, import-claude, dream.`);
         return 1;
     }
   } catch (e) {

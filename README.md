@@ -197,6 +197,11 @@ mneme update <slug> "<body>" | --file <path> --if-match <revision> [--scope s] [
 
 # Import one Claude Code native memory directory into one scope (dry run by default)
 mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply]
+
+# Apply (or revert) a reviewed Dreaming plan — creates derived notes, reversibly.
+# Dry run by default; --apply commits. See "Applying a Dreaming plan" below.
+mneme dream apply  --run <runId> --scope <scope> [--apply] [--root r]
+mneme dream revert --run <runId> --scope <scope> [--apply] [--root r]
 ```
 
 Diagnostics — for asking *why* a memory ranked where it did, not for daily use:
@@ -512,6 +517,41 @@ mneme import-claude --source /absolute/native/memory --source-id repo-a --scope 
 
 The operational side (source inventory, per-scope checks, instruction block, cutover and
 rollback) is [`docs/integrations/canonical-memory-cutover.md`](docs/integrations/canonical-memory-cutover.md).
+
+### Applying a Dreaming plan (`mneme dream apply` / `revert`)
+
+Dreaming's nightly consolidation never writes the store directly. It produces a **plan** — a
+reviewable dry-run artifact under `.telemetry/dreams/<scope>/<runId>.json` — and applying it
+is this separate, explicit, manual step. No model is invoked here, and nothing runs it on a
+schedule.
+
+```sh
+mneme dream apply  --run <runId> --scope <scope>            # dry run: show what it would create
+mneme dream apply  --run <runId> --scope <scope> --apply    # commit, then reindex
+mneme dream revert --run <runId> --scope <scope> --apply    # undo exactly that run
+```
+
+What apply does, and deliberately does not:
+
+- **Creates derived notes only.** This first version writes new `dream-…` notes with their
+  `sources` provenance in frontmatter. It never edits facts or authored notes, never marks an
+  original superseded, never archives, and **does not apply the plan's associative links**
+  (those would edit existing notes — out of scope here).
+- **Refuses a plan it cannot trust.** Before the first write it revalidates the scope owner,
+  the budget, and the **revision of every source** against what the plan recorded. A source
+  edited since the plan was reviewed makes the plan *stale* and the whole apply is refused —
+  its proposals were synthesised from text that no longer exists.
+- **Is idempotent.** Re-running finds the notes it already wrote (exclusive-create) and
+  reports them as skipped; it never duplicates. A per-note problem (a secret in the model's
+  output, an invalid note) skips that one and is reported; the rest still apply.
+- **Is reversible, safely.** `revert` removes exactly the notes the run recorded applying —
+  but only if their bytes still match what apply wrote. A derived note you have since edited
+  by hand is **kept**, never silently deleted.
+
+Applying runs through the same owner and secret gates and the same scope lock as `mneme add`;
+the model's output is treated as untrusted content. Enabling this against a real store is a
+deliberate decision, made only once the synthesis has been reviewed favourably — apply is the
+mechanism, not the permission.
 
 ### Wiring it into an agent
 
