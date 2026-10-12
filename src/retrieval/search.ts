@@ -56,6 +56,21 @@ export const SEARCH_WEIGHTS: Weights = { recency: 0, importance: 0, relevance: 1
 /** Calibrated for nomic-embed-text with search_query/search_document prefixes. */
 export const NOMIC_MIN_COS = 0.70;
 
+/**
+ * Calibrated for nomic-embed-text-v2-moe (search_query/search_document prefixes).
+ *
+ * v2-moe has a markedly different cosine distribution from v1: relevant pairs sit
+ * lower, so v1's 0.70 would reject nearly everything. 0.45 is the highest floor
+ * that still cleared every unanswerable query (0 false positives) while keeping
+ * the answerable ranking, measured on the 5b-golden `personal` set (2026-10-12,
+ * MNE-32: nDCG@10 0.742, MRR 0.783, 0/14 false positives; vs nomic 0.279/0.304).
+ *
+ * The knee is sharp (0.50 collapses answerable quality), and the set is small, so
+ * this is a conservative starting floor to REVALIDATE on a larger golden before
+ * treating it as final — same caveat the bench itself flags for small-set tuning.
+ */
+export const NOMIC_V2MOE_MIN_COS = 0.45;
+
 export function resolveMinCos(embedderId: string, configured?: number): number | null {
   if (configured !== undefined) {
     if (!Number.isFinite(configured) || configured < -1 || configured > 1) {
@@ -63,8 +78,12 @@ export function resolveMinCos(embedderId: string, configured?: number): number |
     }
     return configured;
   }
-  // Other models, including Nomic v2, have different cosine distributions.
-  return /^nomic-embed-text(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId) ? NOMIC_MIN_COS : null;
+  // Each model carries its OWN calibrated floor: cosine distributions are not
+  // comparable across models, so a shared constant would reject or admit the
+  // wrong candidates. A model without a calibrated floor gets none (null).
+  if (/^nomic-embed-text(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId)) return NOMIC_MIN_COS;
+  if (/^nomic-embed-text-v2-moe(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId)) return NOMIC_V2MOE_MIN_COS;
+  return null;
 }
 
 /**

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { openDb } from "../index/db.js";
 import { reindex } from "../index/reindex.js";
-import { search, searchExplain, resolveMinCos, NOMIC_MIN_COS } from "./search.js";
+import { search, searchExplain, resolveMinCos, NOMIC_MIN_COS, NOMIC_V2MOE_MIN_COS } from "./search.js";
 import { createFakeEmbedder } from "../embeddings.fake.js";
 import { fixedClock, systemClock } from "../clock.js";
 import { recordAccess } from "../hotstate.js";
@@ -29,10 +29,14 @@ async function indexed() {
 }
 
 describe("search", () => {
-  test("defaults_the_floor_only_for_calibrated_nomic_embeddings", () => {
+  test("defaults_the_floor_to_each_calibrated_model", () => {
     expect(resolveMinCos("nomic-embed-text/dim768/task-prefix-v1")).toBe(NOMIC_MIN_COS);
     expect(resolveMinCos("nomic-embed-text:latest/dim768/task-prefix-v1")).toBe(NOMIC_MIN_COS);
-    expect(resolveMinCos("nomic-embed-text-v2-moe/dim768/task-prefix-v1")).toBeNull();
+    // nomic-embed-text-v2-moe has its own calibrated floor (MNE-32): a different
+    // cosine distribution, so it must NOT inherit nomic's 0.70.
+    expect(resolveMinCos("nomic-embed-text-v2-moe/dim768/task-prefix-v1")).toBe(NOMIC_V2MOE_MIN_COS);
+    expect(resolveMinCos("nomic-embed-text-v2-moe:latest/dim768/task-prefix-v1")).toBe(NOMIC_V2MOE_MIN_COS);
+    expect(NOMIC_V2MOE_MIN_COS).not.toBe(NOMIC_MIN_COS);
     expect(resolveMinCos("other/dim768")).toBeNull();
     expect(resolveMinCos("other/dim768", 0.6)).toBe(0.6);
     expect(() => resolveMinCos("other/dim768", Number.NaN)).toThrow(/min-cos/);
