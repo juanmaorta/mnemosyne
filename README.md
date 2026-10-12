@@ -537,8 +537,11 @@ the digest showing while `search` and `add` quietly fail.
 
 Other harnesses expose an equivalent seam — OpenCode has plugins with an
 `experimental.chat.system.transform` hook, Cursor has rules — but nothing is shipped for them
-here yet; wire `mneme context` in by hand, or stay on level 1. A local MCP wrapper (see
-[`docs/plan.md`](docs/plan.md), Fase 6) is the planned portable answer for tool-style access.
+here yet; wire `mneme context` in by hand, or stay on level 1. For **OpenCode** specifically,
+[`docs/integrations/opencode.md`](docs/integrations/opencode.md) is the one-page wiring guide
+(paste the block into `AGENTS.md`, run `mneme context --cwd` at the start since there is no
+hook). A local MCP wrapper (see [`docs/plan.md`](docs/plan.md), Fase 6) is the planned
+portable answer for tool-style access.
 
 ### More than one agent at a time
 
