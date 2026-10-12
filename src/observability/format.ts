@@ -24,6 +24,7 @@ export function formatStats(s: Stats): string {
   const types = Object.entries(s.countsByType).sort(([a], [b]) => a.localeCompare(b));
   if (types.length) lines.push(row("by type", types.map(([k, v]) => `${k}: ${v}`).join(", ")));
   lines.push(row("access events", String(s.factStreamSize)));
+  if (s.pinnedCount > 0) lines.push(row("pinned (never archived)", String(s.pinnedCount)));
   if (s.staleCount > 0) lines.push(row("stale (no vector)", `${s.staleCount}  ← run 'mneme reindex'`));
 
   const buckets = Object.entries(s.strengthHistogram).sort(([a], [b]) => Number(a.split("-")[0]) - Number(b.split("-")[0]));

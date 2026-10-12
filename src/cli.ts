@@ -656,10 +656,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
             "if-match": { type: "string" }, scope: { type: "string" }, description: { type: "string" },
             importance: { type: "string" }, root: { type: "string" }, cwd: { type: "string" },
             file: { type: "string" }, status: { type: "string" }, "superseded-by": { type: "string" },
+            pinned: { type: "boolean" }, unpinned: { type: "boolean" },
           },
           allowPositionals: true,
         });
-        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged]\n'
+        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged] [--pinned | --unpinned]\n'
           + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"";
         const slug = positionals[0];
         if (!slug) { err(usage); return 1; }
@@ -686,6 +687,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           }
           status = given as Status;
         }
+        // Pin/unpin (MNE-62). Mutually exclusive: the two contradict, so refuse
+        // rather than silently letting one win.
+        if (values.pinned && values.unpinned) { err("--pinned and --unpinned cannot be combined"); return 1; }
+        const pinned: boolean | undefined = values.pinned ? true : values.unpinned ? false : undefined;
         const root = resolveRoot(values.root);
         try {
           // Inside the try, like every other refusal of this command.
@@ -700,6 +705,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
               ...(importance !== undefined ? { importance } : {}),
               ...(status !== undefined ? { status } : {}),
               ...(values["superseded-by"] ? { supersededBy: values["superseded-by"].trim() } : {}),
+              ...(pinned !== undefined ? { pinned } : {}),
             },
           );
           out(`updated note [${res.scope}] ${res.slug} → ${res.path} (revision ${res.revision})`);

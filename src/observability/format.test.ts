@@ -8,6 +8,7 @@ function stats(over: Partial<Stats> = {}): Stats {
   return {
     countsByScope: { personal: 2 },
     countsByType: { reference: 2 },
+    pinnedCount: 0,
     factStreamSize: 0,
     staleCount: 0,
     searchLatencyMs: { p50: 4, p95: 9 },

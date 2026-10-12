@@ -22,6 +22,7 @@ export function applySchema(db: Db): void {
       size INTEGER NOT NULL,
       hash TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
+      pinned INTEGER NOT NULL DEFAULT 0,
       UNIQUE(scope, slug)
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_engrams USING vec0(embedding float[${DEFAULT_EMBEDDING_DIM}]);
@@ -64,6 +65,11 @@ function addMissingColumns(db: Db): void {
   const columns = (db.prepare("PRAGMA table_info(engrams)").all() as { name: string }[]).map((c) => c.name);
   if (!columns.includes("status")) {
     db.exec("ALTER TABLE engrams ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  }
+  if (!columns.includes("pinned")) {
+    // Default 0: a note nobody has pinned is not pinned — right for every row
+    // already indexed, so no rebuild is needed to add the column (MNE-62).
+    db.exec("ALTER TABLE engrams ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
   }
 }
 

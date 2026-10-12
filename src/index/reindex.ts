@@ -223,14 +223,16 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       deleteRowsForPath(db, file.path);
       const info = db
         .prepare(
-          `insert into engrams(slug, scope, type, importance, created, description, path, snippet, mtime, size, hash, status)
-           values(@slug,@scope,@type,@importance,@created,@description,@path,@snippet,@mtime,@size,@hash,@status)`,
+          `insert into engrams(slug, scope, type, importance, created, description, path, snippet, mtime, size, hash, status, pinned)
+           values(@slug,@scope,@type,@importance,@created,@description,@path,@snippet,@mtime,@size,@hash,@status,@pinned)`,
         )
         .run({
           slug: engram.name,
           scope: engram.scope,
           // Absent means active, here as in the frontmatter.
           status: engram.status ?? "active",
+          // Absent means not pinned. SQLite has no boolean: 1/0 (MNE-62).
+          pinned: engram.pinned ? 1 : 0,
           type: engram.type,
           importance: engram.importance,
           created: engram.created,

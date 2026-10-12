@@ -41,6 +41,16 @@ const baseFields = {
   /** Provenance of derived memories → scope taint. */
   sources: z.array(Slug).optional(),
   /**
+   * Pin: a note the user never wants archived, whatever its `strength` (MNE-62).
+   * Archival (lethe) decides by `strength`, which measures "never surfaced by an
+   * inverted ranker" as much as "irrelevant"; a pin is the explicit escape hatch
+   * that protects against a bad INPUT, which the dry-run cannot. It affects only
+   * archival — a pinned note still decays in the ranking. Absent means not
+   * pinned, so every note already on disk stays valid. Written by hand or by the
+   * agent, NEVER by dreaming.
+   */
+  pinned: z.boolean().optional(),
+  /**
    * Lifecycle of the note's claim, NOT of the file. Absent means `active`: every
    * note already on disk omits it, and requiring it would invalidate the store
    * at parse time.

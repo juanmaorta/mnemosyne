@@ -120,6 +120,8 @@ export interface UpdateOptions {
   status?: "active" | "superseded" | "flagged";
   /** Implies `status: superseded`. The note named must exist in the same scope. */
   supersededBy?: string;
+  /** Pin/unpin (MNE-62). `true` writes `pinned: true`; `false` clears it (absent means not pinned). */
+  pinned?: boolean;
 }
 
 export interface UpdateResult {
@@ -178,7 +180,7 @@ function isFactType(type: unknown): boolean {
  */
 export function updateNote(deps: UpdateDeps, opts: UpdateOptions): UpdateResult {
   if (opts.content === undefined && opts.description === undefined && opts.importance === undefined
-      && opts.status === undefined && opts.supersededBy === undefined) {
+      && opts.status === undefined && opts.supersededBy === undefined && opts.pinned === undefined) {
     throw new NoChangesError();
   }
   const scope = resolveWriteScope(deps, opts.scope);
@@ -241,6 +243,10 @@ function swap(target: string, scope: string, opts: UpdateOptions): UpdateResult 
   }
   if (opts.supersededBy !== undefined) next.superseded_by = opts.supersededBy;
   else if (status === "flagged") delete next.superseded_by;
+  // Pin/unpin (MNE-62). `false` deletes the key: absent IS not-pinned, so an
+  // unpinned note and one that was never pinned look identical on disk.
+  if (opts.pinned === true) next.pinned = true;
+  else if (opts.pinned === false) delete next.pinned;
   EngramSchema.parse(next); // the RESULT must be valid too — bad importance, or an incoherent pair, stops here
 
   const nextBody = opts.content === undefined

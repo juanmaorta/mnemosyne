@@ -6,6 +6,12 @@ import { listScopes } from "../index/walk.js";
 export interface Stats {
   countsByScope: Record<string, number>;
   countsByType: Record<string, number>;
+  /**
+   * Notes pinned as non-archivable (MNE-62). Counted so pins cannot become a
+   * silent hole that quietly empties the point of archival: if most of a scope
+   * is pinned, archival is doing nothing and that should be visible here.
+   */
+  pinnedCount: number;
   /** Access events across all scopes — the synced stream hot state is folded from. */
   factStreamSize: number;
   /** Engrams in the index with no vector: unsearchable until the next reindex. */
@@ -97,6 +103,11 @@ export function computeStats(db: Db, root: string, opts: StatsOptions = {}): Sta
     `select count(*) as n from engrams e where not exists (select 1 from vec_engrams v where v.rowid = e.id)${andNotExcluded.sql}`,
   ).get(...andNotExcluded.params) as { n: number }).n;
 
+  const pinnedExclusion = excluded.length === 0 ? "" : ` and scope not in (${excluded.map(() => "?").join(",")})`;
+  const pinnedCount = (db.prepare(
+    `select count(*) as n from engrams where pinned = 1${pinnedExclusion}`,
+  ).get(...excluded) as { n: number }).n;
+
   const strengthHistogram: Record<string, number> = {};
   for (const r of db.prepare(`select strength from hot_state${notExcluded.sql}`).all(...notExcluded.params) as { strength: number }[]) {
     const b = strengthBucket(r.strength);
@@ -135,6 +146,7 @@ export function computeStats(db: Db, root: string, opts: StatsOptions = {}): Sta
   return {
     countsByScope,
     countsByType,
+    pinnedCount,
     factStreamSize,
     staleCount,
     searchLatencyMs: durations.length === 0

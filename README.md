@@ -423,6 +423,33 @@ What it does and does not do:
 Detecting a contradiction still needs a model, and that is the consolidation pass's job.
 Recording one does not, which is why this works today and without one.
 
+### Pinning a note so it is never archived (`--pinned`)
+
+Archival (*lethe*) decides what to retire by **strength**, and strength today measures "never
+surfaced by an inverted ranker" as much as it measures "irrelevant". The dry-run protects
+against a bad *run*; a **pin** protects against a bad *input* — it says *this never leaves*,
+whatever the signal:
+
+```sh
+mneme update api-constraint --pinned   --if-match <revision>   # never archive this
+mneme update api-constraint --unpinned --if-match <revision>   # back to normal
+```
+
+One optional frontmatter field carries it, and **absent means not pinned**, so every note
+already on disk stays valid:
+
+```yaml
+pinned: true
+```
+
+- It affects **archival only**: a pinned note still decays in the ranking and still reinforces
+  on recall — it just never moves to `archive/`. (Archival itself is on the roadmap; the pin is
+  the cheap safety net that makes turning it on less risky.)
+- Written **by hand or by the agent, never by dreaming** — the same `update` compare-and-swap
+  as everything else, so two writers cannot race it.
+- `mneme stats` counts pinned notes, so pins cannot quietly grow into a hole that empties the
+  point of archival.
+
 ### Importing Claude Code's native memory (`mneme import-claude`)
 
 Claude Code keeps its own memory in `~/.claude/projects/<cwd-slug>/memory/*.md`, which this
