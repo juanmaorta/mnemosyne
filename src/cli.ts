@@ -198,9 +198,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "search": {
-        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" } }, allowPositionals: true });
+        const { values, positionals } = parseArgs({ args: rest, options: { root: { type: "string" }, scope: { type: "string", multiple: true }, k: { type: "string" }, "min-cos": { type: "string" }, fusion: { type: "string" }, explain: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" } }, allowPositionals: true });
         const query = positionals.join(" ").trim();
-        if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N] [--json]"); return 1; }
+        if (!query) { err("usage: mneme search \"<query>\" [--scope s] [-k N] [--min-cos c] [--fusion rrf] [--json]"); return 1; }
+        if (values.fusion !== undefined && values.fusion !== "rrf") { err("search: --fusion only accepts 'rrf' (hybrid vector+BM25 order); omit it for the default cosine order."); return 1; }
         // --explain renders a human diagnostic table; --json is a machine contract.
         // Silently letting explain win would hand a `--json` caller un-parseable
         // text, so refuse the combination instead of ignoring one of the two.
@@ -210,7 +211,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const lazy = await reindex({ root, db, embedder: embedder(root), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
         const minCos = configuredMinCos(values["min-cos"]);
-        const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }) };
+        const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }), ...(values.fusion === "rrf" ? { fusion: "rrf" as const } : {}) };
         if (values.explain) {
           // Diagnostic path: still instrumented, so an explained search is not
           // a hole in the log — then rendered candidate-by-candidate.

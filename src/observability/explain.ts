@@ -22,7 +22,11 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
   const header = [
     `query: "${res.query}"  scopes: [${res.scopes.join(", ")}]  k=${res.k}  ${res.candidates.length} candidates`,
     `weights: recency ${w.recency} · importance ${w.importance} · relevance ${w.relevance}`,
-    "score axes: each signal scaled to [0,1] among these candidates; scores are relative to this query",
+    res.fusion === "rrf"
+      // Under fusion the `score` column is the RRF fused value, not the scaled
+      // signal blend; cosine (and its floor) only decides eligibility here.
+      ? "order: RRF fusion (vector + BM25); score = fused rank value; cosine is eligibility only, not the order"
+      : "score axes: each signal scaled to [0,1] among these candidates; scores are relative to this query",
     `minimum raw cosine: ${res.minCos === null ? "off" : f3(res.minCos)}`,
   ];
 

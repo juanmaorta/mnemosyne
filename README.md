@@ -180,7 +180,7 @@ npm install && npm run build
 mneme reindex [--scope <scope>]
 
 # Two-tier search: ranked refs + snippet + score (not whole docs). Reindexes lazily first.
-mneme search "<query>" [--scope <scope>] [-k <n>] [--min-cos <number>]
+mneme search "<query>" [--scope <scope>] [-k <n>] [--min-cos <number>] [--fusion rrf]
 
 # Fetch one engram in full by slug (reinforces it — decay-on-access).
 # --json prints exactly one object: {slug, scope, path, content, revision}
@@ -235,6 +235,16 @@ alone (ties broken deterministically by scope then slug); recency and importance
 their role in the `context` digest, not in the search candidate, so an old or never-read
 note does not lose its place for that reason. Callers can still pass explicit
 `SearchOptions.weights` to request the recency+importance blend instead.
+
+**Hybrid RRF order (`--fusion rrf`) is opt-in, and measured not to help here (MNE-96).**
+It re-ranks the vector candidates by Reciprocal Rank Fusion (`k=60`) of the cosine and
+BM25 rankings; the cosine floor still gates eligibility, so fusion only reorders notes
+that already clear it. On the 5b-golden `personal` set it did not beat pure cosine — it
+was identical with `nomic-embed-text` (the 0.70 floor pre-filters the lexical candidates
+RRF would promote) and slightly worse with `nomic-embed-text-v2-moe` (0.729 vs 0.742
+nDCG@10). So production keeps pure cosine (MNE-77); `--fusion rrf` stays available for
+re-evaluation on a more lexical query mix (the golden queries are generated to avoid the
+note's distinctive terms, which biases the set against BM25).
 With `nomic-embed-text` and task prefixes, the default floor is `0.70`; other embedding
 models have no default floor until calibrated. `--min-cos` overrides it for a query, and
 `MNEMOSYNE_MIN_COS` sets a process-wide override (`-1` effectively disables it).

@@ -42,7 +42,16 @@ export interface SearchHit {
   isDerived: boolean;
 }
 export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient | null; clock: Clock }
-export interface SearchOptions { query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number }
+export interface SearchOptions {
+  query: string; scopes?: string[]; k?: number; weights?: Weights; minCos?: number;
+  /**
+   * Opt-in ranking mode (MNE-96). Default (undefined) keeps the pure-cosine order
+   * calibrated in MNE-77. `"rrf"` re-orders the vector candidates by Reciprocal
+   * Rank Fusion of the cosine and BM25 rankings; the cosine floor still gates
+   * eligibility, so fusion only reorders notes that already clear it.
+   */
+  fusion?: "rrf";
+}
 
 /**
  * Search ranks by cosine relevance alone. Recency and importance keep their
@@ -98,6 +107,13 @@ export interface ExplainResult {
   k: number;
   weights: Weights;
   minCos: number | null;
+  /**
+   * The ranking mode actually used. Absent for the default cosine order; "rrf"
+   * when fusion reordered the candidates. Carried so telemetry and `--explain`
+   * describe the real ranking: under fusion the `score` is the fused RRF value,
+   * NOT reconstructable from `signals`+`weights` (which still describe cosine).
+   */
+  fusion?: "rrf";
   candidates: SearchHit[];
 }
 
@@ -122,11 +138,44 @@ export function toFtsMatch(query: string): string | null {
 }
 
 /**
+ * Reciprocal Rank Fusion constant (MNE-96). 60 is the value from the original RRF
+ * paper (Cormack et al. 2009) and the de-facto default; it damps the influence of
+ * the exact rank so that merely appearing in a list matters more than its position.
+ */
+export const RRF_K = 60;
+
+/**
+ * Fuse several ranked lists into one score per key: `Σ 1/(k + rank)` over the
+ * lists a key appears in, with rank 1-based. A key in two lists outscores one in
+ * a single list, which is the whole point of hybrid retrieval — a note both the
+ * vector and the lexical ranker surface is more trustworthy than either alone.
+ * Keys are opaque (callers use `scope\u0000slug`); duplicates within a list keep
+ * their first (best) rank; empty lists contribute nothing.
+ */
+export function reciprocalRankFusion(rankedLists: readonly (readonly string[])[], k: number = RRF_K): Map<string, number> {
+  const fused = new Map<string, number>();
+  for (const list of rankedLists) {
+    const seen = new Set<string>();
+    let rank = 0; // compacted: a duplicate key does not leave a gap for later keys
+    for (const key of list) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rank++;
+      fused.set(key, (fused.get(key) ?? 0) + 1 / (k + rank));
+    }
+  }
+  return fused;
+}
+
+/**
  * Tier 0 (MNE-19): candidates from BM25 over the FTS5 table, no embedder. SQLite's
  * `bm25()` returns lower = better; we min-max that to a relevance in [0,1] that
  * feeds the same scoring pipeline as cosine. Min-max (not 1/(1+position)) so that
  * EQUAL BM25 yields EQUAL relevance — then the deterministic scope/slug tiebreak
  * in `searchExplain` decides ties instead of the unspecified SQL row order.
+ * The SQL `order by` also breaks ties by scope then slug, so the returned LIST
+ * ORDER is deterministic too — RRF (MNE-96) ranks straight off it, and equal BM25
+ * must not hand tied notes different ranks by accident of insertion order.
  * There is no cosine here, so no cosine floor applies.
  */
 function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[] {
@@ -142,7 +191,7 @@ function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[]
      join engrams e on e.id = fts_engrams.rowid
      left join hot_state h on h.scope = e.scope and h.slug = e.slug
      where fts_engrams match ? and e.scope in (${scopes.map(() => "?").join(",")})
-     order by bm25(fts_engrams)`,
+     order by bm25(fts_engrams), e.scope, e.slug`,
   ).all(match, ...scopes) as (Omit<CandidateRow, "relevance"> & { bm25: number })[];
   if (rows.length === 0) return [];
   // bm25() is lower = better, so negate: higher = better, matching cosine.
@@ -162,7 +211,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const weights = opts.weights ?? SEARCH_WEIGHTS;
   // Tier 0 has no cosine, so nothing to floor; the floor is a vector-path concept.
   const minCos = embedder === null ? null : resolveMinCos(embedder.id, opts.minCos);
-  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, candidates: [] };
+  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, ...(opts.fusion ? { fusion: opts.fusion } : {}), candidates: [] };
   // One clock read for the whole query: hot-state materialization and the
   // recency term must agree on "now", or a slow embed call would skew scoring.
   const now = clock.now();
@@ -211,6 +260,22 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
       weights,
     };
   });
+  // MNE-96 (opt-in): replace the ranking score with Reciprocal Rank Fusion of the
+  // cosine ranking and the BM25 ranking. Only the `score` (the order) changes —
+  // the cosine floor still gates eligibility below, so fusion reorders the
+  // floor-eligible set rather than smuggling lexical-only hits past the floor.
+  // Production (no `fusion`) is untouched and stays pure cosine (MNE-77).
+  const fusionApplied = opts.fusion === "rrf" && embedder !== null;
+  if (fusionApplied) {
+    const key = (c: { scope: string; slug: string }): string => `${c.scope}\u0000${c.slug}`;
+    const byCosine = [...scored]
+      .sort((a, b) => b.signals.relevanceCosine - a.signals.relevanceCosine
+        || a.scope.localeCompare(b.scope) || a.slug.localeCompare(b.slug))
+      .map(key);
+    const byBm25 = bm25Candidates(db, opts.query, scopes).map(key);
+    const fused = reciprocalRankFusion([byCosine, byBm25]);
+    for (const c of scored) c.score = fused.get(key(c)) ?? 0;
+  }
   // Deterministic order: score desc, then scope then slug. The tiebreak makes
   // equal-cosine results stable and reproducible instead of leaning on the row
   // order the DB happened to return.
@@ -252,7 +317,7 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   }
   const candidates = scored.map(({ path: _path, ...h }, i) =>
     ({ ...h, rank: i, threshold, included: included[i]!, isDerived: isDerivedSlug(h.slug) }));
-  return { query: opts.query, scopes, k, weights, minCos, candidates };
+  return { query: opts.query, scopes, k, weights, minCos, ...(fusionApplied ? { fusion: "rrf" as const } : {}), candidates };
 }
 
 export async function search(deps: SearchDeps, opts: SearchOptions): Promise<SearchHit[]> {

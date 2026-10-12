@@ -44,6 +44,10 @@ export async function searchExplainInstrumented(
       k: res.k,
       weights: res.weights,
       minCos: res.minCos,
+      // Record the ranking mode: under "rrf" the score is NOT reconstructable from
+      // signals+weights (those still describe cosine), so the candidate events below
+      // carry the fused score explicitly to keep the decision reconstructable.
+      ...(res.fusion ? { fusion: res.fusion } : {}),
       candidateSetSize: res.candidates.length,
       durationMs,
       resultCount: res.candidates.filter((c) => c.included).length,
@@ -57,6 +61,10 @@ export async function searchExplainInstrumented(
       included: c.included,
       threshold: c.threshold,
       signals: c.signals,
+      // Only stored for a non-reconstructable order (fusion); the default cosine
+      // order re-derives the score from signals+weights, so storing it would just
+      // risk drift from the formula.
+      ...(res.fusion ? { score: c.score } : {}),
     })),
   ];
   emitEvents(deps.root, deps.clock, events);
