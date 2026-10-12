@@ -106,6 +106,42 @@ export function resolveScopeStrict(entries: ScopeMapEntry[], cwd: string): strin
   return bestMatch(entries, cwd)?.scope ?? null;
 }
 
+/**
+ * Whether `cwd` resolves specifically through the home-level catch-all (`~ = …`)
+ * — i.e. no more-specific prefix matched it, so the only reason it got a scope at
+ * all is the catch-all. This is the per-WRITE condition for the MNE-59 hazard
+ * (MNE-94): a correctly-mapped directory (its own prefix wins) returns false, so
+ * a deliberate `personal` + `acme` setup is never nagged on every write.
+ */
+export function resolvesViaCatchAll(
+  entries: ScopeMapEntry[],
+  cwd: string,
+  home: string,
+  canonicalize: Canonicalize = realpathOrUndefined,
+): boolean {
+  const match = bestMatch(entries, cwd);
+  if (match === undefined) return false;
+  const homes = [home, canonicalize(home)].filter((h): h is string => h !== undefined);
+  return homes.includes(match.prefix) || (match.canonical !== undefined && homes.includes(match.canonical));
+}
+
+/** A structured `.scopemap` comment declaring the catch-all is deliberate (MNE-94). */
+const INTENTIONAL_CATCHALL_RE = /^[ \t]*#[ \t]*catch-all:[ \t]*intentional\b/im;
+
+/** True when the raw `.scopemap` text declares the catch-all intentional. */
+export function catchAllIsIntentional(text: string): boolean {
+  return INTENTIONAL_CATCHALL_RE.test(text);
+}
+
+/** Best-effort read of the `.scopemap` intentional marker from disk. */
+export function catchAllIsIntentionalAt(path: string): boolean {
+  try {
+    return catchAllIsIntentional(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 export function scopeMapPath(root: string): string {
   return storePaths(root).scopeMap;
 }

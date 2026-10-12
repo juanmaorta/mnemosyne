@@ -17,7 +17,7 @@ import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramWithRevision } from "./retrieval/get.js";
 import { createOllamaClient, probeOllama, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
-import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, catchAllScope, ensureCatchAllScopeMap } from "./scope/scopemap.js";
+import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, resolvesViaCatchAll, catchAllIsIntentionalAt, ensureCatchAllScopeMap } from "./scope/scopemap.js";
 import { listScopes } from "./index/walk.js";
 import { loadOwnerPolicy, ownsScope } from "./scope/owner.js";
 import { rankContext, selectWithinBudget, formatContextDigest } from "./retrieval/context.js";
@@ -164,6 +164,22 @@ function openIndex(root: string) {
 
 export async function runCli(argv: string[], out: Out = console.log, err: Out = console.error): Promise<number> {
   const [command, ...rest] = argv;
+  // MNE-94: warn on stderr when a write actually resolved through the `~`
+  // catch-all (no specific prefix matched this cwd) and more than one scope
+  // exists — the moment a context could silently land in the wrong scope. An
+  // explicit `--scope` never resolves via the catch-all, a single-scope store has
+  // nothing to protect, and a `# catch-all: intentional` marker opts out. Never
+  // breaks a successful write: a hygiene warning is best-effort.
+  const warnCatchAllWrite = (root: string, cwdArg: string | undefined, resolvedScope: string, explicitScope: string | undefined): void => {
+    if (explicitScope) return;
+    try {
+      const path = scopeMapPath(root);
+      if (!resolvesViaCatchAll(loadScopeMap(path, homedir()), callerCwd(cwdArg), homedir())) return;
+      const scopeCount = listScopes(root).length;
+      if (scopeCount < 2 || catchAllIsIntentionalAt(path)) return;
+      err(`warning: this write resolved to scope '${resolvedScope}' via the '~' catch-all in .scopemap (no specific prefix matched this directory) and ${scopeCount} scopes exist. Map this context explicitly with a prefix, or add a '# catch-all: intentional' line to .scopemap to silence this.`);
+    } catch { /* a hygiene warning never breaks a successful write */ }
+  };
   try {
     switch (command) {
       case "reindex": {
@@ -313,20 +329,12 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           // reaches nobody reliably when the hook exits 0.
           err(`warning: memory digest degraded (${degraded.join(", ")}); this session may be missing memory.`);
         }
-        // MNE-59: a home-level catch-all (`~ = <scope>`) is harmless with one
-        // scope but, once a second exists, silently routes any unmapped directory
-        // into that scope — the window where it does damage. Detected daily by
-        // `snapshot`; surfaced here (the one command seen every session) as an
-        // operator warning on stderr, never in the digest. Best-effort.
-        if (root !== undefined) {
-          try {
-            const catchAll = catchAllScope(loadScopeMap(scopeMapPath(root), homedir()), homedir());
-            const scopeCount = listScopes(root).length;
-            if (catchAll !== undefined && scopeCount >= 2) {
-              err(`warning: .scopemap has a catch-all ('~ = ${catchAll}') and ${scopeCount} scopes exist — any unmapped directory writes silently to '${catchAll}'. Map new contexts explicitly, or keep the catch-all on purpose.`);
-            }
-          } catch { /* never break session start over a hygiene check */ }
-        }
+        // MNE-94: the catch-all hazard is warned about PER WRITE now (in `add`
+        // and `update`, when a write actually resolves through the catch-all), not
+        // per condition here. A read never routes a write, so warning on every
+        // `context` was a recurring false positive in a correct, deliberate setup
+        // (personal + acme, all mapped). `snapshot` still records the condition as
+        // the durable signal.
         return 0;
       }
       case "explain": {
@@ -626,6 +634,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
             },
           );
           out(`wrote ${res.kind} [${res.scope}] ${res.slug} → ${res.path}`);
+          warnCatchAllWrite(root, values.cwd, res.scope, values.scope);
           return 0;
         } catch (e) {
           if (e instanceof ScopeUnresolvedError) { err("cannot resolve a scope for this cwd; pass --scope explicitly (write is fail-closed — it never defaults to personal)"); return 1; }
@@ -709,6 +718,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
             },
           );
           out(`updated note [${res.scope}] ${res.slug} → ${res.path} (revision ${res.revision})`);
+          warnCatchAllWrite(root, values.cwd, res.scope, values.scope);
           return 0;
         } catch (e) {
           if (e instanceof NoChangesError) { err(`${e.message}\n${usage}`); return 1; }

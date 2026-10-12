@@ -610,6 +610,18 @@ map or the caller names the link or its target — both reach the same scope. A 
 on disk yet (a repo not cloned, a volume not mounted) is still matched literally, so mapping a
 directory ahead of time works.
 
+A home-level catch-all (`~ = <scope>`) absorbs any unmapped directory. That is handy with one
+scope and a hazard with several — a new, unmapped context lands in an existing scope silently. So
+when a write **actually** resolves through the catch-all and more than one scope exists, `mneme`
+prints a one-line warning on stderr (not on a read, and not when you pass `--scope`). If the
+catch-all is deliberate, declare it once and the warning goes quiet:
+
+```
+# catch-all: intentional
+~ = personal
+~/Projects/acme = acme
+```
+
 Declare which scopes a machine may write in `~/memory/.owner` (machine-local, JSON):
 
 ```json
