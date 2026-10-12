@@ -1,5 +1,7 @@
 # Mnemosyne
 
+[![CI](https://github.com/juanmaorta/mnemosyne/actions/workflows/ci.yml/badge.svg)](https://github.com/juanmaorta/mnemosyne/actions/workflows/ci.yml)
+
 **Persistent, human-like memory for LLM agents.** File-based, local-first, agent-agnostic.
 
 Agents forget everything between sessions. The usual fix — stuffing more into the

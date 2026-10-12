@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: typecheck, test, build
+    runs-on: ubuntu-latest
+    # A gate that can hang is not a gate: the concurrency suite races eight
+    # spawned processes, which is far slower on a shared runner than on a
+    # laptop. Fail loudly instead of burning the default six hours.
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # Caches ~/.npm, not node_modules: better-sqlite3 and sqlite-vec ship
+          # native bindings that must be resolved for this runner, not restored
+          # from a cache built on another one.
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Built BEFORE the tests, not after, and that order is load-bearing. The
+      # suite's globalSetup builds `dist` itself when it is missing or stale, by
+      # spawning `npm run build` as a child process — which on a fresh CI
+      # checkout is always. Doing it here as its own step leaves that spawn with
+      # nothing to do, keeps a build failure legible as a build failure instead
+      # of a mute test run, and is what a green `dist` means anyway.
+      - run: npm run build
+
+      # The suite needs no Ollama: the embedder tests point at unreachable hosts
+      # on purpose and assert the error path.
+      - run: npm test

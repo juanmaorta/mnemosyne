@@ -30,8 +30,17 @@ describe("telemetry event log", () => {
 
   it("never throws when the telemetry dir cannot be written", () => {
     // Telemetry is best-effort: it must never break the command emitting it.
-    expect(() => emitEvent("/proc/nonexistent/xyz", fixedClock(0), { kind: "engram.created" })).not.toThrow();
-    expect(() => emitEvents("/proc/nonexistent/xyz", fixedClock(0), [{ kind: "engram.created" }])).not.toThrow();
+    // The unwritable root is a regular FILE where a directory is expected, so
+    // creating `<root>/.telemetry` fails with a clean ENOTDIR that emitEvents
+    // swallows. An earlier fixture used a path under `/proc`, where Node's
+    // recursive mkdirSync does not error but LOOPS FOREVER on Linux — green on
+    // a macOS laptop, a wedged 100%-CPU worker that hangs the whole CI run on a
+    // Linux runner (MNE-24). A file-as-root reproduces "cannot be written"
+    // portably without tripping that libuv pathology.
+    const fileRoot = join(tmpRoot(), "not-a-dir");
+    writeFileSync(fileRoot, "");
+    expect(() => emitEvent(fileRoot, fixedClock(0), { kind: "engram.created" })).not.toThrow();
+    expect(() => emitEvents(fileRoot, fixedClock(0), [{ kind: "engram.created" }])).not.toThrow();
   });
 
   it("writes a batch as one atomic append sharing a single timestamp", () => {
