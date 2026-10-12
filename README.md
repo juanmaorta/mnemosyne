@@ -547,6 +547,13 @@ What apply does, and deliberately does not:
 - **Is reversible, safely.** `revert` removes exactly the notes the run recorded applying —
   but only if their bytes still match what apply wrote. A derived note you have since edited
   by hand is **kept**, never silently deleted.
+- **Stays searchable, with nothing stranded.** Both apply and revert run the existing scoped
+  reindex afterwards, so an applied note is retrievable on the next `search`/`context` and a
+  reverted one leaves no orphan row or vector behind. The reindex is a *separate, self-healing*
+  step: if it fails, the mutation still stands and the command says so (run `mneme reindex
+  --scope <scope>` to catch up) — it never reports full success over a pending index. There is
+  no `INDEX.md` file; the digest is built from the index database, so generating one is deferred
+  until a consumer needs it (MNE-56).
 
 Applying runs through the same owner and secret gates and the same scope lock as `mneme add`;
 the model's output is treated as untrusted content. Enabling this against a real store is a

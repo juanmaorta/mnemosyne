@@ -7,7 +7,11 @@ import { ulid } from "ulid";
  *   <root>/<scope>/facts/*.md   append-only fact stream (observed, immutable)
  *   <root>/<scope>/*.md         notes: derived + authored
  *   <root>/archive/             decayed memories (moved, never deleted) — lethe
- *   <root>/INDEX.md             derived, regenerated
+ *   <root>/INDEX.md             reserved; generation DEFERRED (MNE-56) — no
+ *                               writer exists. `context` builds the digest from
+ *                               `.index/store.db`, so no on-disk index file is
+ *                               needed yet; the path stays reserved so imports
+ *                               keep skipping it as derived.
  *   <root>/.index/store.db      derived, local, NEVER synced
  *
  * Scope = folder (Syncthing routing) + `scope` frontmatter field (authoritative).
