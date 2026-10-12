@@ -29,8 +29,11 @@ import {
   rememberInInventory, toLocalIso, type Inventory, type SourceCandidate,
 } from "./plan.js";
 
-/** Native index files: derived listings, not memories. */
-const IGNORED_FILES = new Set(["MEMORY.md", "INDEX.md"]);
+/** Native index files: derived listings, not memories. Matched case-insensitively. */
+const IGNORED_FILES = new Set(["memory.md", "index.md"]);
+
+/** Case-insensitive `.md`, so `NOTE.MD` is not silently dropped as "not markdown". */
+const MARKDOWN_RE = /\.md$/i;
 
 export type ImportStatus =
   | "imported"
@@ -94,9 +97,19 @@ export class ImportUsageError extends Error {
   }
 }
 
+/**
+ * Why a file is skipped without being a failure. A closed union so the categories
+ * are compiler-checked at every `classify` return — the exported `FailureReason`
+ * covered only the normalize path, leaving these literals as free-form strings
+ * that a typo could slip through (MNE-40).
+ */
+export type IgnoreReason = "dotfile" | "native index file" | "not markdown" | "symlink" | "not a regular file";
+
 /** One source file, already parsed and gated, waiting for a decision. */
 type Prepared =
-  | { filename: string; kind: "ignored"; reason: string }
+  | { filename: string; kind: "ignored"; reason: IgnoreReason }
+  // `failed` reasons stay a string on purpose: some carry specifics
+  // (`invalid-schema (fields)`), and the fixed ones come from several gates.
   | { filename: string; kind: "failed"; reason: string; details?: string[]; warnings: string[] }
   | { filename: string; kind: "ready"; candidate: SourceCandidate };
 
@@ -129,8 +142,8 @@ function assertUsable(opts: ImportOptions): void {
  */
 function classify(dir: string, name: string): Prepared | null {
   if (name.startsWith(".")) return { filename: name, kind: "ignored", reason: "dotfile" };
-  if (IGNORED_FILES.has(name)) return { filename: name, kind: "ignored", reason: "native index file" };
-  if (!name.endsWith(".md")) return { filename: name, kind: "ignored", reason: "not markdown" };
+  if (IGNORED_FILES.has(name.toLowerCase())) return { filename: name, kind: "ignored", reason: "native index file" };
+  if (!MARKDOWN_RE.test(name)) return { filename: name, kind: "ignored", reason: "not markdown" };
   let stats;
   try {
     stats = lstatSync(join(dir, name));

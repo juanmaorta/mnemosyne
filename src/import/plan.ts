@@ -130,7 +130,12 @@ export interface FingerprintInput {
  * there is no manifest to fall out of sync with the Markdown.
  */
 export function fingerprintOf(input: FingerprintInput): string {
-  const serialized = [input.type, input.description.trim(), normalizeBody(input.body)].join("\n");
+  // Length-prefix each field instead of joining on "\n": `description` may
+  // itself contain newlines, so a plain join lets a newline shift from body into
+  // description and produce the same string for two different memories (a false
+  // `skipped-identical`). A byte-length prefix makes the boundary unambiguous.
+  const fields = [input.type, input.description.trim(), normalizeBody(input.body)];
+  const serialized = fields.map((f) => `${Buffer.byteLength(f, "utf8")}:${f}`).join("");
   return createHash("sha256").update(serialized, "utf8").digest("hex");
 }
 
@@ -161,7 +166,11 @@ function hasRelations(value: unknown): boolean {
 }
 
 const WIKILINK_RE = /\[\[[^\]\r\n]+\]\]/;
-const NATIVE_PATH_RE = /(~\/\.claude\/projects|\bMEMORY\.md\b|[\w./~-]+\.md\b)/;
+// Only actual native-memory references, not any `.md` mention: the old
+// `[\w./~-]+\.md\b` alternative fired on a plain `README.md` in prose, which in a
+// real corpus is pure noise. Keep the native projects path and the two native
+// index files (case-insensitive, to match how they are detected elsewhere).
+const NATIVE_PATH_RE = /(~\/\.claude\/projects|\b(?:MEMORY|INDEX)\.md\b)/i;
 
 /**
  * Bodies travel verbatim — the new namespace changes every target, so rewriting
