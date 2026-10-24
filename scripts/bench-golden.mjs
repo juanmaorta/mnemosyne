@@ -17,11 +17,18 @@ import { fixedClock } from "../dist/clock.js";
 import { ALGO_VERSION } from "../dist/version.js";
 import { percentile, queryMetrics, summarizeEvaluation } from "../dist/golden-metrics.js";
 import { diagnoseQuery, diagnosticTime, rankingMetadataDigest, summarizeDiagnostics } from "../dist/golden-diagnostics.js";
-import { assertCalibrationReviewSet, compareCalibrationArms, rankCalibrationCandidates, selectEligibleConfigurations } from "../dist/golden-calibration.js";
+import { assertCalibrationReviewSet, compareCalibrationArms, rankCalibrationCandidates, selectEligibleConfigurations, sweepFloorGrid, selectFloorPair, floorSeparation } from "../dist/golden-calibration.js";
 
 const DEFAULT_QUERY_MODEL = "gemma4:e2b";
 const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
 const MAX_QUERIES_PER_SCOPE = 25;
+// MNE-98: unanswerable queries generated per scope. assertCalibrationReviewSet
+// requires 10 reviewed ones; extra headroom absorbs the ones review discards.
+const UNANSWERABLE_PER_SCOPE = 15;
+// Floor grids for calibrate-floor. Cosine spans both models' plausible bands
+// (v2-moe positives sit ~0.35–0.6, nomic ~0.6–0.8); lexical is raw BM25.
+const COSINE_FLOOR_GRID = Array.from({ length: 61 }, (_, i) => Math.round((0.20 + i * 0.01) * 100) / 100);
+const LEXICAL_FLOOR_GRID = [null, ...Array.from({ length: 41 }, (_, i) => i * 0.5)];
 const TOP_K = 10;
 const DEFAULT_CLUSTER_COSINE = 0.8;
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://localhost:11434";
@@ -30,8 +37,8 @@ const OUTPUT_ROOT = resolve(process.env.MNEMOSYNE_GOLDEN_DIR ?? join(homedir(), 
 
 function options(argv) {
   const [command, ...rest] = argv;
-  if (!["prepare", "run", "diagnose", "calibrate"].includes(command)) {
-    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run|diagnose|calibrate> [--scope <scope>] [--force] [--allow-corpus-drift]");
+  if (!["prepare", "run", "diagnose", "calibrate", "calibrate-floor"].includes(command)) {
+    throw new Error("usage: node scripts/bench-golden.mjs <prepare|run|diagnose|calibrate|calibrate-floor> [--scope <scope>] [--force] [--allow-corpus-drift]");
   }
   const opts = { command, scopes: [], force: false, allowCorpusDrift: false };
   for (let i = 0; i < rest.length; i++) {
@@ -90,6 +97,9 @@ function readCorpus(root, scope) {
       importance: parsed.data.importance,
       description: parsed.data.description,
       text: `${parsed.data.description}\n\n${body.trim()}`.trim(),
+      // FTS input, split as reindex stores it (description, body). Not part of
+      // any digest, so adding it leaves existing review sets valid.
+      body: body.trim(),
       path: file.path,
     });
   }
@@ -190,6 +200,65 @@ function clientWithKeepAlive(model, keepAlive) {
   });
 }
 
+// MNE-98: the original 5b-golden only had "natural" queries (generateQuery),
+// which forbid the note's own vocabulary — a deliberate bias against BM25 that
+// hid both the keyword use case and the lexical signal. Each query is labeled
+// with its style so the floor calibration can report recall per style.
+const KEYWORD_PROMPT = {
+  system: "Escribe una sola consulta corta (de 2 a 5 palabras) como la que alguien teclearía en un buscador para encontrar esta información. Usa términos que aparecen en el texto, incluidos nombres propios o técnicos si son los que alguien recordaría. No escribas una frase completa ni respondas nada. Responde solo un objeto JSON con la propiedad query.",
+  user: "Escribe las palabras clave que alguien buscaría para recuperar esta información.",
+};
+
+async function chatJson(model, messages, schema, valid) {
+  let parsed;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(180_000),
+      body: JSON.stringify({
+        model, stream: false, format: schema, keep_alive: "5m", options: { temperature: 0.2 },
+        messages: [...messages, ...(attempt ? [{ role: "assistant", content: "Devuelve solo un objeto JSON válido con el esquema pedido." }] : [])],
+      }),
+    });
+    if (!response.ok) throw new Error(`Local Ollama query generation failed (${response.status}).`);
+    const content = (await response.json()).message?.content ?? "";
+    const start = content.indexOf("{");
+    const end = content.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try { parsed = JSON.parse(content.slice(start, end + 1)); } catch { /* retry with a JSON reminder */ }
+    }
+    if (valid(parsed)) return parsed;
+  }
+  throw new Error("Local model returned an invalid query; no query set was written.");
+}
+
+async function generateStyledQuery(model, doc, style) {
+  if (style === "natural") return generateQuery(model, doc);
+  const parsed = await chatJson(model, [
+    { role: "system", content: KEYWORD_PROMPT.system },
+    { role: "user", content: `Información disponible para recordar:\n${doc.text.slice(0, 12_000)}\n\n${KEYWORD_PROMPT.user}` },
+  ], { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  (value) => typeof value?.query === "string" && value.query.trim().length >= 3);
+  return parsed.query.trim();
+}
+
+/**
+ * Unanswerable queries, generated against the scope's note DESCRIPTIONS so the
+ * model can aim next to the store's topics ("near misses", the negatives that
+ * actually leak through a floor) as well as far from them. The model cannot
+ * know what the notes really cover; review decides which ones stay unanswerable.
+ */
+async function generateUnanswerableQueries(model, documents, count) {
+  const topics = documents.map((doc) => `- ${doc.description}`).join("\n").slice(0, 16_000);
+  const parsed = await chatJson(model, [
+    { role: "system", content: "Generas consultas de prueba en español para un buscador de notas personales. Cada consulta debe ser algo que alguien podría buscar, pero sobre lo que estas notas NO tienen la respuesta. Mezcla dos tipos a partes iguales: (a) temas vecinos a los de las notas, que comparten vocabulario o dominio pero piden otra cosa; (b) temas cotidianos sin relación. Mezcla preguntas completas y búsquedas cortas por palabras clave. Responde solo un objeto JSON con la propiedad queries (lista de strings)." },
+    { role: "user", content: `Temas que SÍ cubren las notas:\n${topics}\n\nEscribe ${count} consultas distintas que estas notas no responden.` },
+  ], { type: "object", properties: { queries: { type: "array", items: { type: "string" } } }, required: ["queries"] },
+  (value) => Array.isArray(value?.queries) && value.queries.filter((q) => typeof q === "string" && q.trim().length >= 3).length >= Math.ceil(count / 2));
+  return [...new Set(parsed.queries.filter((q) => typeof q === "string").map((q) => q.trim()).filter((q) => q.length >= 3))].slice(0, count);
+}
+
 async function generateQuery(model, doc) {
   let parsed;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -245,24 +314,34 @@ async function prepareScope(scope, opts) {
   }
   const anchors = chooseAnchors(documents, clusters);
   const queries = [];
+  const idPrefix = { natural: "q", keyword: "k" };
   for (let i = 0; i < anchors.length; i++) {
     const doc = anchors[i];
-    const query = await generateQuery(queryModel, doc);
     const cluster = clusterForSlug.get(doc.slug);
-    queries.push({
-      id: `q-${String(i + 1).padStart(2, "0")}`,
-      query,
-      anchorSlug: doc.slug,
-      clusterId: cluster.clusterId,
-      relevance: cluster.members.map((slug) => ({ slug, grade: slug === doc.slug ? 3 : 2 })).sort((a, b) => b.grade - a.grade || a.slug.localeCompare(b.slug)),
-      approved: false,
-      reviewNotes: "",
-    });
+    for (const style of ["natural", "keyword"]) {
+      const query = await generateStyledQuery(queryModel, doc, style);
+      queries.push({
+        id: `${idPrefix[style]}-${String(i + 1).padStart(2, "0")}`,
+        style,
+        query,
+        anchorSlug: doc.slug,
+        clusterId: cluster.clusterId,
+        relevance: cluster.members.map((slug) => ({ slug, grade: slug === doc.slug ? 3 : 2 })).sort((a, b) => b.grade - a.grade || a.slug.localeCompare(b.slug)),
+        approved: false,
+        reviewNotes: "",
+      });
+    }
     process.stdout.write(`generated ${i + 1}/${anchors.length} for local scope review set\n`);
   }
+  const unanswerable = await generateUnanswerableQueries(queryModel, documents, UNANSWERABLE_PER_SCOPE);
+  unanswerable.forEach((query, i) => queries.push({
+    id: `n-${String(i + 1).padStart(2, "0")}`, style: "unanswerable", query,
+    anchorSlug: null, clusterId: null, relevance: [], approved: false, reviewNotes: "",
+  }));
+  process.stdout.write(`generated ${unanswerable.length} unanswerable queries\n`);
   mkdirSync(OUTPUT_ROOT, { recursive: true });
   const reviewSet = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: evaluationTime,
     evaluationTime,
     scope,
@@ -272,7 +351,7 @@ async function prepareScope(scope, opts) {
     clusterCosineThreshold: threshold,
     clusterCount: clusters.length,
     queries,
-    reviewInstructions: "Review each question from a user's perspective; edit query and graded relevance as needed, then set approved=true. Grade 3 is directly relevant, 2 is a relevant cluster sibling, 1 is partially relevant. Omit irrelevant notes; leave relevance empty when no note answers the query. This file is private and must not be committed.",
+    reviewInstructions: "Review each question from a user's perspective; edit query and graded relevance as needed, then set approved=true. Styles: natural (paraphrase, avoids the note's terms), keyword (2-5 search terms from the note), unanswerable (relevance must stay empty; if some note does answer it, add the labels and an anchorSlug, or delete it). Grade 3 is directly relevant, 2 is a relevant cluster sibling, 1 is partially relevant. Omit irrelevant notes; leave relevance empty when no note answers the query. This file is private and must not be committed.",
   };
   writeFileSync(path, `${JSON.stringify(reviewSet, null, 2)}\n`, { mode: 0o600 });
   // Release the local embedding model before the cold-latency pass.
@@ -290,6 +369,9 @@ function buildMemoryIndex(db, docs, vectors, dim) {
     const result = insert.run({ slug: doc.slug, scope: doc.scope, type: doc.type, importance: doc.importance,
       created: doc.created, description: doc.description, path: doc.path, snippet: "", mtime: 0, size: 0, hash: "", status: doc.status });
     vectorInsert.run(BigInt(result.lastInsertRowid), toBlob(vectors[i]));
+    // Without FTS rows BM25 matches nothing, silently voiding any lexical
+    // measurement (fusion, lexical rescue) taken on this index (MNE-98).
+    db.prepare("insert into fts_engrams(rowid, description, body) values(?, ?, ?)").run(result.lastInsertRowid, doc.description, doc.body);
   }
 }
 
@@ -429,6 +511,99 @@ async function calibrateScope(scope, embeddingModel) {
   }
 }
 
+/** Style of a reviewed query; schema-1 sets predate styles and only had natural + manual negatives. */
+function queryStyle(query) {
+  return query.style ?? (query.relevance.length === 0 ? "unanswerable" : "natural");
+}
+
+/**
+ * MNE-98: calibrate the two-signal gate (cosine floor OR raw-BM25 lexical
+ * rescue) for the CURRENT embedding model. Unlike `calibrate`, this is not
+ * tied to nomic: each model gets its own cosine floor. Ranking is untouched
+ * (cosine-only, as production search); only eligibility is swept.
+ */
+async function calibrateFloorScope(scope, embeddingModel) {
+  const { reviewSet, documents, queries } = loadReviewedScope(scope);
+  const before = currentFingerprint(scope);
+  assertCalibrationReviewSet(reviewSet, {
+    contentSha256: before.contentSha256, rankingSha256: before.rankingSha256,
+    documentSlugs: new Set(documents.map((doc) => doc.slug)),
+  });
+  const now = Date.parse(reviewSet.evaluationTime ?? reviewSet.createdAt);
+  if (!Number.isFinite(now)) throw new Error(`Review set for '${scope}' has an invalid evaluation time.`);
+  const { client, db } = await indexReviewedScope(documents, embeddingModel);
+  try {
+    const deps = { db, root: ROOT, embedder: client, clock: fixedClock(now) };
+    const cases = [];
+    for (const query of queries) {
+      // Floors wide open (cos -1, lexical 0) so every candidate carries its raw
+      // cosine and BM25; the sweep then applies each floor pair offline.
+      const result = await searchExplain(deps, { query: query.query, scopes: [scope], k: documents.length, minCos: -1, lexicalFloor: 0 });
+      cases.push({
+        id: query.id, style: queryStyle(query), relevance: query.relevance,
+        candidates: result.candidates.map((item) => ({
+          slug: item.slug, cosine: item.signals.relevanceCosine, bm25: item.bm25 ?? null, normalized: item.signals.normalized,
+        })),
+      });
+    }
+    const after = currentFingerprint(scope);
+    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`Corpus or access events changed during calibration of '${scope}'; no scorecard written.`);
+    const grid = sweepFloorGrid(cases, { cosineFloors: COSINE_FLOOR_GRID, lexicalFloors: LEXICAL_FLOOR_GRID }, TOP_K);
+    const productionFloor = resolveMinCos(client.id);
+    const production = productionFloor === null ? null
+      : sweepFloorGrid(cases, { cosineFloors: [productionFloor], lexicalFloors: [null] }, TOP_K)[0];
+    const negatives = cases.filter((item) => item.style === "unanswerable");
+    // Answerable styles present in this set: natural and keyword from prepare,
+    // plus any added in review (e.g. near: generated negatives the store answers).
+    const answerableStyles = [...new Set(cases.map((item) => item.style).filter((style) => style !== "unanswerable"))].sort();
+    const bestCosineOnly = selectFloorPair(grid.filter((row) => row.lexicalFloor === null), { maxFalsePositives: 0 });
+    const bestCombined = selectFloorPair(grid, { maxFalsePositives: 0 });
+    // Recall of the chosen pair per answerable style: a floor that serves
+    // keyword queries by starving natural ones is not a win.
+    const byStyle = (pair) => pair && Object.fromEntries(answerableStyles.map((style) => {
+      const subset = [...cases.filter((item) => item.style === style), ...negatives];
+      const [row] = sweepFloorGrid(subset, { cosineFloors: [pair.cosineFloor], lexicalFloors: [pair.lexicalFloor] }, TOP_K);
+      return [style, { queries: row.answerable, recall: row.recall, ndcg: row.ndcg }];
+    }));
+    const separation = Object.fromEntries(["all", ...answerableStyles].map((style) => [style,
+      floorSeparation(style === "all" ? cases : [...cases.filter((item) => item.style === style), ...negatives])]));
+    const report = {
+      benchmark: "mnemosyne-floor-calibration-v1", algoVersion: ALGO_VERSION,
+      scope, evaluationTime: new Date(now).toISOString(), embeddingModel, embedderId: client.id,
+      queryCount: cases.length,
+      styles: Object.fromEntries([...answerableStyles, "unanswerable"].map((style) => [style, cases.filter((item) => item.style === style).length])),
+      corpus: before, topK: TOP_K,
+      separation,
+      production: production && { ...production, byStyle: byStyle(production) },
+      bestCosineOnly: bestCosineOnly && { ...bestCosineOnly, byStyle: byStyle(bestCosineOnly) },
+      bestCombined: bestCombined && { ...bestCombined, byStyle: byStyle(bestCombined) },
+      grid,
+      limitations: [
+        "Queries and labels are locally reviewed; they are not committed to git.",
+        "Raw BM25 depends on this store's size and note lengths; a lexical floor calibrated here does not transfer to another store.",
+        "Selection uses zero false positives on a small reviewed negative set; validate with fresh negatives before changing production defaults.",
+      ],
+    };
+    const output = scopeScorecardFile(scope, `${embeddingModel}-floor-calibration`);
+    writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+    const fmt = (v) => (v === null || v === undefined ? "—" : v.toFixed(3));
+    const line = (name, row) => console.log(row
+      ? `${name}: cos≥${row.cosineFloor.toFixed(2)} lexical≥${row.lexicalFloor === null ? "off" : row.lexicalFloor.toFixed(1)} recall=${fmt(row.recall)} nDCG@10=${fmt(row.ndcg)} FP=${row.falsePositives}/${row.unanswerable}`
+        + (row.byStyle ? ` | ${Object.entries(row.byStyle).map(([style, r]) => `${style} recall=${fmt(r.recall)}`).join(" ")}` : "")
+      : `${name}: none within 0 false positives`);
+    console.log(`floor calibration scope=${scope} model=${embeddingModel} queries=${JSON.stringify(report.styles)}`);
+    console.log(`separation cosine: positive min ${fmt(separation.all.cosine.positiveMin)} vs negative max ${fmt(separation.all.cosine.negativeMax)}${separation.all.cosine.overlap ? " (OVERLAP)" : ""}`);
+    console.log(`separation bm25:   positive min ${fmt(separation.all.bm25.positiveMin)} vs negative max ${fmt(separation.all.bm25.negativeMax)}${separation.all.bm25.overlap ? " (OVERLAP)" : ""}; positives without lexical match=${separation.all.bm25.positivesWithoutMatch}`);
+    line("production", report.production);
+    line("best cosine-only", report.bestCosineOnly);
+    line("best combined", report.bestCombined);
+    console.log(`local floor calibration scorecard: ${output}`);
+    return report;
+  } finally {
+    db.close();
+  }
+}
+
 function reportJointCalibration(reports) {
   const byScope = new Map(reports.map((report) => [report.scope, report]));
   const personal = byScope.get("personal");
@@ -462,12 +637,31 @@ function reportJointCalibration(reports) {
   console.log(`joint eligibility: ${eligible.length}/${rows.length}; best=${eligible[0] ?? "none"}; local scorecard: ${output}`);
 }
 
+/**
+ * FTS5's bm25() takes IDF and average length from the WHOLE fts table, not from
+ * the rows a query's scope filter keeps. Production indexes every scope in one
+ * table, so a bench index holding only the evaluated scope measures raw BM25 on
+ * a different scale (±9% on the 2026-10-24 store), which voids any absolute
+ * lexical floor calibrated on it (MNE-98). Add the other scopes' text to FTS
+ * only: no engrams row, so search can never return them, but they weigh in the
+ * corpus statistics exactly as in production.
+ */
+function addCorpusStatistics(db, evaluated) {
+  const scope = evaluated[0]?.scope;
+  const insert = db.prepare("insert into fts_engrams(rowid, description, body) values(?, ?, ?)");
+  let rowid = 1_000_000_000;
+  for (const other of listScopes(ROOT).filter((s) => s !== scope)) {
+    for (const doc of readCorpus(ROOT, other).documents) insert.run(rowid++, doc.description, doc.body);
+  }
+}
+
 async function indexReviewedScope(documents, embeddingModel) {
   const client = clientWithKeepAlive(embeddingModel, "5m");
   const vectors = [];
   for (let i = 0; i < documents.length; i += 24) vectors.push(...await client.embed(documents.slice(i, i + 24).map((doc) => doc.text), "document"));
   const db = openDb(":memory:");
   buildMemoryIndex(db, documents, vectors, client.dim);
+  addCorpusStatistics(db, documents);
   return { client, db };
 }
 
@@ -571,6 +765,7 @@ async function main() {
     if (opts.command === "prepare") await prepareScope(scope, opts);
     else if (opts.command === "run") await runScope(scope, embeddingModel);
     else if (opts.command === "diagnose") await diagnoseScope(scope, embeddingModel, opts.allowCorpusDrift);
+    else if (opts.command === "calibrate-floor") await calibrateFloorScope(scope, embeddingModel);
     else calibrationReports.push(await calibrateScope(scope, embeddingModel));
   }
   if (opts.command === "calibrate") reportJointCalibration(calibrationReports);

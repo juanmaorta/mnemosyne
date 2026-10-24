@@ -48,6 +48,8 @@ export async function searchExplainInstrumented(
       // signals+weights (those still describe cosine), so the candidate events below
       // carry the fused score explicitly to keep the decision reconstructable.
       ...(res.fusion ? { fusion: res.fusion } : {}),
+      // Lexical rescue widens eligibility, so the floor in force is part of the decision.
+      ...(res.lexicalFloor === undefined ? {} : { lexicalFloor: res.lexicalFloor }),
       candidateSetSize: res.candidates.length,
       durationMs,
       resultCount: res.candidates.filter((c) => c.included).length,
@@ -65,6 +67,10 @@ export async function searchExplainInstrumented(
       // order re-derives the score from signals+weights, so storing it would just
       // risk drift from the formula.
       ...(res.fusion ? { score: c.score } : {}),
+      // Raw BM25 is not derivable from `signals` (cosine-only), so it is stored
+      // whenever it took part in the eligibility decision.
+      ...(c.bm25 === undefined ? {} : { bm25: c.bm25 }),
+      ...(c.lexicalRescue ? { lexicalRescue: true } : {}),
     })),
   ];
   emitEvents(deps.root, deps.clock, events);

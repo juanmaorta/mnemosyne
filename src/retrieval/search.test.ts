@@ -42,16 +42,12 @@ describe("search", () => {
     expect(() => resolveMinCos("other/dim768", Number.NaN)).toThrow(/min-cos/);
   });
 
-  test("v2moe_interim_floor_sits_in_the_measured_clean_gap", () => {
-    // MNE-98: the 0.45 floor from MNE-32 cut real true positives (e.g. "cuál es
-    // el mejor sustrato para aroides" at cos 0.419). Live probing against the
-    // store showed a clean gap: off-topic queries peaked at cos 0.222, genuine
-    // positives bottomed at 0.392. The interim floor must sit inside that gap —
-    // above every off-topic hit, at or below the lowest true positive — pending
-    // the full golden recalibration tracked in MNE-98.
+  test("v2moe_floor_is_the_recall_first_calibrated_value", () => {
+    // MNE-98 (2026-10-24, reviewed golden): v2-moe's positive and off-topic cosine
+    // bands overlap, so the floor is a recall/noise trade-off, not a separator.
+    // 0.35 is the recall-first point the owner chose; a change must come with a
+    // new `bench-golden.mjs calibrate-floor` run on a reviewed set.
     expect(NOMIC_V2MOE_MIN_COS).toBe(0.35);
-    expect(NOMIC_V2MOE_MIN_COS).toBeGreaterThan(0.222);
-    expect(NOMIC_V2MOE_MIN_COS).toBeLessThanOrEqual(0.392);
   });
 
   test("search_default_weights_are_cosine_only", async () => {

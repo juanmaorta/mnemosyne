@@ -17,6 +17,12 @@ const f3 = (n: number): string => n.toFixed(3);
  */
 export const DEFAULT_EXPLAIN_ROWS = 15;
 
+/** Why a candidate's eligibility differs from "cleared the cosine floor", if it does. */
+function floorNote(res: ExplainResult, c: ExplainResult["candidates"][number]): string {
+  if (c.lexicalRescue) return ` (lexical rescue, bm25 ${f3(c.bm25!)})`;
+  return res.minCos !== null && c.signals.relevanceCosine < res.minCos ? " (below cosine floor)" : "";
+}
+
 export function formatExplain(res: ExplainResult, opts: { limit?: number | null } = {}): string {
   const w = res.weights;
   const header = [
@@ -28,6 +34,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
       ? "order: RRF fusion (vector + BM25); score = fused rank value; cosine is eligibility only, not the order"
       : "score axes: each signal scaled to [0,1] among these candidates; scores are relative to this query",
     `minimum raw cosine: ${res.minCos === null ? "off" : f3(res.minCos)}`,
+    ...(res.lexicalFloor === undefined ? [] : [`lexical rescue floor (raw BM25): ${f3(res.lexicalFloor)}`]),
   ];
 
   if (res.candidates.length === 0) {
@@ -56,7 +63,7 @@ export function formatExplain(res: ExplainResult, opts: { limit?: number | null 
       f3(c.signals.importanceNorm).padStart(7),
       f3(c.signals.relevanceCosine).padStart(7),
       blend ? `${f3(blend.recency)}/${f3(blend.importance)}/${f3(blend.relevance)}` : "        —        ",
-      `  ${c.slug} [${c.scope}]${res.minCos !== null && c.signals.relevanceCosine < res.minCos ? " (below cosine floor)" : ""}`,
+      `  ${c.slug} [${c.scope}]${floorNote(res, c)}`,
     ].join(" ");
   });
 

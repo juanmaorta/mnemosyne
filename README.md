@@ -46,6 +46,27 @@ embedding model. Run `mneme init` with no flags first to preview exactly what it
   `MNEMOSYNE_EMBEDDER=none`) to configure **tier 0** — keyword (BM25) search that runs fully
   offline. An unreachable Ollama is not an automatic fallback: tier 0 is a mode you select.
 
+#### Environment variables that must persist
+
+`mneme init` does not write environment variables. Mnemosyne reads them on every run, so set
+them where **every** process that runs `mneme` sees them, not only your interactive shell: the
+session-start hook and coding agents run it too, often from non-interactive shells. With zsh
+that means `~/.zshenv` (read by every zsh), not `~/.zshrc` (interactive only). Set them on each
+machine that shares the store.
+
+| Variable | When you need it |
+|---|---|
+| `OLLAMA_MODEL` | Only if you use an embedding model other than `nomic-embed-text`, e.g. `nomic-embed-text-v2-moe` (recommended, see [Usage](#usage)). A process that misses it falls back to `nomic-embed-text`, which disagrees with the index, and `mneme` refuses to use that index. |
+| `MNEMOSYNE_LEXICAL_FLOOR` | Optional. Turns on lexical rescue with a value calibrated **for your store** (see [Usage](#usage)). Without it, search uses the cosine floor alone. |
+
+```sh
+# ~/.zshenv — example for nomic-embed-text-v2-moe with a calibrated lexical floor
+export OLLAMA_MODEL=nomic-embed-text-v2-moe
+export MNEMOSYNE_LEXICAL_FLOOR=12      # your own calibrated value; this one is the author's store
+```
+
+Every other variable in the [reference table](#configuration-environment-variables) has a working default.
+
 (`mneme` is the CLI; `mem` is an alias. A one-command installer that skips the build and link
 steps is on the roadmap.)
 
@@ -137,9 +158,14 @@ width. A declared width that the model then contradicts is rejected on the first
 far better than v1 (nDCG@10 0.74 vs 0.28, MRR 0.78 vs 0.30) at the same 768 dimensions, so the
 index table is unchanged. Each model carries its own calibrated cosine floor — v2-moe's
 distribution sits lower, so it uses **0.35** where v1 uses 0.70 (a shared floor would reject the
-wrong candidates); both are applied automatically from the embedder fingerprint. (That 0.35 is an
-interim floor: the 0.45 adopted in MNE-32 cut genuine positives in real use, and the full
-recalibration from a larger, more realistic golden is tracked in MNE-98.) To adopt it:
+wrong candidates); both are applied automatically from the embedder fingerprint. The 0.35 was
+recalibrated in MNE-98 on a reviewed golden set (82 questions): v2-moe's positive and off-topic
+cosine bands overlap (about 0.28–0.38), so no floor separates them. 0.35 is the recall-first
+choice: it keeps every note that a stricter floor would drop, at the cost of some off-topic hits
+(3 of 17 negatives). Lexical rescue (below) recovers what it still misses. Numbers in
+[`docs/benchmarks/mne98-floor-calibration-2026-10-24.md`](docs/benchmarks/mne98-floor-calibration-2026-10-24.md).
+To adopt it (persist `OLLAMA_MODEL` as described in
+[Environment variables that must persist](#environment-variables-that-must-persist)):
 
 ```sh
 ollama pull nomic-embed-text-v2-moe
@@ -182,7 +208,7 @@ npm install && npm run build
 mneme reindex [--scope <scope>]
 
 # Two-tier search: ranked refs + snippet + score (not whole docs). Reindexes lazily first.
-mneme search "<query>" [--scope <scope>] [-k <n>] [--min-cos <number>] [--fusion rrf]
+mneme search "<query>" [--scope <scope>] [-k <n>] [--min-cos <number>] [--lexical-floor <bm25>] [--fusion rrf]
 
 # Fetch one engram in full by slug (reinforces it — decay-on-access).
 # --json prints exactly one object: {slug, scope, path, content, revision}
@@ -247,6 +273,21 @@ RRF would promote) and slightly worse with `nomic-embed-text-v2-moe` (0.729 vs 0
 nDCG@10). So production keeps pure cosine (MNE-77); `--fusion rrf` stays available for
 re-evaluation on a more lexical query mix (the golden queries are generated to avoid the
 note's distinctive terms, which biases the set against BM25).
+
+**Lexical rescue (`--lexical-floor`) is opt-in and off by default (MNE-98).** A note whose
+raw BM25 score (`-bm25()`, IDF-weighted, higher = better) reaches the lexical floor is eligible
+even below the cosine floor; the order is unchanged, so a rescued note still competes for the k
+slots. It exists because with `nomic-embed-text-v2-moe` the cosine bands of true positives and
+off-topic queries overlap, while raw BM25 separated them in the probe — a strong rare-term match
+is the evidence cosine is missing. The scale depends on the store (size, note length), so there is
+no default: calibrate it per store with `node scripts/bench-golden.mjs calibrate-floor`, which
+sweeps the cosine floor × lexical floor grid on the reviewed golden and reports recall per query
+style (natural paraphrase vs. keyword). On the author's store (MNE-98), `0.35` plus a lexical
+floor of `12` reached the golden's recall ceiling without adding false positives, and any value
+from 10 to 14.5 gave the same result. Raw BM25 drifts as the store grows, so recalibrate after
+big changes. Adopt it by persisting `MNEMOSYNE_LEXICAL_FLOOR` (see
+[Environment variables that must persist](#environment-variables-that-must-persist)). `explain` marks rescued rows and
+telemetry records each candidate's BM25. Tier 0 ignores it (BM25 already ranks there).
 With `nomic-embed-text` and task prefixes, the default floor is `0.70`; other embedding
 models have no default floor until calibrated. `--min-cos` overrides it for a query, and
 `MNEMOSYNE_MIN_COS` sets a process-wide override (`-1` effectively disables it).
@@ -300,15 +341,24 @@ npm run bench:golden -- diagnose --scope personal
 # Once each local set is revalidated and has at least ten reviewed
 # unanswerable questions, compare ranking weights and cosine floors.
 npm run bench:golden -- calibrate
+
+# Calibrate the eligibility gate for the CURRENT embedding model (MNE-98):
+# cosine floor × raw-BM25 lexical rescue floor, recall per query style.
+OLLAMA_MODEL=nomic-embed-text-v2-moe npm run bench:golden -- calibrate-floor --scope personal
 ```
 
 Omit `--scope` to process every scope in the local store, or repeat for each
 scope. Preparation embeds the real corpus with local Ollama and generates
 up to 25 questions per scope (or every document for smaller scopes) using the
 local `gemma4:e2b` model by default. The
-script refuses non-local Ollama hosts and cloud models. Queries are generated
-from user situations without copying distinctive note terms; cosine-near
-documents receive graded relevance suggestions that must be reviewed by hand.
+script refuses non-local Ollama hosts and cloud models. Each anchor note gets two
+labeled queries: `natural` (from user situations, without copying distinctive
+note terms) and `keyword` (2–5 search terms taken from the note); review may add more styles (e.g. `near`), and `calibrate-floor` reports every answerable style it finds. Then ~15
+`unanswerable` queries are generated against the scope's note descriptions,
+half near its topics and half unrelated, and review confirms that no note
+answers them. Cosine-near documents receive graded relevance suggestions that
+must be reviewed by hand. Review sets from before MNE-98 have no `style`: they
+are read as natural/unanswerable.
 The private review set and scorecards live under `~/.cache/mnemosyne/5b-golden/`,
 outside the repository. The runner uses an in-memory SQLite index, reads access
 events without modifying them, and reports graded nDCG@10/MRR plus cold-model
@@ -336,6 +386,21 @@ Before writing a scorecard it verifies that neither the corpus nor access
 events changed during the run. Scorecards, including any locally reviewed
 questions and labels, stay under `MNEMOSYNE_GOLDEN_DIR`; only query IDs and
 numeric summaries belong in git.
+
+`calibrate-floor` has the same preconditions as `calibrate` but is not tied to
+`nomic-embed-text`: it calibrates whatever `OLLAMA_MODEL` names. It captures every
+candidate's raw cosine and raw BM25 once, then sweeps cosine floors `0.20`–`0.80`
+(step `0.01`) × lexical floors off or `0`–`20` (step `0.5`). Ranking stays
+cosine-only, as in production search. Its in-memory FTS table also holds the
+other scopes' text (FTS only, never returned): FTS5 takes BM25's IDF from the
+whole table, as production does, so a lexical floor measured on one scope alone
+would sit on a different scale. It reports where the positive and negative
+bands sit on each signal and whether they overlap, the production floor, the
+best cosine-only floor and the best combined pair at zero false positives, plus
+recall per query style. Ties go to the pair that relies least on the lexical
+rescue, then to the stricter lexical floor, then to the median cosine floor of
+the tied plateau: a golden whose positives all share vocabulary with their notes
+would otherwise push the cosine floor up until BM25 carried everything.
 
 On the 2026-09-28 Nomic run, the current creation-age policy at recency weight
 `0.25` matched the cosine-only baseline (Recall@5 and nDCG@5 both `1.0`). At
@@ -822,7 +887,7 @@ What it does **not** do:
 Why this needs a command at all: `.telemetry/` sits **outside** `~/memory/<scope>/`, so deleting the
 scope directory reads as a complete purge while leaving the client's slugs behind in the log.
 
-**Configuration** (env vars):
+### Configuration (environment variables)
 
 | Var | Default | Purpose |
 |-----|---------|---------|
@@ -831,6 +896,7 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 | `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it needs `mneme reindex --force-embedder` |
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
 | `MNEMOSYNE_MIN_COS` | `0.70` for prefixed `nomic-embed-text`; off for other models | Raw cosine floor for search (overridden by `--min-cos`) |
+| `MNEMOSYNE_LEXICAL_FLOOR` | off | Raw-BM25 lexical rescue floor for search/explain (overridden by `--lexical-floor`); calibrate per store and persist it (see [Install](#environment-variables-that-must-persist)) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_EMBEDDER` | — | `none` runs tier 0: no embedder, `search`/`context` rank by BM25 over FTS (works without Ollama) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |

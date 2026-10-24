@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertCalibrationReviewSet, compareCalibrationArms, evaluateCalibration, rankCalibrationCandidates,
-  selectEligibleConfigurations,
+  selectEligibleConfigurations, sweepFloorGrid, selectFloorPair, floorSeparation,
   type CalibrationCandidate, type CalibrationCase, type CalibrationConfig,
 } from "./golden-calibration.js";
 
@@ -94,3 +94,68 @@ describe("golden calibration", () => {
     ])).toEqual(["eligible"]);
   });
 });
+
+// MNE-98: two-signal gate (cosine OR raw BM25), calibrated jointly.
+const lexical = (slug: string, cosine: number, bm25: number | null): CalibrationCandidate => ({
+  slug, cosine, bm25, normalized: { relevance: cosine, recency: 0, importance: 0 },
+});
+const cosineOnly = { recency: 0, importance: 0, relevance: 1 };
+
+describe("golden calibration: lexical rescue (MNE-98)", () => {
+  it("admits a below-floor candidate whose raw BM25 clears the lexical floor", () => {
+    const candidates = [lexical("cos", 0.5, null), lexical("lex", 0.3, 10), lexical("weak", 0.3, 2)];
+    expect(rankCalibrationCandidates(candidates, { weights: cosineOnly, floor: 0.4 }, 10)).toEqual(["cos"]);
+    expect(rankCalibrationCandidates(candidates, { weights: cosineOnly, floor: 0.4, lexicalFloor: 9 }, 10)).toEqual(["cos", "lex"]);
+  });
+
+  // Overlapping cosine bands, separable BM25: the shape measured live on v2-moe.
+  const cases: CalibrationCase[] = [
+    { id: "kw", relevance: [{ slug: "aroides", grade: 3 }], candidates: [lexical("aroides", 0.36, 10.7), lexical("x", 0.2, null)] },
+    { id: "nat", relevance: [{ slug: "leca", grade: 3 }], candidates: [lexical("leca", 0.50, 3), lexical("x", 0.2, null)] },
+    { id: "neg-1", relevance: [], candidates: [lexical("kube", 0.40, 5.4)] },
+    { id: "neg-2", relevance: [], candidates: [lexical("barca", 0.30, 2.4)] },
+  ];
+
+  it("sweeps every (cosine, lexical) pair and counts recall and false positives", () => {
+    const grid = sweepFloorGrid(cases, { cosineFloors: [0.35, 0.45], lexicalFloors: [null, 9] });
+    expect(grid.map((row) => [row.cosineFloor, row.lexicalFloor])).toEqual([[0.35, null], [0.35, 9], [0.45, null], [0.45, 9]]);
+    const at = (c: number, l: number | null) => grid.find((row) => row.cosineFloor === c && row.lexicalFloor === l)!;
+    // A single cosine floor cannot win: 0.35 leaks neg-1, 0.45 loses the keyword positive.
+    expect(at(0.35, null)).toMatchObject({ falsePositives: 1, unanswerable: 2, recall: 1 });
+    expect(at(0.45, null)).toMatchObject({ falsePositives: 0, recall: 0.5 });
+    // Raising cosine and rescuing lexically keeps both positives with no leak.
+    expect(at(0.45, 9)).toMatchObject({ falsePositives: 0, recall: 1, answerable: 2, lexicalOnly: 1 });
+    expect(at(0.45, 9).ndcg).toBeCloseTo(1, 10);
+  });
+
+  it("counts relevant notes that only the lexical rescue let in", () => {
+    const grid = sweepFloorGrid(cases, { cosineFloors: [0.45], lexicalFloors: [null, 9] });
+    expect(grid.map((row) => row.lexicalOnly)).toEqual([0, 1]); // kw's aroides at cos 0.36
+  });
+
+  it("breaks quality ties by lexical reliance, then the stricter lexical floor, then the median cosine floor", () => {
+    // Every pair below has recall 1 and nDCG 1: rescue reliance and margin decide.
+    const flat = (cosineFloor: number, lexicalFloor: number | null, lexicalOnly: number) =>
+      ({ cosineFloor, lexicalFloor, lexicalOnly, answerable: 2, recall: 1, ndcg: 1, mrr: 1, unanswerable: 2, falsePositives: 0 });
+    const rows = [flat(0.40, 9, 1), flat(0.41, 9, 1), flat(0.42, 9, 1), flat(0.50, 9, 2), flat(0.41, 8, 1)];
+    // 0.50 relies on the rescue twice → out; lexical 9 beats 8; median of 0.40/0.41/0.42 is 0.41.
+    expect(selectFloorPair(rows, { maxFalsePositives: 0 })).toMatchObject({ cosineFloor: 0.41, lexicalFloor: 9 });
+  });
+
+  it("picks the best-recall pair within the false-positive budget, preferring the simpler gate on ties", () => {
+    const grid = sweepFloorGrid(cases, { cosineFloors: [0.35, 0.45, 0.6], lexicalFloors: [null, 9, 11] });
+    expect(selectFloorPair(grid, { maxFalsePositives: 0 })).toMatchObject({ cosineFloor: 0.45, lexicalFloor: 9 });
+    // With leaks allowed, the cosine-only 0.35 ties on quality and wins as simpler.
+    expect(selectFloorPair(grid, { maxFalsePositives: 1 })).toMatchObject({ cosineFloor: 0.35, lexicalFloor: null });
+    expect(selectFloorPair(grid.filter((row) => row.falsePositives > 0), { maxFalsePositives: 0 })).toBeNull();
+  });
+
+  it("reports how the positive and negative bands separate on each signal", () => {
+    const sep = floorSeparation(cases);
+    expect(sep.cosine).toEqual({ positiveMin: 0.36, negativeMax: 0.40, overlap: true });
+    // nat's relevant note has bm25 3 < neg-1's 5.4: the overlap is reported, not hidden.
+    expect(sep.bm25).toEqual({ positiveMin: 3, negativeMax: 5.4, overlap: true, positivesWithoutMatch: 0 });
+    expect(sep).toMatchObject({ answerable: 2, unanswerable: 2 });
+  });
+});
+

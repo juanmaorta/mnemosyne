@@ -31,6 +31,30 @@ describe("runCli", () => {
     expect(errors.join("\n")).toMatch(/min-cos/);
   });
 
+  test("search_lexical_floor_rescues_a_below_floor_lexical_match", async () => {
+    // MNE-98: --min-cos 1 rejects everything on cosine; a raw-BM25 floor of 0
+    // lets the note back in because it shares the query term.
+    const root = storeWith("yogurtera");
+    const lines: string[] = [];
+    expect(await runCli(["search", "yogurtera", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
+    expect(lines.join("\n")).toMatch(/yogurtera/);
+  });
+
+  test("explain_shows_the_lexical_floor", async () => {
+    const root = storeWith("yogurtera");
+    const lines: string[] = [];
+    expect(await runCli(["explain", "yogurtera", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
+    expect(lines.join("\n")).toMatch(/lexical rescue floor \(raw BM25\): 0\.000/);
+    expect(lines.join("\n")).toMatch(/yogurtera \[personal\] \(lexical rescue/);
+  });
+
+  test("search_rejects_an_invalid_lexical_floor", async () => {
+    const root = storeWith("yogurtera");
+    const errors: string[] = [];
+    expect(await runCli(["search", "test", "--root", root, "--lexical-floor", "-1"], () => {}, (s) => errors.push(s))).toBe(1);
+    expect(errors.join("\n")).toMatch(/lexical-floor/);
+  });
+
   test("cli_reindex_then_search_prints_hit", async () => {
     const root = storeWith("yogurtera");
     const lines: string[] = [];

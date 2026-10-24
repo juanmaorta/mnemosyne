@@ -40,6 +40,12 @@ export interface SearchHit {
    *  A convenience summary of its sources; the sources stay the authoritative
    *  truth. Purely a marker — it does NOT change the ranking. */
   isDerived: boolean;
+  /** Raw BM25 goodness (`-bm25()`, higher = better); null when the note has no
+   *  lexical match. Present only when lexical rescue is active (MNE-98). */
+  bm25?: number | null;
+  /** True when the note is eligible ONLY through lexical rescue: below the
+   *  cosine floor, at or above the lexical floor. Absent otherwise. */
+  lexicalRescue?: true;
 }
 export interface SearchDeps { db: Db; root: string; embedder: EmbeddingClient | null; clock: Clock }
 export interface SearchOptions {
@@ -51,6 +57,13 @@ export interface SearchOptions {
    * eligibility, so fusion only reorders notes that already clear it.
    */
   fusion?: "rrf";
+  /**
+   * Opt-in lexical rescue (MNE-98): a note whose raw BM25 goodness reaches this
+   * value is eligible even below the cosine floor. Ranking is untouched — a
+   * rescued note competes for the k slots in the same order as everyone else.
+   * Vector path only; tier 0 already ranks by BM25.
+   */
+  lexicalFloor?: number;
 }
 
 /**
@@ -71,20 +84,24 @@ export const NOMIC_MIN_COS = 0.70;
  * v2-moe has a markedly different cosine distribution from v1: relevant pairs sit
  * lower, so v1's 0.70 would reject nearly everything.
  *
- * INTERIM VALUE (MNE-98). MNE-32 adopted 0.45 — the highest floor that cleared
+ * History. MNE-32 adopted 0.45 — the highest floor that cleared
  * every unanswerable query on the small 5b-golden `personal` set — but flagged it
  * for revalidation. In real use that floor cut genuine positives: "cuál es el
  * mejor sustrato para aroides" scored cos 0.419 against the right note and was
- * rejected. Live probing against the store showed a clean separation — off-topic
- * queries peaked at 0.222, true positives bottomed at 0.392 — so 0.45 sat ABOVE
- * part of the positive band. 0.35 drops into the gap: above every off-topic hit,
- * below the lowest true positive, with margin on both sides.
+ * rejected, so it was lowered to 0.35 on the belief of a clean gap (off-topic
+ * peaking at 0.222).
  *
- * This is a tactical recall fix from a single note's distribution (n=1), NOT a
- * recalibration. The proper fix — rebuild the floor from an enlarged, realistic
- * golden (natural-language AND keyword queries using the notes' own vocabulary,
- * which the current golden deliberately avoids) — is tracked in MNE-98, and will
- * also revisit nomic's 0.70, which shows the same over-tight symptom.
+ * That gap does not exist. A wider probe (MNE-98) and then a reviewed golden
+ * (82 questions, 17 negatives; docs/benchmarks/mne98-floor-calibration-2026-10-24.md)
+ * put the two bands on top of each other: positives down to 0.282, off-topic up
+ * to 0.384. No single cosine floor separates them. Zero false positives needs
+ * ~0.39 and costs recall, with a 0.006 margin over the strongest negative.
+ *
+ * CALIBRATED (MNE-98, 2026-10-24): 0.35 is kept as the recall-first choice. The
+ * owner's priority is that a missed note is worse than noise. 0.35 keeps the
+ * notes a stricter floor drops, at 3/17 negatives leaking, and the
+ * store-specific lexical rescue (`lexicalFloor`) recovers what cosine still
+ * misses without adding false positives.
  */
 export const NOMIC_V2MOE_MIN_COS = 0.35;
 
@@ -101,6 +118,24 @@ export function resolveMinCos(embedderId: string, configured?: number): number |
   if (/^nomic-embed-text(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId)) return NOMIC_MIN_COS;
   if (/^nomic-embed-text-v2-moe(?::latest)?\/dim768\/task-prefix-v1$/.test(embedderId)) return NOMIC_V2MOE_MIN_COS;
   return null;
+}
+
+/**
+ * Lexical rescue floor, on the RAW BM25 goodness scale (`-bm25()`), not the
+ * per-query min-max relevance tier 0 uses: min-max always gives the top match 1,
+ * so it cannot tell a strong match from the best of a bad lot. Raw BM25 carries
+ * IDF, which is what separates "shares a rare term" from "shares stopwords".
+ *
+ * There is no default: the scale depends on the store (corpus size, note
+ * length), so a value is only meaningful once calibrated against that store's
+ * golden (MNE-98). Unset means off.
+ */
+export function resolveLexicalFloor(configured?: number): number | null {
+  if (configured === undefined) return null;
+  if (!Number.isFinite(configured) || configured < 0) {
+    throw new Error("--lexical-floor must be a non-negative number (raw BM25).");
+  }
+  return configured;
 }
 
 /**
@@ -122,6 +157,8 @@ export interface ExplainResult {
    * NOT reconstructable from `signals`+`weights` (which still describe cosine).
    */
   fusion?: "rrf";
+  /** The lexical rescue floor in force (raw BM25). Absent when rescue is off. */
+  lexicalFloor?: number;
   candidates: SearchHit[];
 }
 
@@ -186,7 +223,7 @@ export function reciprocalRankFusion(rankedLists: readonly (readonly string[])[]
  * must not hand tied notes different ranks by accident of insertion order.
  * There is no cosine here, so no cosine floor applies.
  */
-function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[] {
+function bm25Candidates(db: Db, query: string, scopes: string[]): (CandidateRow & { bm25: number })[] {
   const match = toFtsMatch(query);
   if (match === null) return [];
   const rows = db.prepare(
@@ -209,6 +246,9 @@ function bm25Candidates(db: Db, query: string, scopes: string[]): CandidateRow[]
   return rows.map(({ bm25: _bm25, ...rest }, i) => ({
     ...rest,
     relevance: span === 0 ? 1 : (goodness[i]! - min) / span,
+    // Raw goodness, kept for the lexical rescue gate (MNE-98), which needs an
+    // absolute scale the min-max relevance above cannot give.
+    bm25: goodness[i]!,
   }));
 }
 
@@ -219,7 +259,10 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   const weights = opts.weights ?? SEARCH_WEIGHTS;
   // Tier 0 has no cosine, so nothing to floor; the floor is a vector-path concept.
   const minCos = embedder === null ? null : resolveMinCos(embedder.id, opts.minCos);
-  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, ...(opts.fusion ? { fusion: opts.fusion } : {}), candidates: [] };
+  // Same reasoning as the cosine floor: lexical rescue is a vector-path gate.
+  const lexicalFloor = embedder === null ? null : resolveLexicalFloor(opts.lexicalFloor);
+  const lexical = lexicalFloor === null ? {} : { lexicalFloor };
+  if (scopes.length === 0) return { query: opts.query, scopes, k, weights, minCos, ...(opts.fusion ? { fusion: opts.fusion } : {}), ...lexical, candidates: [] };
   // One clock read for the whole query: hot-state materialization and the
   // recency term must agree on "now", or a slow embed call would skew scoring.
   const now = clock.now();
@@ -274,13 +317,17 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
   // floor-eligible set rather than smuggling lexical-only hits past the floor.
   // Production (no `fusion`) is untouched and stays pure cosine (MNE-77).
   const fusionApplied = opts.fusion === "rrf" && embedder !== null;
+  const key = (c: { scope: string; slug: string }): string => `${c.scope}\u0000${c.slug}`;
+  // One BM25 pass serves both fusion (its order) and lexical rescue (its raw score).
+  const lexicalRows = embedder !== null && (fusionApplied || lexicalFloor !== null)
+    ? bm25Candidates(db, opts.query, scopes) : [];
+  const bm25ByKey = new Map(lexicalRows.map((r) => [key(r), r.bm25]));
   if (fusionApplied) {
-    const key = (c: { scope: string; slug: string }): string => `${c.scope}\u0000${c.slug}`;
     const byCosine = [...scored]
       .sort((a, b) => b.signals.relevanceCosine - a.signals.relevanceCosine
         || a.scope.localeCompare(b.scope) || a.slug.localeCompare(b.slug))
       .map(key);
-    const byBm25 = bm25Candidates(db, opts.query, scopes).map(key);
+    const byBm25 = lexicalRows.map(key);
     const fused = reciprocalRankFusion([byCosine, byBm25]);
     for (const c of scored) c.score = fused.get(key(c)) ?? 0;
   }
@@ -291,10 +338,19 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
     b.score - a.score || a.scope.localeCompare(b.scope) || a.slug.localeCompare(b.slug));
   // The cut line is the score of the last engram that made the top-k. With
   // fewer candidates than k nothing is cut, so it is the lowest score present.
-  const eligible = scored.filter((h) => minCos === null || h.signals.relevanceCosine >= minCos);
-  const threshold = eligible.length >= k ? eligible[k - 1]!.score : (eligible.at(-1)?.score ?? 0);
-  const passesFloor = (h: (typeof scored)[number]): boolean =>
+  // Eligibility is cosine OR lexical (MNE-98): on v2-moe the cosine bands of
+  // true positives and off-topic queries overlap, and a strong raw BM25 match is
+  // the evidence that tells them apart.
+  const passesCosine = (h: (typeof scored)[number]): boolean =>
     minCos === null || h.signals.relevanceCosine >= minCos;
+  const passesLexical = (h: (typeof scored)[number]): boolean => {
+    if (lexicalFloor === null) return false;
+    const bm25 = bm25ByKey.get(key(h));
+    return bm25 !== undefined && bm25 >= lexicalFloor;
+  };
+  const passesFloor = (h: (typeof scored)[number]): boolean => passesCosine(h) || passesLexical(h);
+  const eligible = scored.filter(passesFloor);
+  const threshold = eligible.length >= k ? eligible[k - 1]!.score : (eligible.at(-1)?.score ?? 0);
   const included = scored.map(() => false);
   let includedCount = 0;
   scored.forEach((h, i) => {
@@ -323,9 +379,16 @@ export async function searchExplain(deps: SearchDeps, opts: SearchOptions): Prom
       if (isDerivedSlug(scored[j]!.slug) && !visited.has(j)) worklist.push(j);
     }
   }
-  const candidates = scored.map(({ path: _path, ...h }, i) =>
-    ({ ...h, rank: i, threshold, included: included[i]!, isDerived: isDerivedSlug(h.slug) }));
-  return { query: opts.query, scopes, k, weights, minCos, ...(fusionApplied ? { fusion: "rrf" as const } : {}), candidates };
+  const candidates = scored.map((h, i) => {
+    const { path: _path, ...rest } = h;
+    const hit: SearchHit = { ...rest, rank: i, threshold, included: included[i]!, isDerived: isDerivedSlug(h.slug) };
+    if (lexicalFloor !== null) {
+      hit.bm25 = bm25ByKey.get(key(h)) ?? null;
+      if (!passesCosine(h) && passesLexical(h)) hit.lexicalRescue = true;
+    }
+    return hit;
+  });
+  return { query: opts.query, scopes, k, weights, minCos, ...(fusionApplied ? { fusion: "rrf" as const } : {}), ...lexical, candidates };
 }
 
 export async function search(deps: SearchDeps, opts: SearchOptions): Promise<SearchHit[]> {
