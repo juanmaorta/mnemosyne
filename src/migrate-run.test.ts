@@ -19,12 +19,12 @@ afterEach(async () => {
   await rm(destRoot, { recursive: true, force: true });
 });
 
-const note = ["---", "name: Yogurtera", "description: d", "type: project", "---", "body", ""].join("\n");
+const note = ["---", "name: Fermentor", "description: d", "type: project", "---", "body", ""].join("\n");
 const feedback = ["---", "name: Style", "description: terse", "type: feedback", "---", "keep it surgical", ""].join("\n");
 
 describe("runMigration", () => {
   test("migrates notes and facts into the personal scope, skipping MEMORY.md", async () => {
-    await writeFile(join(source, "project_yogurtera.md"), note);
+    await writeFile(join(source, "project_fermentor.md"), note);
     await writeFile(join(source, "feedback_style.md"), feedback);
     await writeFile(join(source, "MEMORY.md"), "# index\n");
 
@@ -32,7 +32,7 @@ describe("runMigration", () => {
 
     expect(summary).toMatchObject({ notes: 1, facts: 1 });
 
-    const noteOut = await readFile(join(destRoot, "personal", "yogurtera.md"), "utf8");
+    const noteOut = await readFile(join(destRoot, "personal", "fermentor.md"), "utf8");
     expect(() => EngramSchema.parse(parseFrontmatter(noteOut).data)).not.toThrow();
 
     const factFiles = await readdir(join(destRoot, "personal", "facts"));
@@ -41,7 +41,7 @@ describe("runMigration", () => {
   });
 
   test("contains per-file failures without aborting the run", async () => {
-    await writeFile(join(source, "project_yogurtera.md"), note);
+    await writeFile(join(source, "project_fermentor.md"), note);
     await writeFile(join(source, "broken.md"), ["---", "description: no type", "---", "b", ""].join("\n"));
 
     const summary = await runMigration({ sourceDir: source, destRoot });
@@ -49,7 +49,7 @@ describe("runMigration", () => {
     expect(summary.notes).toBe(1);
     expect(summary.failed).toHaveLength(1);
     expect(summary.failed[0]?.file).toBe("broken.md");
-    await expect(readFile(join(destRoot, "personal", "yogurtera.md"), "utf8")).resolves.toContain("yogurtera");
+    await expect(readFile(join(destRoot, "personal", "fermentor.md"), "utf8")).resolves.toContain("fermentor");
   });
 
   test("reports an intra-run slug collision distinctly from data loss", async () => {
@@ -64,7 +64,7 @@ describe("runMigration", () => {
   });
 
   test("skips dotfiles and derived INDEX.md", async () => {
-    await writeFile(join(source, "project_yogurtera.md"), note);
+    await writeFile(join(source, "project_fermentor.md"), note);
     await writeFile(join(source, ".DS_Store"), "junk");
     await writeFile(join(source, "INDEX.md"), "# derived\n");
 
@@ -75,22 +75,22 @@ describe("runMigration", () => {
   });
 
   test("writes into the given scope folder", async () => {
-    await writeFile(join(source, "project_yogurtera.md"), note);
+    await writeFile(join(source, "project_fermentor.md"), note);
 
-    const summary = await runMigration({ sourceDir: source, destRoot, scope: "acme" });
+    const summary = await runMigration({ sourceDir: source, destRoot, scope: "work" });
 
     expect(summary.notes).toBe(1);
-    await expect(readFile(join(destRoot, "acme", "yogurtera.md"), "utf8")).resolves.toContain("scope: acme");
+    await expect(readFile(join(destRoot, "work", "fermentor.md"), "utf8")).resolves.toContain("scope: work");
   });
 
   test("refuses to overwrite an existing destination note (idempotency guard)", async () => {
-    await writeFile(join(source, "project_yogurtera.md"), note);
+    await writeFile(join(source, "project_fermentor.md"), note);
     await mkdir(join(destRoot, "personal"), { recursive: true });
-    await writeFile(join(destRoot, "personal", "yogurtera.md"), "PRE-EXISTING\n");
+    await writeFile(join(destRoot, "personal", "fermentor.md"), "PRE-EXISTING\n");
 
     const summary = await runMigration({ sourceDir: source, destRoot });
 
-    expect(summary.skipped).toContain("project_yogurtera.md");
-    expect(await readFile(join(destRoot, "personal", "yogurtera.md"), "utf8")).toBe("PRE-EXISTING\n");
+    expect(summary.skipped).toContain("project_fermentor.md");
+    expect(await readFile(join(destRoot, "personal", "fermentor.md"), "utf8")).toBe("PRE-EXISTING\n");
   });
 });

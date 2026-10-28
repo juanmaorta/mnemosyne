@@ -9,8 +9,8 @@ import { DEFAULT_SCOPE } from "../store.js";
  *
  * Example:
  *   node dist/bin/migrate.js \
- *     ~/.claude/projects/-Users-me-Projects-acme-backend/memory \
- *     ~/memory acme
+ *     ~/.claude/projects/<cwd-slug>/memory \
+ *     ~/memory work
  */
 async function main(): Promise<void> {
   const [sourceDir, destRoot, scope] = argv.slice(2);

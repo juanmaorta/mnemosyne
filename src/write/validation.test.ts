@@ -22,35 +22,35 @@ function store(owns: string[] | null, scopemap?: string): { root: string; home: 
 
 describe("resolveWriteScope", () => {
   test("explicit_scope_wins_over_the_scopemap", () => {
-    const { root, home } = store(["personal"], "/repo = acme\n");
+    const { root, home } = store(["personal"], "/repo = work\n");
     expect(resolveWriteScope({ root, cwd: "/repo", home }, "personal")).toBe("personal");
   });
 
   test("cwd_resolves_through_the_scopemap", () => {
-    const { root, home } = store(["personal"], "/repo = acme\n");
-    expect(resolveWriteScope({ root, cwd: "/repo/src", home })).toBe("acme");
+    const { root, home } = store(["personal"], "/repo = work\n");
+    expect(resolveWriteScope({ root, cwd: "/repo/src", home })).toBe("work");
   });
 
   test("unmapped_cwd_is_fail_closed", () => {
-    const { root, home } = store(["personal"], "/repo = acme\n");
+    const { root, home } = store(["personal"], "/repo = work\n");
     expect(() => resolveWriteScope({ root, cwd: "/somewhere/else", home })).toThrow(ScopeUnresolvedError);
   });
 });
 
 describe("assertOwnsScope", () => {
   test("owned_scope_passes", () => {
-    const { root } = store(["personal", "acme"]);
-    expect(() => assertOwnsScope(root, "acme")).not.toThrow();
+    const { root } = store(["personal", "work"]);
+    expect(() => assertOwnsScope(root, "work")).not.toThrow();
   });
 
   test("unowned_scope_throws_naming_the_scope", () => {
     const { root } = store(["personal"]);
     try {
-      assertOwnsScope(root, "acme");
+      assertOwnsScope(root, "work");
       expect.unreachable("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(NotOwnerError);
-      expect((e as NotOwnerError).scope).toBe("acme");
+      expect((e as NotOwnerError).scope).toBe("work");
     }
   });
 });

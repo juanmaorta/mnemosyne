@@ -10,7 +10,7 @@ const DEFAULT_IMPORTANCE = 5;
 export interface LegacyInput {
   /** Raw legacy markdown (frontmatter + body). */
   raw: string;
-  /** Legacy filename, e.g. "project_yogurtera.md". */
+  /** Legacy filename, e.g. "project_fermentor.md". */
   filename: string;
   /** ISO datetime injected by the caller (file birthtime) — keeps this pure. */
   created: string;
@@ -65,7 +65,7 @@ const WIKILINK_RE = /\[\[([^\]|#\r\n]+)([#|][^\]\r\n]*)?\]\]/g;
 
 /**
  * Rewrite `[[wikilinks]]` whose target uses the legacy filename convention
- * (`project_yogurtera`) to the migrated slug (`yogurtera`), preserving any
+ * (`project_fermentor`) to the migrated slug (`fermentor`), preserving any
  * `|alias` or `#heading` suffix. Idempotent from the second call onward.
  *
  * Limitation (acceptable for a one-shot personal migration): does NOT skip

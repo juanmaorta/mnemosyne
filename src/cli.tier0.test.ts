@@ -36,7 +36,7 @@ function storeWith(slug: string): string {
 
 describe("tier 0 CLI (MNEMOSYNE_EMBEDDER=none)", () => {
   test("reindex_then_search_without_an_embedder_finds_the_note", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const out = (s: string) => lines.push(s);
     expect(await runCli(["reindex", "--root", root], out)).toBe(0);
@@ -47,7 +47,7 @@ describe("tier 0 CLI (MNEMOSYNE_EMBEDDER=none)", () => {
     expect((db.prepare("select count(*) as n from engrams").get() as { n: number }).n).toBe(1);
     expect((db.prepare("select count(*) as n from vec_engrams").get() as { n: number }).n).toBe(0);
     db.close();
-    expect(await runCli(["search", "yogurtera", "--root", root], out)).toBe(0);
-    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(await runCli(["search", "fermentor", "--root", root], out)).toBe(0);
+    expect(lines.join("\n")).toMatch(/fermentor/);
   });
 });

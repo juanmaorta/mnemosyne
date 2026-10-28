@@ -3,7 +3,7 @@
 // Controlled synthetic corpus generator (MNE-26). Produces N engrams per scope
 // with DELIBERATELY shared tokens so relevance is known a priori, varied
 // importance, and `created` staggered via an injected clock — with NO LLM. It is
-// the fixture the ranker/decay/digest scenarios (docs/tasks.md §5a) script as
+// the fixture the ranker/decay/digest scenarios script as
 // `add → access → advance clock → query → assert`: this module is the `add`
 // (generate + materialize) and the index build; the caller supplies the rest
 // with the normal `get`/`search`/`rankContext` surface and a `fixedClock`.

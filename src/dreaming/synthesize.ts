@@ -84,7 +84,7 @@ function derivedSlug(scope: string, sources: string[]): string {
 }
 
 // Extractive, not free-form (MNE-82). MNE-80 showed free writing dropped required
-// data (tetrasperma counts, WLED IP/GRB), invented an identifier ("prog-orbital")
+// data (tetrasperma counts, LedStrip IP/GRB), invented an identifier ("nimbo-relay")
 // and rambled. The rule is: copy what's there, add nothing, stay short.
 const SYSTEM_PROMPT = [
   "Eres el proceso de consolidación de una memoria personal.",

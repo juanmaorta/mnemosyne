@@ -1,62 +1,64 @@
-# Dreaming — relajar local-first (opt-in) para un modelo mayor
+# Dreaming — relaxing local-first (opt-in) for a larger model
 
-> Estado: 2026-10-04 (MNE-83). Mecanismo implementado; aplicación real (MNE-46) sigue bloqueada.
+> Status: mechanism implemented; applying plans to a real store is a separate, manual step
+> (see [Dreaming](dev/dreaming.md)).
 
-Dreaming es **local-first por defecto**: la generación de síntesis habla con Ollama en
-`localhost`. La evaluación (MNE-80/84) mostró que un modelo local pequeño (qwen2.5:7b) no
-consolida bien casos densos, y un modelo local mayor exige RAM que no todo el mundo tiene.
-Para no excluir a esos usuarios, se puede **optar explícitamente** por un endpoint mayor en
-cloud o en infra propia — **sin** que eso sea el comportamiento por defecto y **sin** que un
-ajuste lo active por accidente.
+Dreaming is **local-first by default**: synthesis generation talks to Ollama on `localhost`.
+Evaluation showed that a small local model (qwen2.5:7b) does not consolidate dense cases well,
+and a larger local model needs RAM not everyone has. So as not to exclude those users, you can
+**explicitly opt in** to a larger endpoint, in the cloud or on your own infrastructure —
+**without** that being the default behaviour and **without** a setting turning it on by
+accident.
 
-## Cómo se activa
+## How to turn it on
 
-Fichero **machine-local** en la raíz del store: `~/memory/.dreaming.json`. No se sincroniza
-(como `.owner`/`.scopemap`): optar por remoto es una decisión **de esta máquina**, no viaja
-con las memorias.
+A **machine-local** file at the store root: `~/memory/.dreaming.json`. It is not synced (like
+`.owner`/`.scopemap`): opting into a remote endpoint is a decision **of this machine**, and it
+does not travel with the memories.
 
 ```jsonc
 {
   "remote": {
-    "endpoint": "https://ollama.com",       // tu cloud o tu GPU en LAN/VPN
-    "model": "gemma4:31b-cloud",            // modelo en ese endpoint
-    "apiKeyEnv": "OLLAMA_API_KEY",          // env var con el Bearer token (NO la clave)
-    "allowScopes": ["personal"]             // SOLO estos scopes salen
+    "endpoint": "https://ollama.com",       // your cloud, or your GPU on a LAN/VPN
+    "model": "gemma4:31b-cloud",            // model at that endpoint
+    "apiKeyEnv": "OLLAMA_API_KEY",          // env var holding the Bearer token (NOT the key)
+    "allowScopes": ["personal"]             // ONLY these scopes leave the machine
   }
 }
 ```
 
-La clave **no** se guarda en el fichero: `apiKeyEnv` nombra la **variable de entorno** de la
-que leerla. Si el endpoint está opted-in y la env var falta, falla cerrado (no llama, no cae a
-local). La clave solo se envía como `Authorization: Bearer` en el path remoto; nunca se
-escribe en disco, logs, telemetría ni frontmatter.
+The key is **not** stored in the file: `apiKeyEnv` names the **environment variable** to read
+it from. If the endpoint is opted in and the variable is missing, it fails closed (no call, no
+fallback to local). The key is only ever sent as `Authorization: Bearer` on the remote path;
+it is never written to disk, logs, telemetry or frontmatter.
 
-Sin fichero, o mal formado, o `allowScopes` vacío → **todo sigue local** (fail-closed).
+No file, a malformed file, or an empty `allowScopes` → **everything stays local**
+(fail-closed).
 
-## Garantías (no negociables)
+## Guarantees (non-negotiable)
 
-- **Boundary de scope.** Un scope que no esté en `allowScopes` **nunca** sale de la máquina,
-  aunque haya `endpoint` configurado. Un scope de cliente (p.ej. `acme`) no se filtra a un
-  remoto no aprobado para él.
-- **Egreso de secretos.** Antes de cualquier llamada remota, el prompt+system se pasa por el
-  escáner de secretos; una clave/token/clave privada (reject-level) **aborta** el envío. Las
-  llamadas locales no se gatean aquí (el contenido no sale de la máquina; el gate de secretos
-  de escritura sigue aplicando a lo que se guarda).
-- **Loopback = local.** Un `endpoint` que resuelva a loopback (`localhost`/`127.0.0.1`/`::1`)
-  se trata como local, no como remoto. A la inversa, un `OLLAMA_HOST` que apunte **fuera** de
-  la máquina **no** se usa como "local" sin opt-in: el camino sin opt-in es siempre loopback,
-  para que una variable de entorno no se convierta en una fuga silenciosa que no pasó el gate
-  de scope. Para usar un Ollama en tu LAN/VPN, decláralo en `allowScopes`.
-- **Solo generación.** Embeddings y retrieval siguen siendo locales siempre; esto afecta
-  únicamente a la generación de dreaming.
+- **Scope boundary.** A scope that is not in `allowScopes` **never** leaves the machine, even
+  with an `endpoint` configured. A client scope (e.g. `acme`) is not leaked to a remote that
+  was not approved for it.
+- **Secret egress.** Before any remote call, the prompt and system text go through the secret
+  scanner; a reject-level key, token or private key **aborts** the request. Local calls are
+  not gated here (the content does not leave the machine; the write-path secret gate still
+  applies to whatever gets saved).
+- **Loopback = local.** An `endpoint` that resolves to loopback (`localhost`/`127.0.0.1`/`::1`)
+  is treated as local, not remote. Conversely, an `OLLAMA_HOST` pointing **off** the machine
+  is **not** used as "local" without opting in: the path without an opt-in is always loopback,
+  so that an environment variable cannot become a silent leak that bypassed the scope gate. To
+  use an Ollama on your LAN/VPN, declare it here with its `allowScopes`.
+- **Generation only.** Embeddings and retrieval always stay local; this affects only dreaming
+  generation.
 
 ## Trade-off
 
-| | Local (por defecto) | Remoto (opt-in) |
+| | Local (default) | Remote (opt-in) |
 |---|---|---|
-| Privacidad | el contenido no sale de la máquina | las memorias del scope salen a tu endpoint |
-| Coste | gratis (tu hardware) | coste del proveedor / tu infra |
-| Calidad | limitada por el modelo local | modelo mayor → mejor cobertura densa |
-| RAM | necesitas RAM para el modelo | no necesitas RAM local |
+| Privacy | content never leaves the machine | the scope's memories go to your endpoint |
+| Cost | free (your hardware) | provider cost / your infrastructure |
+| Quality | limited by the local model | larger model → better coverage of dense cases |
+| RAM | you need RAM for the model | no local RAM needed |
 
-La decisión es del usuario, por scope, y reversible borrando o editando `.dreaming.json`.
+The decision is the user's, per scope, and reversible by deleting or editing `.dreaming.json`.

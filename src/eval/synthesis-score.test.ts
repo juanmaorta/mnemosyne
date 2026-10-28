@@ -12,7 +12,7 @@ import {
 
 describe("scoreCoverage", () => {
   test("counts required hits and lists what is missing", () => {
-    const body = "El WLED tiene 90 LEDs WS2812B, IP 192.0.2.41.";
+    const body = "El LedStrip tiene 90 LEDs WS2812B, IP 192.0.2.41.";
     const s = scoreCoverage(body, { required: ["90 LEDs", "192.0.2.41", "GRB"], forbidden: [] });
     expect(s.requiredTotal).toBe(3);
     expect(s.requiredHit).toBe(2);
@@ -20,14 +20,14 @@ describe("scoreCoverage", () => {
   });
 
   test("matching is case-insensitive", () => {
-    const s = scoreCoverage("proj-orbital es MIT", { required: ["proj-orbital", "mit"], forbidden: [] });
+    const s = scoreCoverage("nimbus-relay es MIT", { required: ["Nimbus-Relay", "mit"], forbidden: [] });
     expect(s.requiredHit).toBe(2);
     expect(s.missing).toEqual([]);
   });
 
   test("flags forbidden strings that appear", () => {
-    const s = scoreCoverage("el proyecto prog-orbital", { required: [], forbidden: ["prog-orbital", "se publica en npm"] });
-    expect(s.forbiddenPresent).toEqual(["prog-orbital"]);
+    const s = scoreCoverage("el proyecto nimbo-relay", { required: [], forbidden: ["nimbo-relay", "se publica en npm"] });
+    expect(s.forbiddenPresent).toEqual(["nimbo-relay"]);
   });
 });
 
@@ -101,7 +101,7 @@ describe("casePassed", () => {
 
   test("fails on a forbidden string or when not applicable", () => {
     expect(casePassed(
-      { requiredTotal: 0, requiredHit: 0, missing: [], forbiddenPresent: ["prog-orbital"] },
+      { requiredTotal: 0, requiredHit: 0, missing: [], forbiddenPresent: ["nimbo-relay"] },
       { chars: 10, within: true },
       true,
     )).toBe(false);

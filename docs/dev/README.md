@@ -3,12 +3,14 @@
 For working **on** Mnemosyne rather than with it. Start with [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
 (setup, the test loop, never developing against your own store).
 
+- [Architecture](../architecture.md) — the goal, the design principles every change is held to,
+  the data model and the roadmap.
 - [Retrieval internals](retrieval.md) — how search filters and ranks, the floors, lexical rescue,
   RRF fusion, and what to measure before changing any of it.
 - [Benchmarks and calibration](benchmarks.md) — the cosine, retrieval and golden-set benchmarks,
   and calibrating the floors for a store.
 - [Dreaming](dreaming.md) — the consolidation pipeline's design, and how it compares to
-  Anthropic's Dreams API.
+  Anthropic's Dreams API. Opting into a remote model: [remote opt-in](../dreaming-remote-opt-in.md).
 - Measured results live in [`docs/benchmarks/`](../benchmarks/).
 
 ## Project status

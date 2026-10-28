@@ -5,12 +5,12 @@ const HOME = "/Users/alice";
 
 describe("catchAllScope", () => {
   test("returns the scope of a home-level catch-all", () => {
-    const entries = parseScopeMap("~ = personal\n~/Projects/acme = acme", HOME);
+    const entries = parseScopeMap("~ = personal\n~/Projects/work = work", HOME);
     expect(catchAllScope(entries, HOME)).toBe("personal");
   });
 
   test("returns undefined when the map has no catch-all", () => {
-    const entries = parseScopeMap("~/Projects/acme = acme\n~/memory = personal", HOME);
+    const entries = parseScopeMap("~/Projects/work = work\n~/memory = personal", HOME);
     expect(catchAllScope(entries, HOME)).toBeUndefined();
   });
 
@@ -28,15 +28,15 @@ describe("catchAllScope", () => {
 });
 
 describe("resolvesViaCatchAll (MNE-94)", () => {
-  const entries = parseScopeMap("~ = personal\n~/Projects/acme = acme", HOME);
+  const entries = parseScopeMap("~ = personal\n~/Projects/work = work", HOME);
   test("true when only the home catch-all matches the cwd", () => {
     expect(resolvesViaCatchAll(entries, "/Users/alice/Projects/misc", HOME)).toBe(true);
   });
   test("false when a more-specific prefix matches (a well-mapped context)", () => {
-    expect(resolvesViaCatchAll(entries, "/Users/alice/Projects/acme/repo", HOME)).toBe(false);
+    expect(resolvesViaCatchAll(entries, "/Users/alice/Projects/work/repo", HOME)).toBe(false);
   });
   test("false when there is no catch-all at all", () => {
-    const noCatch = parseScopeMap("~/Projects/acme = acme", HOME);
+    const noCatch = parseScopeMap("~/Projects/work = work", HOME);
     expect(resolvesViaCatchAll(noCatch, "/Users/alice/Projects/misc", HOME)).toBe(false);
   });
   test("false for a cwd outside home even with a home catch-all", () => {

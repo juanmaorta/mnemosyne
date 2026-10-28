@@ -21,7 +21,7 @@ const RESULT: ExplainResult = {
   weights: { recency: 0.25, importance: 0.25, relevance: 1 },
   minCos: null,
   candidates: [
-    candidate("yogurtera", 0, 0.812345, true, 0.7123, true),
+    candidate("fermentor", 0, 0.812345, true, 0.7123, true),
     candidate("router", 1, 0.5, true, 0.3),
     candidate("camara", 2, 0.201, false, 0.1),
   ],
@@ -32,7 +32,7 @@ describe("formatExplain", () => {
     const out = formatExplain(RESULT);
     const lines = out.split("\n");
     expect(lines.some((l) => l.includes("rank") && l.includes("score") && l.includes("slug"))).toBe(true);
-    for (const slug of ["yogurtera", "router", "camara"]) {
+    for (const slug of ["fermentor", "router", "camara"]) {
       expect(out).toContain(slug);
     }
   });
@@ -40,13 +40,13 @@ describe("formatExplain", () => {
   test("marks included and discarded candidates distinguishably", () => {
     const out = formatExplain(RESULT);
     const rowOf = (slug: string) => out.split("\n").find((l) => l.includes(slug))!;
-    expect(rowOf("yogurtera")).toContain("✓");
+    expect(rowOf("fermentor")).toContain("✓");
     expect(rowOf("camara")).toContain("✗");
   });
 
   test("formats signal components to three decimals", () => {
     const out = formatExplain(RESULT);
-    expect(out.split("\n").find((l) => l.includes("yogurtera"))).toContain("0.712");
+    expect(out.split("\n").find((l) => l.includes("fermentor"))).toContain("0.712");
     expect(out.split("\n").find((l) => l.includes("camara"))).toContain("0.100");
   });
 
@@ -54,7 +54,7 @@ describe("formatExplain", () => {
     // The marker distinguishes creation-age decay from access-age decay.
     const out = formatExplain(RESULT);
     expect(out.split("\n").find((l) => l.includes("router"))).toMatch(/1\.000\s*\*/);
-    expect(out.split("\n").find((l) => l.includes("yogurtera"))).not.toMatch(/1\.000\s*\*/);
+    expect(out.split("\n").find((l) => l.includes("fermentor"))).not.toMatch(/1\.000\s*\*/);
     expect(out).toContain("* decay measured from creation (never accessed)");
   });
 

@@ -34,14 +34,14 @@ describe("blended search", () => {
   test("search_default_ranks_relevant_over_recently_created_irrelevant", async () => {
     // Dates are relative to "now" (not hardcoded calendar dates) so the
     // recency gap this test relies on doesn't shrink/invert as real time
-    // passes: yogurtera is old (~0 recency), router is fresh (~1 recency).
+    // passes: fermentor is old (~0 recency), router is fresh (~1 recency).
     const DAY_MS = 24 * 3600 * 1000;
     const isoDaysAgo = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 19);
     const root = mkdtempSync(join(tmpdir(), "mneme-blend-"));
     mkdirSync(join(root, ".index"), { recursive: true });
     mkdirSync(join(root, "personal"), { recursive: true });
-    writeFileSync(join(root, "personal", "yogurtera.md"),
-      ["---", "name: yogurtera", "description: yogurtera", "scope: personal", "type: reference",
+    writeFileSync(join(root, "personal", "fermentor.md"),
+      ["---", "name: fermentor", "description: fermentor", "scope: personal", "type: reference",
         `created: ${isoDaysAgo(200)}`, "importance: 5", "---",
         "yogurt maker control fermentation temperature", ""].join("\n"));
     writeFileSync(join(root, "personal", "router.md"),
@@ -57,7 +57,7 @@ describe("blended search", () => {
     const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock },
       { query: "yogurt maker control" });
 
-    expect(hits[0]!.slug).toBe("yogurtera");
+    expect(hits[0]!.slug).toBe("fermentor");
   });
 
   test("search_uses_persisted_retention_so_repeated_reads_win_at_equal_cosine", async () => {

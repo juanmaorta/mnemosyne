@@ -15,21 +15,21 @@ describe("getEngramWithRevision", () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-getrec-"));
     mkdirSync(join(root, "personal"), { recursive: true });
     mkdirSync(join(root, ".index"), { recursive: true });
-    writeFileSync(join(root, "personal", "yogurtera.md"),
-      ["---", "name: yogurtera", "description: d", "scope: personal", "type: reference",
+    writeFileSync(join(root, "personal", "fermentor.md"),
+      ["---", "name: fermentor", "description: d", "scope: personal", "type: reference",
         "created: 2026-06-01T10:00:00", "importance: 5", "---", "body", ""].join("\n"));
     const db = openDb(join(root, ".index", "store.db"));
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
-    getEngramWithRevision(db, root, "yogurtera", fixedClock(Date.parse("2026-07-01T12:00:00.000Z")));
+    getEngramWithRevision(db, root, "fermentor", fixedClock(Date.parse("2026-07-01T12:00:00.000Z")));
 
-    const hot = getHotState(db, "personal", "yogurtera")!;
+    const hot = getHotState(db, "personal", "fermentor")!;
     expect(hot.accessCount).toBe(1);
     // The access is stamped from the injected clock, not the wall clock.
     expect(hot.lastAccess).toBe("2026-07-01T12:00:00.000Z");
 
     const ev = readTelemetry(root).find((e) => e.kind === "access.reinforced")!;
-    expect(ev).toMatchObject({ scope: "personal", slug: "yogurtera", accessCountAfter: 1 });
+    expect(ev).toMatchObject({ scope: "personal", slug: "fermentor", accessCountAfter: 1 });
     expect(ev.strengthAfter as number).toBeGreaterThan(ev.strengthBefore as number);
     // The event carries the access instant, not a second clock reading.
     expect(ev.ts).toBe("2026-07-01T12:00:00.000Z");

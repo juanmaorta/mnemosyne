@@ -106,6 +106,8 @@ you pass `--delete-data`.
   `.scopemap`, `.owner`, telemetry.
 - [Troubleshooting](docs/guide/troubleshooting.md) — index built with another model, Ollama
   down, unmapped scope, and more.
+- [Migrating from native memory](docs/guide/migrating-from-native-memory.md) — import what
+  Claude Code already remembered and switch its native memory off.
 
 **Reference**
 
@@ -117,6 +119,7 @@ you pass `--delete-data`.
 **Developing it**
 
 - [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md).
+- [Architecture](docs/architecture.md) — goal, design principles, data model and roadmap.
 - [Developer docs](docs/dev/README.md) — retrieval internals, benchmarks and calibration,
   dreaming, project status.
 

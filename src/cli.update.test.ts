@@ -45,18 +45,18 @@ async function revisionViaGet(root: string, slug: string): Promise<string> {
 describe("runCli update", () => {
   test("cli_update_rewrites_the_body_and_reports_the_new_revision", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
-    const revision = await revisionViaGet(root, "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
+    const revision = await revisionViaGet(root, "fermentor");
 
     const lines: string[] = [];
     const code = await runCli(
-      ["update", "yogurtera", "cuerpo reescrito", "--if-match", revision, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "cuerpo reescrito", "--if-match", revision, "--scope", "personal", "--root", root],
       (s) => lines.push(s), (s) => lines.push(s),
     );
 
     expect(code).toBe(0);
     const out = lines.join("\n");
-    expect(out).toContain("updated note [personal] yogurtera");
+    expect(out).toContain("updated note [personal] fermentor");
     expect(out).toContain(path);
     expect(out).toContain(`revision ${revisionOnDisk(path)}`);
     expect(readFileSync(path, "utf8")).toContain("cuerpo reescrito");
@@ -64,12 +64,12 @@ describe("runCli update", () => {
 
   test("cli_update_reads_the_body_from_a_file_preserving_newlines", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const bodyFile = join(root, "nuevo-cuerpo.md");
     writeFileSync(bodyFile, "linea uno\n\n  linea tres sangrada\n");
 
     const code = await runCli(
-      ["update", "yogurtera", "--file", bodyFile, "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
+      ["update", "fermentor", "--file", bodyFile, "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
       () => {}, () => {},
     );
 
@@ -79,11 +79,11 @@ describe("runCli update", () => {
 
   test("cli_update_without_if_match_is_a_usage_error", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const before = readFileSync(path);
     const errs: string[] = [];
 
-    const code = await runCli(["update", "yogurtera", "x", "--scope", "personal", "--root", root], () => {}, (s) => errs.push(s));
+    const code = await runCli(["update", "fermentor", "x", "--scope", "personal", "--root", root], () => {}, (s) => errs.push(s));
 
     expect(code).toBe(1);
     expect(errs.join("\n")).toContain("--if-match");
@@ -92,11 +92,11 @@ describe("runCli update", () => {
 
   test("cli_update_without_any_change_is_a_usage_error", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const errs: string[] = [];
 
     const code = await runCli(
-      ["update", "yogurtera", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
+      ["update", "fermentor", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );
 
@@ -106,24 +106,24 @@ describe("runCli update", () => {
 
   test("cli_update_conflict_tells_the_caller_to_re_read_and_reconcile", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const stale = revisionOnDisk(path);
     // Somebody else updated it in the meantime.
     expect(await runCli(
-      ["update", "yogurtera", "version de otro", "--if-match", stale, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "version de otro", "--if-match", stale, "--scope", "personal", "--root", root],
       () => {}, () => {},
     )).toBe(0);
     const theirs = readFileSync(path);
 
     const errs: string[] = [];
     const code = await runCli(
-      ["update", "yogurtera", "mi version", "--if-match", stale, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "mi version", "--if-match", stale, "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );
 
     expect(code).toBe(1);
     const out = errs.join("\n");
-    expect(out).toMatch(/mneme get yogurtera --json/);
+    expect(out).toMatch(/mneme get fermentor --json/);
     expect(out).toMatch(/reconcil/i);
     expect(out).not.toMatch(/--force/);
     // The other writer's content survives untouched; nothing is retried for us.
@@ -154,12 +154,12 @@ describe("runCli update", () => {
 
   test("cli_update_refuses_an_unmapped_cwd_fail_closed", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const unmapped = mkdtempSync(join(tmpdir(), "mneme-wd-"));
     const errs: string[] = [];
 
     const code = await runCli(
-      ["update", "yogurtera", "x", "--if-match", revisionOnDisk(path), "--cwd", unmapped, "--root", root],
+      ["update", "fermentor", "x", "--if-match", revisionOnDisk(path), "--cwd", unmapped, "--root", root],
       () => {}, (s) => errs.push(s),
     );
 
@@ -170,11 +170,11 @@ describe("runCli update", () => {
   test("cli_update_resolves_the_scope_from_the_cwd_flag", async () => {
     const wd = mkdtempSync(join(tmpdir(), "mneme-wd-"));
     const root = store(["personal"], `${wd} = personal\n`);
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
 
     const lines: string[] = [];
     const code = await runCli(
-      ["update", "yogurtera", "desde el cwd", "--if-match", revisionOnDisk(path), "--cwd", wd, "--root", root],
+      ["update", "fermentor", "desde el cwd", "--if-match", revisionOnDisk(path), "--cwd", wd, "--root", root],
       (s) => lines.push(s), (s) => lines.push(s),
     );
 
@@ -185,12 +185,12 @@ describe("runCli update", () => {
 
   test("cli_update_refuses_a_secret_and_leaves_no_lock_or_temporary", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const before = readFileSync(path);
 
     const errs: string[] = [];
     const code = await runCli(
-      ["update", "yogurtera", "la clave es sk-abcdefghij0123456789", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
+      ["update", "fermentor", "la clave es sk-abcdefghij0123456789", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );
 
@@ -205,14 +205,14 @@ describe("runCli update", () => {
 
   test("cli_update_reports_a_busy_scope_lock_without_breaking_it", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const before = readFileSync(path);
     const lock = scopeLockPath(join(root, "personal"));
     writeFileSync(lock, "99999 2026-09-11T10:00:00.000Z\n");
 
     const errs: string[] = [];
     const code = await runCli(
-      ["update", "yogurtera", "x", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
+      ["update", "fermentor", "x", "--if-match", revisionOnDisk(path), "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );
 
@@ -284,11 +284,11 @@ describe("runCli update", () => {
 
   test("cli_update_then_reindex_serves_the_new_content_under_the_same_slug", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera", "leche y fermento a 42 grados");
-    const revision = await revisionViaGet(root, "yogurtera");
+    const path = await addNote(root, "personal", "fermentor", "leche y fermento a 42 grados");
+    const revision = await revisionViaGet(root, "fermentor");
 
     expect(await runCli(
-      ["update", "yogurtera", "ahora usamos yogur griego como iniciador", "--if-match", revision, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "ahora usamos yogur griego como iniciador", "--if-match", revision, "--scope", "personal", "--root", root],
       () => {}, () => {},
     )).toBe(0);
 
@@ -296,14 +296,14 @@ describe("runCli update", () => {
     // an update must never fork a memory into a second engram.
     expect(await runCli(["reindex", "--root", root], () => {}, () => {})).toBe(0);
     const got: string[] = [];
-    expect(await runCli(["get", "yogurtera", "--root", root], (s) => got.push(s), () => {})).toBe(0);
+    expect(await runCli(["get", "fermentor", "--root", root], (s) => got.push(s), () => {})).toBe(0);
     expect(got.join("\n")).toContain("yogur griego");
     expect(got.join("\n")).not.toContain("leche y fermento");
 
     const hits: string[] = [];
     expect(await runCli(["search", "yogur griego iniciador", "--root", root, "-k", "5"], (s) => hits.push(s), () => {})).toBe(0);
-    expect(hits.join("\n")).toContain("yogurtera");
-    expect(readdirSync(join(root, "personal")).filter((f) => f.endsWith(".md"))).toEqual(["yogurtera.md"]);
+    expect(hits.join("\n")).toContain("fermentor");
+    expect(readdirSync(join(root, "personal")).filter((f) => f.endsWith(".md"))).toEqual(["fermentor.md"]);
     expect(readFileSync(path, "utf8")).toContain("yogur griego");
   }, 30_000);
 });
@@ -311,11 +311,11 @@ describe("runCli update", () => {
 describe("supersession through the CLI", () => {
   test("cli_update_supersedes_a_note_and_records_the_replacement", async () => {
     const root = store();
-    const old = await addNote(root, "personal", "network-upgrade");
-    await addNote(root, "personal", "network-upgrade-mesh");
+    const old = await addNote(root, "personal", "db-migration");
+    await addNote(root, "personal", "db-migration-v2");
 
     const code = await runCli(
-      ["update", "network-upgrade", "--superseded-by", "network-upgrade-mesh",
+      ["update", "db-migration", "--superseded-by", "db-migration-v2",
         "--if-match", revisionOnDisk(old), "--scope", "personal", "--root", root],
       () => {}, () => {},
     );
@@ -323,19 +323,19 @@ describe("supersession through the CLI", () => {
     expect(code).toBe(0);
     const raw = readFileSync(old, "utf8");
     expect(raw).toContain("status: superseded");
-    expect(raw).toContain("superseded_by: network-upgrade-mesh");
+    expect(raw).toContain("superseded_by: db-migration-v2");
   });
 
   test("cli_update_refuses_an_unknown_status_and_names_the_valid_ones", async () => {
     // The caller typed a word; the answer to a mistyped word is the list of
     // words, not a schema dump.
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const before = readFileSync(path, "utf8");
     const errs: string[] = [];
 
     const code = await runCli(
-      ["update", "yogurtera", "--status", "borrada", "--if-match", revisionOnDisk(path),
+      ["update", "fermentor", "--status", "borrada", "--if-match", revisionOnDisk(path),
         "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );
@@ -347,12 +347,12 @@ describe("supersession through the CLI", () => {
 
   test("cli_update_refuses_a_replacement_that_does_not_exist", async () => {
     const root = store();
-    const path = await addNote(root, "personal", "yogurtera");
+    const path = await addNote(root, "personal", "fermentor");
     const before = readFileSync(path, "utf8");
     const errs: string[] = [];
 
     const code = await runCli(
-      ["update", "yogurtera", "--superseded-by", "no-existe", "--if-match", revisionOnDisk(path),
+      ["update", "fermentor", "--superseded-by", "no-existe", "--if-match", revisionOnDisk(path),
         "--scope", "personal", "--root", root],
       () => {}, (s) => errs.push(s),
     );

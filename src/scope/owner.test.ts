@@ -13,8 +13,8 @@ function tmpFile(contents: string): string {
 
 describe("loadOwnerPolicy", () => {
   test("loadOwnerPolicy_reads_declared_scopes", () => {
-    const path = tmpFile(JSON.stringify({ owns: ["personal", "acme"] }));
-    expect(loadOwnerPolicy(path)).toEqual({ owns: ["personal", "acme"] });
+    const path = tmpFile(JSON.stringify({ owns: ["personal", "work"] }));
+    expect(loadOwnerPolicy(path)).toEqual({ owns: ["personal", "work"] });
   });
 
   test("loadOwnerPolicy_missing_file_defaults_to_personal_only", () => {
@@ -33,16 +33,16 @@ describe("loadOwnerPolicy", () => {
   });
 
   test("loadOwnerPolicy_filters_non_string_entries", () => {
-    const path = tmpFile(JSON.stringify({ owns: ["personal", 42, null, "acme"] }));
-    expect(loadOwnerPolicy(path)).toEqual({ owns: ["personal", "acme"] });
+    const path = tmpFile(JSON.stringify({ owns: ["personal", 42, null, "work"] }));
+    expect(loadOwnerPolicy(path)).toEqual({ owns: ["personal", "work"] });
   });
 });
 
 describe("ownsScope", () => {
   test("ownsScope_true_when_declared", () => {
-    expect(ownsScope({ owns: ["personal", "acme"] }, "acme")).toBe(true);
+    expect(ownsScope({ owns: ["personal", "work"] }, "work")).toBe(true);
   });
   test("ownsScope_false_when_not_declared", () => {
-    expect(ownsScope({ owns: ["personal"] }, "acme")).toBe(false);
+    expect(ownsScope({ owns: ["personal"] }, "work")).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ import { runCli } from "./cli.js";
 
 beforeAll(() => { process.env.MNEMOSYNE_FAKE_EMBED = "1"; });
 
-interface Fixture { root: string; acmeWd: string; unmappedWd: string }
+interface Fixture { root: string; workWd: string; unmappedWd: string }
 
 /**
  * A store owning two scopes, with three working directories: one mapped to each
@@ -24,28 +24,28 @@ interface Fixture { root: string; acmeWd: string; unmappedWd: string }
  */
 function fixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), "mneme-clicwd-"));
-  for (const scope of ["personal", "acme"]) mkdirSync(join(root, scope), { recursive: true });
-  writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal", "acme"] }));
+  for (const scope of ["personal", "work"]) mkdirSync(join(root, scope), { recursive: true });
+  writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal", "work"] }));
 
   const personalWd = join(root, "wd-personal");
-  const acmeWd = join(root, "wd-acme");
+  const workWd = join(root, "wd-work");
   const unmappedWd = join(root, "wd-unmapped");
-  for (const d of [personalWd, acmeWd, unmappedWd]) mkdirSync(d);
+  for (const d of [personalWd, workWd, unmappedWd]) mkdirSync(d);
 
   writeFileSync(join(root, ".scopemap"), [
     `${process.cwd()} = personal`, // the ambient answer, deliberately different
     `${personalWd} = personal`,
-    `${acmeWd} = acme`,
+    `${workWd} = work`,
   ].join("\n"));
-  return { root, acmeWd, unmappedWd };
+  return { root, workWd, unmappedWd };
 }
 
 describe("symlinked paths resolve to the same scope", () => {
-  /** A store owning `acme`, plus a real directory and a symlink pointing at it. */
+  /** A store owning `work`, plus a real directory and a symlink pointing at it. */
   function linked(): { root: string; realWd: string; linkWd: string } {
     const root = mkdtempSync(join(tmpdir(), "mneme-clilink-"));
-    mkdirSync(join(root, "acme"), { recursive: true });
-    writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["acme"] }));
+    mkdirSync(join(root, "work"), { recursive: true });
+    writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["work"] }));
     const realWd = join(root, "real-client");
     const linkWd = join(root, "link-client");
     mkdirSync(realWd);
@@ -56,7 +56,7 @@ describe("symlinked paths resolve to the same scope", () => {
   test("cli_add_matches_a_scopemap_prefix_written_through_a_symlink", async () => {
     const { root, realWd, linkWd } = linked();
     // The map names the symlink — the path a human would cd into.
-    writeFileSync(join(root, ".scopemap"), `${linkWd} = acme\n`);
+    writeFileSync(join(root, ".scopemap"), `${linkWd} = work\n`);
     const lines: string[] = [];
 
     // ...while the caller passes the canonical path, as process.cwd() would.
@@ -66,7 +66,7 @@ describe("symlinked paths resolve to the same scope", () => {
     );
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toMatch(/\[acme\]/);
+    expect(lines.join("\n")).toMatch(/\[work\]/);
   });
 
   // `mneme scope <dir>` is the runbook's gate before importing anything into a
@@ -74,11 +74,11 @@ describe("symlinked paths resolve to the same scope", () => {
   // bless the wrong scope — so it canonicalizes the path exactly like `--cwd`.
   test("cli_scope_agrees_with_the_write_for_a_symlinked_directory", async () => {
     const { root, realWd, linkWd } = linked();
-    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = acme\n`);
+    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = work\n`);
 
     const said: string[] = [];
     expect(await runCli(["scope", linkWd, "--root", root], (s) => said.push(s), (s) => said.push(s))).toBe(0);
-    expect(said.join("\n")).toMatch(/^acme\s+owned/);
+    expect(said.join("\n")).toMatch(/^work\s+owned/);
 
     // …and the write it is a gate for resolves the same scope from the same path.
     const wrote: string[] = [];
@@ -86,13 +86,13 @@ describe("symlinked paths resolve to the same scope", () => {
       ["add", "vlan 60", "--type", "feedback", "--slug", "vlan-60", "--cwd", linkWd, "--root", root],
       (s) => wrote.push(s), (s) => wrote.push(s),
     )).toBe(0);
-    expect(wrote.join("\n")).toMatch(/\[acme\]/);
+    expect(wrote.join("\n")).toMatch(/\[work\]/);
   });
 
   test("cli_add_accepts_a_cwd_flag_given_through_a_symlink", async () => {
     const { root, realWd, linkWd } = linked();
     // The mirror image: the map is canonical, the caller passes the symlink.
-    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = acme\n`);
+    writeFileSync(join(root, ".scopemap"), `${realpathSync(realWd)} = work\n`);
     const lines: string[] = [];
 
     const code = await runCli(
@@ -101,25 +101,25 @@ describe("symlinked paths resolve to the same scope", () => {
     );
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toMatch(/\[acme\]/);
+    expect(lines.join("\n")).toMatch(/\[work\]/);
   });
 });
 
 describe("--cwd decides the scope, not the process", () => {
   test("cli_add_resolves_scope_from_the_cwd_flag", async () => {
-    const { root, acmeWd } = fixture();
+    const { root, workWd } = fixture();
     const lines: string[] = [];
     const code = await runCli(
-      ["add", "el cliente usa vlans", "--type", "feedback", "--cwd", acmeWd, "--root", root],
+      ["add", "el cliente usa vlans", "--type", "feedback", "--cwd", workWd, "--root", root],
       (s) => lines.push(s),
       (s) => lines.push(s),
     );
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toMatch(/\[acme\]/);
+    expect(lines.join("\n")).toMatch(/\[work\]/);
     // The fact must land in the client's folder — that folder IS the compliance
     // boundary, so a misrouted write is the failure that matters.
-    expect(readdirSync(join(root, "acme", "facts")).some((f) => f.endsWith(".md"))).toBe(true);
+    expect(readdirSync(join(root, "work", "facts")).some((f) => f.endsWith(".md"))).toBe(true);
     expect(existsSync(join(root, "personal", "facts"))).toBe(false);
   });
 
@@ -140,19 +140,19 @@ describe("--cwd decides the scope, not the process", () => {
   });
 
   test("cli_context_resolves_scope_from_the_cwd_flag", async () => {
-    const { root, acmeWd } = fixture();
+    const { root, workWd } = fixture();
     const lines: string[] = [];
-    const code = await runCli(["context", "--cwd", acmeWd, "--root", root], (s) => lines.push(s), () => {});
+    const code = await runCli(["context", "--cwd", workWd, "--root", root], (s) => lines.push(s), () => {});
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toContain("scope: acme");
+    expect(lines.join("\n")).toContain("scope: work");
   });
 
   test("cli_scope_flag_still_wins_over_the_cwd_flag", async () => {
-    const { root, acmeWd } = fixture();
+    const { root, workWd } = fixture();
     const lines: string[] = [];
     const code = await runCli(
-      ["add", "y", "--type", "feedback", "--scope", "personal", "--cwd", acmeWd, "--root", root],
+      ["add", "y", "--type", "feedback", "--scope", "personal", "--cwd", workWd, "--root", root],
       (s) => lines.push(s),
       (s) => lines.push(s),
     );

@@ -17,24 +17,24 @@ function seededLog() {
   // engram.created carries no slug (the write path knows scope+hash, and the
   // slug is only settled once indexed), so the trace starts at indexing.
   emitEvents(root, fixedClock(T0 + 60_000), [
-    { kind: "engram.indexed", scope: "personal", slug: "yogurtera", embeddingId: "fake-bow/dim768", dim: 768, reason: "new" },
+    { kind: "engram.indexed", scope: "personal", slug: "fermentor", embeddingId: "fake-bow/dim768", dim: 768, reason: "new" },
   ]);
   emitEvents(root, fixedClock(T0 + DAY), [
-    { kind: "retrieval.candidate", corrId: "c1", slug: "yogurtera", scope: "personal", rank: 0, included: true, threshold: 0.5, signals: { relevanceCosine: 0.81, recencyNorm: 1, importanceNorm: 0.67, accessed: false } },
+    { kind: "retrieval.candidate", corrId: "c1", slug: "fermentor", scope: "personal", rank: 0, included: true, threshold: 0.5, signals: { relevanceCosine: 0.81, recencyNorm: 1, importanceNorm: 0.67, accessed: false } },
     { kind: "retrieval.candidate", corrId: "c1", slug: "router", scope: "personal", rank: 1, included: false, threshold: 0.5, signals: { relevanceCosine: 0.2, recencyNorm: 1, importanceNorm: 0.44, accessed: false } },
   ]);
   emitEvents(root, fixedClock(T0 + 2 * DAY), [
-    { kind: "retrieval.injected", corrId: "c2", scope: "personal", budget: 1000, injectedSlugs: ["yogurtera", "router"], droppedForBudget: 3 },
+    { kind: "retrieval.injected", corrId: "c2", scope: "personal", budget: 1000, injectedSlugs: ["fermentor", "router"], droppedForBudget: 3 },
   ]);
   emitEvents(root, fixedClock(T0 + 3 * DAY), [
-    { kind: "access.reinforced", scope: "personal", slug: "yogurtera", strengthBefore: 1, strengthAfter: 2, accessCountAfter: 1 },
+    { kind: "access.reinforced", scope: "personal", slug: "fermentor", strengthBefore: 1, strengthAfter: 2, accessCountAfter: 1 },
   ]);
   return root;
 }
 
 describe("traceEngram", () => {
   test("returns only this engram's milestones, in time order", () => {
-    const entries = traceEngram(seededLog(), "yogurtera");
+    const entries = traceEngram(seededLog(), "fermentor");
 
     expect(entries.map((e) => e.kind)).toEqual([
       "engram.indexed", "retrieval.candidate", "retrieval.injected", "access.reinforced",
@@ -43,14 +43,14 @@ describe("traceEngram", () => {
   });
 
   test("excludes events belonging to other engrams", () => {
-    const entries = traceEngram(seededLog(), "yogurtera");
+    const entries = traceEngram(seededLog(), "fermentor");
     expect(JSON.stringify(entries)).not.toContain("router");
   });
 
   test("finds the engram inside an injection's slug list", () => {
     // retrieval.injected names slugs in an array, not a `slug` field — a naive
     // filter would silently drop the moment the agent actually saw the note.
-    const entries = traceEngram(seededLog(), "yogurtera");
+    const entries = traceEngram(seededLog(), "fermentor");
     expect(entries.find((e) => e.kind === "retrieval.injected")).toBeDefined();
   });
 
@@ -61,9 +61,9 @@ describe("traceEngram", () => {
 
 describe("formatTrace", () => {
   test("renders one line per milestone with the value at that moment", () => {
-    const out = formatTrace(traceEngram(seededLog(), "yogurtera"), "yogurtera");
+    const out = formatTrace(traceEngram(seededLog(), "fermentor"), "fermentor");
 
-    expect(out).toContain("yogurtera");
+    expect(out).toContain("fermentor");
     expect(out).toContain("indexed");
     expect(out).toContain("0.810");   // the cosine it scored back then
     expect(out).toContain("1 → 2");   // strength evolution

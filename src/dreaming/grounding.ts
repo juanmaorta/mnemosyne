@@ -10,9 +10,9 @@
  * It flags the salient, copied-verbatim kinds of token where a mismatch means
  * fabrication, not paraphrase:
  *  - IP addresses,
- *  - alphanumeric codes (letters+digits: WS2812B, CTL-LED-10P), and
- *  - hyphenated slugs that are a near-miss of a real source slug (prog-orbital
- *    vs proj-orbital) — i.e. a corrupted identifier.
+ *  - alphanumeric codes (letters+digits: WS2812B, ACM-LED-10P), and
+ *  - hyphenated slugs that are a near-miss of a real source slug (nimbo-relay
+ *    vs nimbus-relay) — i.e. a corrupted identifier.
  * Bare numbers and dates are left alone: their formatting varies too much to tell
  * fabrication from paraphrase, so flagging them would be noise.
  */

@@ -17,7 +17,7 @@ function store(): string {
     ["---", `name: ${slug}`, "description: riego y plantas de interior", "scope: personal",
       "type: reference", "created: 2026-06-01T10:00:00", "importance: 5", "---",
       "cuerpo sobre riego y plantas con texto suficiente para embeber", ""].join("\n");
-  writeFileSync(join(root, "personal", "yogurtera.md"), note("yogurtera"));
+  writeFileSync(join(root, "personal", "fermentor.md"), note("fermentor"));
   writeFileSync(join(root, "personal", "dream-abc123def456.md"), note("dream-abc123def456"));
   return root;
 }
@@ -36,6 +36,6 @@ describe("search derived-origin marker", () => {
 
     const bySlug = new Map(hits.map((h) => [h.slug, h.isDerived]));
     expect(bySlug.get("dream-abc123def456")).toBe(true);
-    expect(bySlug.get("yogurtera")).toBe(false);
+    expect(bySlug.get("fermentor")).toBe(false);
   });
 });

@@ -20,9 +20,9 @@ function note(root: string, scope: string, slug: string, desc: string, body: str
 
 async function indexed() {
   const root = mkdtempSync(join(tmpdir(), "mneme-search-"));
-  note(root, "personal", "yogurtera", "yogurt maker", "yogurt maker control fermentation");
+  note(root, "personal", "fermentor", "yogurt maker", "yogurt maker control fermentation");
   note(root, "personal", "router", "network router", "omada router network wifi");
-  note(root, "acme", "policy", "policy search", "insurance policy claim status");
+  note(root, "work", "policy", "policy search", "retention policy review status");
   const db = openDb(":memory:");
   await reindex({ root, db, embedder: createFakeEmbedder() });
   return { db, root };
@@ -92,14 +92,14 @@ describe("search", () => {
   test("search_ranks_relevant_engram_first", async () => {
     const { db, root } = await indexed();
     const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock }, { query: "yogurt maker control" });
-    expect(hits[0]!.slug).toBe("yogurtera");
+    expect(hits[0]!.slug).toBe("fermentor");
     expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score);
   });
 
   test("search_returns_snippet_not_full_doc", async () => {
     const { db, root } = await indexed();
     const hits = await search({ db, root, embedder: createFakeEmbedder(), clock: systemClock }, { query: "yogurt" });
-    expect(hits[0]).toMatchObject({ slug: "yogurtera", scope: "personal" });
+    expect(hits[0]).toMatchObject({ slug: "fermentor", scope: "personal" });
     expect(typeof hits[0]!.snippet).toBe("string");
   });
 
@@ -121,7 +121,7 @@ describe("search", () => {
     // never-accessed notes are pinned to neutral (see search.ts). Seed one so
     // the clock actually reaches the score.
     const accessedAt = "2026-06-02T10:00:00.000Z";
-    recordAccess(db, root, "personal", "yogurtera", accessedAt);
+    recordAccess(db, root, "personal", "fermentor", accessedAt);
     const embedder = createFakeEmbedder();
     const t0 = Date.parse(accessedAt);
     const q = { query: "yogurt maker control" };
@@ -131,8 +131,8 @@ describe("search", () => {
 
     // Same engram wins either way. Relative ranking scores may stay equal when
     // every candidate's axis moves together, but the raw decay must change.
-    expect(fresh[0]!.slug).toBe("yogurtera");
-    expect(stale[0]!.slug).toBe("yogurtera");
+    expect(fresh[0]!.slug).toBe("fermentor");
+    expect(stale[0]!.slug).toBe("fermentor");
     expect(fresh[0]!.signals.recencyNorm).toBeGreaterThan(stale[0]!.signals.recencyNorm);
   });
 
@@ -191,7 +191,7 @@ describe("search", () => {
 
   test("search_is_deterministic_under_a_frozen_clock", async () => {
     const { db, root } = await indexed();
-    recordAccess(db, root, "personal", "yogurtera", "2026-06-02T10:00:00.000Z");
+    recordAccess(db, root, "personal", "fermentor", "2026-06-02T10:00:00.000Z");
     const embedder = createFakeEmbedder();
     const clock = fixedClock(Date.parse("2026-07-01T00:00:00.000Z"));
     const q = { query: "yogurt maker control" };

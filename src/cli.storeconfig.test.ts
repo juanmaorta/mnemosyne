@@ -23,8 +23,8 @@ beforeEach(() => {
   process.env.OLLAMA_HOST = "http://127.0.0.1:1"; // never a real Ollama
   root = mkdtempSync(join(tmpdir(), "mneme-cfg-root-"));
   mkdirSync(join(root, "personal"), { recursive: true });
-  writeFileSync(join(root, "personal", "yogurtera.md"),
-    ["---", "name: yogurtera", "description: yogurt maker", "scope: personal", "type: reference",
+  writeFileSync(join(root, "personal", "fermentor.md"),
+    ["---", "name: fermentor", "description: yogurt maker", "scope: personal", "type: reference",
       "created: 2026-06-01T10:00:00", "importance: 5", "---", "yogurt maker body", ""].join("\n"));
 });
 afterEach(() => {

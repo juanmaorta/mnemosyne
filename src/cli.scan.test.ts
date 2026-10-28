@@ -14,9 +14,9 @@ function note(body: string): string {
 function store(): string {
   const root = mkdtempSync(join(tmpdir(), "mneme-cli-scan-"));
   mkdirSync(join(root, "personal", "facts"), { recursive: true });
-  mkdirSync(join(root, "acme"), { recursive: true });
+  mkdirSync(join(root, "work"), { recursive: true });
   writeFileSync(join(root, "personal", "clean.md"), note("nothing to see here"));
-  writeFileSync(join(root, "acme", "clean.md"), note("also clean"));
+  writeFileSync(join(root, "work", "clean.md"), note("also clean"));
   return root;
 }
 
@@ -44,17 +44,17 @@ describe("mneme scan over a store", () => {
 
   test("cli_scan_scope_limits_to_that_scope", async () => {
     const root = store();
-    writeFileSync(join(root, "acme", "leaky.md"), note(`key ${AWS_KEY}`));
+    writeFileSync(join(root, "work", "leaky.md"), note(`key ${AWS_KEY}`));
     expect((await run(["scan", "--scope", "personal", "--root", root])).code).toBe(0);
-    expect((await run(["scan", "--scope", "acme", "--root", root])).code).toBe(1);
+    expect((await run(["scan", "--scope", "work", "--root", root])).code).toBe(1);
   });
 
   test("cli_scan_all_covers_every_scope", async () => {
     const root = store();
-    writeFileSync(join(root, "acme", "leaky.md"), note(`key ${AWS_KEY}`));
+    writeFileSync(join(root, "work", "leaky.md"), note(`key ${AWS_KEY}`));
     const r = await run(["scan", "--all", "--root", root]);
     expect(r.code).toBe(1);
-    expect(r.out).toContain(join(root, "acme", "leaky.md"));
+    expect(r.out).toContain(join(root, "work", "leaky.md"));
   });
 
   test("cli_scan_clean_store_exits_zero_with_summary", async () => {

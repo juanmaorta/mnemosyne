@@ -111,7 +111,7 @@ export function resolveScopeStrict(entries: ScopeMapEntry[], cwd: string): strin
  * — i.e. no more-specific prefix matched it, so the only reason it got a scope at
  * all is the catch-all. This is the per-WRITE condition for the MNE-59 hazard
  * (MNE-94): a correctly-mapped directory (its own prefix wins) returns false, so
- * a deliberate `personal` + `acme` setup is never nagged on every write.
+ * a deliberate `personal` + `work` setup is never nagged on every write.
  */
 export function resolvesViaCatchAll(
   entries: ScopeMapEntry[],

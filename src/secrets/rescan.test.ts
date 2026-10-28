@@ -16,11 +16,11 @@ function note(body: string): string {
 function fixture(): string {
   const root = mkdtempSync(join(tmpdir(), "mneme-rescan-"));
   mkdirSync(join(root, "personal", "facts"), { recursive: true });
-  mkdirSync(join(root, "acme"), { recursive: true });
+  mkdirSync(join(root, "work"), { recursive: true });
   mkdirSync(join(root, "archive"), { recursive: true });
   writeFileSync(join(root, "personal", "clean.md"), note("nothing to see here"));
   writeFileSync(join(root, "personal", "facts", "01J000000000000000000000AA.md"), note("plain fact"));
-  writeFileSync(join(root, "acme", "clean.md"), note("also clean"));
+  writeFileSync(join(root, "work", "clean.md"), note("also clean"));
   return root;
 }
 
@@ -62,15 +62,15 @@ describe("rescanStore", () => {
 
   test("rescan_defaults_to_every_scope", () => {
     const root = fixture();
-    writeFileSync(join(root, "acme", "leaky.md"), note(`key ${AWS_KEY}`));
+    writeFileSync(join(root, "work", "leaky.md"), note(`key ${AWS_KEY}`));
     const { findings, summary } = collect(root);
-    expect(findings.map((f) => f.scope)).toContain("acme");
-    expect(summary.scopes).toEqual(["personal", "acme"]);
+    expect(findings.map((f) => f.scope)).toContain("work");
+    expect(summary.scopes).toEqual(["personal", "work"]);
   });
 
   test("rescan_limited_to_requested_scope", () => {
     const root = fixture();
-    writeFileSync(join(root, "acme", "leaky.md"), note(`key ${AWS_KEY}`));
+    writeFileSync(join(root, "work", "leaky.md"), note(`key ${AWS_KEY}`));
     const { findings, summary } = collect(root, { scopes: ["personal"] });
     expect(findings).toEqual([]);
     expect(summary.scopes).toEqual(["personal"]);

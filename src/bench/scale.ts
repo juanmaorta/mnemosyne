@@ -1,5 +1,5 @@
 /**
- * Scale scenario (g) for the bench (MNE-65). `docs/plan.md` asserts
+ * Scale scenario (g) for the bench (MNE-65). `docs/architecture.md` assumes
  * "personal scale: brute-force cosine <10ms" as a DESIGN ASSUMPTION; this turns
  * it into a measured datum. It populates an EPHEMERAL store with N synthetic
  * engrams (deterministic fake embedder, injected clock), reindexes it — so the

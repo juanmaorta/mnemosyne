@@ -5,7 +5,7 @@ import { EngramSchema } from "./schema.js";
 /**
  * Obsidian's Properties UI reorders keys, rewrites lists as block sequences,
  * and reformats YAML on save. A note round-tripped through Obsidian must survive
- * our parse → validate → reserialize without schema drift (plan.md, Fase 0).
+ * our parse → validate → reserialize without schema drift (docs/architecture.md, phase 0).
  */
 describe("Obsidian round-trip", () => {
   // Frontmatter as Obsidian would rewrite it: keys reordered, list as a block
@@ -15,7 +15,7 @@ describe("Obsidian round-trip", () => {
     "importance: 8",
     "created: 2026-06-22T10:00:00",
     "type: reference",
-    "name: yogurtera-config",
+    "name: fermentor-config",
     "description: How to run the yogurt maker",
     "links:",
     "  - other-note",
@@ -37,7 +37,7 @@ describe("Obsidian round-trip", () => {
     const engram = EngramSchema.parse(data);
 
     expect(engram).toMatchObject({
-      name: "yogurtera-config",
+      name: "fermentor-config",
       type: "reference",
       importance: 8,
       links: ["other-note", "another-note"],

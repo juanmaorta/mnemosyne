@@ -17,8 +17,8 @@ const T0 = Date.parse("2026-08-08T09:00:00.000Z");
 async function seeded() {
   const root = mkdtempSync(join(tmpdir(), "mneme-snap-"));
   mkdirSync(join(root, "personal"), { recursive: true });
-  writeFileSync(join(root, "personal", "yogurtera.md"),
-    ["---", "name: yogurtera", "description: d", "scope: personal", "type: reference",
+  writeFileSync(join(root, "personal", "fermentor.md"),
+    ["---", "name: fermentor", "description: d", "scope: personal", "type: reference",
       "created: 2026-06-01T10:00:00", "importance: 5", "---", "body", ""].join("\n"));
   const db = openDb(join(root, ".index", "store.db"));
   await reindex({ root, db, embedder: createFakeEmbedder(), clock: fixedClock(T0) });

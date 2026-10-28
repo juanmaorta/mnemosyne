@@ -359,7 +359,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // and `update`, when a write actually resolves through the catch-all), not
         // per condition here. A read never routes a write, so warning on every
         // `context` was a recurring false positive in a correct, deliberate setup
-        // (personal + acme, all mapped). `snapshot` still records the condition as
+        // (personal + work, all mapped). `snapshot` still records the condition as
         // the durable signal.
         return 0;
       }

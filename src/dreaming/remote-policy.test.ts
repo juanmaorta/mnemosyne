@@ -55,11 +55,11 @@ describe("resolveEndpoint", () => {
   test("carries apiKeyEnv on the remote path, not the local one", () => {
     const remote = resolveEndpoint({ scope: "personal", policy: { endpoint: "https://infra.example", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] }, localHost: LOCAL });
     expect(remote).toMatchObject({ remote: true, apiKeyEnv: "OLLAMA_API_KEY" });
-    const local = resolveEndpoint({ scope: "acme", policy: { endpoint: "https://infra.example", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] }, localHost: LOCAL });
+    const local = resolveEndpoint({ scope: "work", policy: { endpoint: "https://infra.example", apiKeyEnv: "OLLAMA_API_KEY", allowScopes: ["personal"] }, localHost: LOCAL });
     expect(local).toEqual({ host: LOCAL, remote: false });
   });
   test("endpoint but scope NOT opted in → local, never remote", () => {
-    const r = resolveEndpoint({ scope: "acme", policy: { endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] }, localHost: LOCAL });
+    const r = resolveEndpoint({ scope: "work", policy: { endpoint: "https://infra.example", model: "qwen2.5:32b", allowScopes: ["personal"] }, localHost: LOCAL });
     expect(r).toEqual({ host: LOCAL, remote: false });
   });
   test("a loopback endpoint is not treated as remote even if opted in", () => {
@@ -69,7 +69,7 @@ describe("resolveEndpoint", () => {
 
   test("a non-loopback localHost is NOT inherited without opt-in (forces a loopback default)", () => {
     // e.g. OLLAMA_HOST pointing off-box must not become a silent egress path.
-    const r = resolveEndpoint({ scope: "acme", policy: { allowScopes: [] }, localHost: "https://unapproved.example" });
+    const r = resolveEndpoint({ scope: "work", policy: { allowScopes: [] }, localHost: "https://unapproved.example" });
     expect(r.remote).toBe(false);
     expect(isLoopbackHost(r.host)).toBe(true);
   });

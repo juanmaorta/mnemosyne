@@ -68,16 +68,16 @@ describe("addMemory", () => {
   });
 
   test("add_refuses_when_cwd_unmapped_and_no_scope", () => {
-    const { root, home } = store(["personal"], "~/Projects/acme = acme\n");
+    const { root, home } = store(["personal"], "~/Projects/work = work\n");
     expect(() => addMemory({ root, cwd: "/somewhere/else", home, now: NOW },
       { content: "x", type: "feedback", description: "d" })).toThrow(ScopeUnresolvedError);
   });
 
   test("add_refuses_when_machine_not_owner_of_scope", () => {
-    const { root, home } = store(["personal"]); // does NOT own acme
-    mkdirSync(join(root, "acme"), { recursive: true });
+    const { root, home } = store(["personal"]); // does NOT own work
+    mkdirSync(join(root, "work"), { recursive: true });
     expect(() => addMemory({ root, cwd: "/x", home, now: NOW },
-      { content: "client note", type: "feedback", scope: "acme", description: "d" })).toThrow(NotOwnerError);
+      { content: "client note", type: "feedback", scope: "work", description: "d" })).toThrow(NotOwnerError);
   });
 
   test("add_refuses_on_reject_secret", () => {

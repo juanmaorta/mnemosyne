@@ -48,7 +48,7 @@ describe("createDreamingGenerator", () => {
 
   test("stays local for a scope that is NOT opted in, even with an endpoint set", async () => {
     const cap: { url?: string } = {};
-    await createDreamingGenerator({ root: root(REMOTE), scope: "acme", localHost: LOCAL }, fakeFetch(cap)).generate("hola");
+    await createDreamingGenerator({ root: root(REMOTE), scope: "work", localHost: LOCAL }, fakeFetch(cap)).generate("hola");
     expect(cap.url!.startsWith(LOCAL)).toBe(true);
   });
 

@@ -18,7 +18,7 @@ function note(scope: string, slug: string, body: string): [string, string] {
 function store(): string {
   const root = mkdtempSync(join(tmpdir(), "mneme-reindex-"));
   mkdirSync(join(root, "personal"), { recursive: true });
-  const [f, c] = note("personal", "yogurtera", "yogurt maker control notes");
+  const [f, c] = note("personal", "fermentor", "yogurt maker control notes");
   writeFileSync(join(root, "personal", f), c);
   return root;
 }
@@ -105,12 +105,12 @@ describe("reindex", () => {
     const first = readTelemetry(root).filter((e) => e.kind === "engram.indexed");
     expect(first).toHaveLength(1);
     expect(first[0]).toMatchObject({
-      scope: "personal", slug: "yogurtera", embeddingId: "fake-bow/dim768", dim: 768, reason: "new",
+      scope: "personal", slug: "fermentor", embeddingId: "fake-bow/dim768", dim: 768, reason: "new",
     });
 
     // Rewrite with different bytes → the reason becomes `hash`, not `new`.
-    const path = join(root, "personal", "yogurtera.md");
-    const [, changed] = note("personal", "yogurtera", "completely different sourdough content");
+    const path = join(root, "personal", "fermentor.md");
+    const [, changed] = note("personal", "fermentor", "completely different sourdough content");
     writeFileSync(path, changed);
     const future = new Date(statSync(path).mtimeMs + 5000);
     utimesSync(path, future, future);
@@ -135,7 +135,7 @@ describe("reindex", () => {
     const root = store();
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
-    rmSync(join(root, "personal", "yogurtera.md"));
+    rmSync(join(root, "personal", "fermentor.md"));
     const stats = await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
     expect(stats.deleted).toBe(1);
     expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 0 });
@@ -153,7 +153,7 @@ describe("reindex", () => {
 
   test("reindex_updates_changed_file_without_orphaning_vectors", async () => {
     const root = store();
-    // Two more notes, alphabetically before and after "yogurtera", so the row
+    // Two more notes, alphabetically before and after "fermentor", so the row
     // being changed is neither the first nor the last indexed. Deleting a
     // non-max rowid and re-inserting (autoincrement bumps past the current
     // max) yields a NEW id different from the old one — this is what exposes
@@ -167,8 +167,8 @@ describe("reindex", () => {
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
-    const path = join(root, "personal", "yogurtera.md");
-    const [, updated] = note("personal", "yogurtera", "completely different content about sourdough starters");
+    const path = join(root, "personal", "fermentor.md");
+    const [, updated] = note("personal", "fermentor", "completely different content about sourdough starters");
     writeFileSync(path, updated);
     // Bump mtime forward so needsReindex triggers regardless of filesystem mtime resolution.
     const future = new Date(statSync(path).mtimeMs + 5000);
@@ -183,7 +183,7 @@ describe("reindex", () => {
     expect(vecCount).toEqual(engramCount);
     expect(ftsCount).toEqual(engramCount);
 
-    const row = db.prepare("select snippet from engrams where slug = ?").get("yogurtera") as { snippet: string };
+    const row = db.prepare("select snippet from engrams where slug = ?").get("fermentor") as { snippet: string };
     expect(row.snippet).toContain("sourdough starters");
   });
 
@@ -194,9 +194,9 @@ describe("reindex", () => {
 
     // Rewrite the SAME path, changing only the frontmatter slug (`name:`).
     // Identity must be tracked by path, not by (slug, scope) — otherwise the
-    // old (slug=yogurtera) row survives as an orphan alongside the new one.
-    const path = join(root, "personal", "yogurtera.md");
-    const [, renamed] = note("personal", "kefir-notes", "kefir culture notes, renamed from yogurtera");
+    // old (slug=fermentor) row survives as an orphan alongside the new one.
+    const path = join(root, "personal", "fermentor.md");
+    const [, renamed] = note("personal", "kefir-notes", "kefir culture notes, renamed from fermentor");
     writeFileSync(path, renamed);
     const future = new Date(statSync(path).mtimeMs + 5000);
     utimesSync(path, future, future);
@@ -217,20 +217,20 @@ describe("reindex", () => {
     // other scopes' paths. The prune phase must NOT treat those unseen paths
     // as deleted files — otherwise a scoped reindex (e.g. the SessionStart
     // `mneme context` hook) wipes every other scope from the index.
-    const root = store(); // personal/yogurtera
-    mkdirSync(join(root, "acme"), { recursive: true });
-    const [tf, tc] = note("acme", "backend", "auth gateway notes");
-    writeFileSync(join(root, "acme", tf), tc);
+    const root = store(); // personal/fermentor
+    mkdirSync(join(root, "work"), { recursive: true });
+    const [tf, tc] = note("work", "gateway", "auth gateway notes");
+    writeFileSync(join(root, "work", tf), tc);
 
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder() }); // full: both scopes
     expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 2 });
 
-    // Scoped reindex of personal only — acme must survive untouched.
+    // Scoped reindex of personal only — work must survive untouched.
     const stats = await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
     expect(stats.deleted).toBe(0);
     expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 2 });
-    expect(db.prepare("select count(*) as n from engrams where scope = ?").get("acme")).toEqual({ n: 1 });
+    expect(db.prepare("select count(*) as n from engrams where scope = ?").get("work")).toEqual({ n: 1 });
   });
 
   test("reindex_scope_change_at_same_path_does_not_orphan_old_row", async () => {
@@ -244,8 +244,8 @@ describe("reindex", () => {
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
-    const path = join(root, "personal", "yogurtera.md");
-    const [, rescoped] = note("shared", "yogurtera", "yogurt maker notes, now shared scope");
+    const path = join(root, "personal", "fermentor.md");
+    const [, rescoped] = note("shared", "fermentor", "yogurt maker notes, now shared scope");
     writeFileSync(path, rescoped);
     const future = new Date(statSync(path).mtimeMs + 5000);
     utimesSync(path, future, future);

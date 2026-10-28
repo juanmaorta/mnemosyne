@@ -21,7 +21,7 @@ function note(root: string, scope: string, slug: string, body: string) {
 
 async function indexed() {
   const root = mkdtempSync(join(tmpdir(), "mneme-instr-"));
-  note(root, "personal", "yogurtera", "yogurt maker control fermentation");
+  note(root, "personal", "fermentor", "yogurt maker control fermentation");
   note(root, "personal", "router", "omada router network wifi");
   note(root, "personal", "camara", "panoramic camera film lens");
   const db = openDb(":memory:");

@@ -19,9 +19,9 @@ beforeAll(() => { process.env.MNEMOSYNE_FAKE_EMBED = "1"; });
 async function indexedStore(): Promise<{ root: string; path: string }> {
   const root = mkdtempSync(join(tmpdir(), "mneme-cliget-"));
   mkdirSync(join(root, "personal"), { recursive: true });
-  const path = join(root, "personal", "yogurtera.md");
+  const path = join(root, "personal", "fermentor.md");
   writeFileSync(path, [
-    "---", "name: yogurtera", "description: como hacer yogur", "scope: personal",
+    "---", "name: fermentor", "description: como hacer yogur", "scope: personal",
     "type: reference", "created: 2026-06-01T10:00:00", "importance: 5", "---",
     "primera linea", "", "  sangrado y acentos: fermentación", "",
   ].join("\n"));
@@ -34,14 +34,14 @@ describe("runCli get --json", () => {
     const { root, path } = await indexedStore();
     const lines: string[] = [];
 
-    const code = await runCli(["get", "yogurtera", "--scope", "personal", "--json", "--root", root], (s) => lines.push(s), () => {});
+    const code = await runCli(["get", "fermentor", "--scope", "personal", "--json", "--root", root], (s) => lines.push(s), () => {});
 
     expect(code).toBe(0);
     // Exactly one JSON object on stdout — no banner, no warning, nothing else.
     expect(lines).toHaveLength(1);
     const doc = JSON.parse(lines[0]!) as Record<string, unknown>;
     expect(doc).toEqual({
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       path,
       content: readFileSync(path, "utf8"),
@@ -53,11 +53,11 @@ describe("runCli get --json", () => {
   test("cli_get_json_keeps_reinforcing_the_memory", async () => {
     const { root } = await indexedStore();
 
-    expect(await runCli(["get", "yogurtera", "--json", "--root", root], () => {}, () => {})).toBe(0);
+    expect(await runCli(["get", "fermentor", "--json", "--root", root], () => {}, () => {})).toBe(0);
 
     // --json is a read like any other: it must not become a way to read a
     // memory without strengthening it.
-    const hot = getHotState(openDb(join(root, ".index", "store.db")), "personal", "yogurtera")!;
+    const hot = getHotState(openDb(join(root, ".index", "store.db")), "personal", "fermentor")!;
     expect(hot.accessCount).toBe(1);
   });
 
@@ -65,7 +65,7 @@ describe("runCli get --json", () => {
     const { root, path } = await indexedStore();
     const lines: string[] = [];
 
-    const code = await runCli(["get", "yogurtera", "--root", root], (s) => lines.push(s), () => {});
+    const code = await runCli(["get", "fermentor", "--root", root], (s) => lines.push(s), () => {});
 
     expect(code).toBe(0);
     expect(lines).toEqual([readFileSync(path, "utf8")]);

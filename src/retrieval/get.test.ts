@@ -24,19 +24,19 @@ async function db(setup: (root: string) => void) {
 
 describe("getEngram", () => {
   test("getEngram_returns_full_content", async () => {
-    const d = await db((r) => note(r, "personal", "yogurtera"));
-    expect(getEngram(d, "yogurtera").content).toContain("body of yogurtera in personal");
+    const d = await db((r) => note(r, "personal", "fermentor"));
+    expect(getEngram(d, "fermentor").content).toContain("body of fermentor in personal");
   });
   test("getEngram_throws_NotFound_for_missing_slug", async () => {
-    const d = await db((r) => note(r, "personal", "yogurtera"));
+    const d = await db((r) => note(r, "personal", "fermentor"));
     expect(() => getEngram(d, "nope")).toThrow(NotFoundError);
   });
   test("getEngram_throws_Ambiguous_when_slug_in_multiple_scopes", async () => {
-    const d = await db((r) => { note(r, "personal", "shared"); note(r, "acme", "shared"); });
+    const d = await db((r) => { note(r, "personal", "shared"); note(r, "work", "shared"); });
     expect(() => getEngram(d, "shared")).toThrow(AmbiguousSlugError);
   });
   test("getEngram_disambiguates_with_scope", async () => {
-    const d = await db((r) => { note(r, "personal", "shared"); note(r, "acme", "shared"); });
-    expect(getEngram(d, "shared", "acme").content).toContain("in acme");
+    const d = await db((r) => { note(r, "personal", "shared"); note(r, "work", "shared"); });
+    expect(getEngram(d, "shared", "work").content).toContain("in work");
   });
 });

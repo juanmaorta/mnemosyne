@@ -138,7 +138,7 @@ describe("synthesize — bounded dry-run synthesis", () => {
 
   test("rejects a source that exists only in another scope (no scope mixing)", async () => {
     const root = store();
-    writeFact(root, "acme", "fact-a", "01J0000000000000000000000A", "otro scope");
+    writeFact(root, "work", "fact-a", "01J0000000000000000000000A", "otro scope");
 
     await expect(
       synthesize({ root, scope: "personal", group: group(), generator: fakeGen(MODEL_OUT), now: NOW }),
@@ -159,14 +159,14 @@ describe("synthesize — bounded dry-run synthesis", () => {
 
   test("rejects a synthesis that asserts an identifier not grounded in its sources", async () => {
     const root = store();
-    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "el proyecto proj-orbital es gratis y MIT");
+    writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "el proyecto nimbus-relay es gratis y MIT");
     // The model corrupts the project name — a classic MNE-80 failure.
-    const corrupted = "Estado del proyecto\nEl proyecto prog-orbital sigue siendo MIT.";
+    const corrupted = "Estado del proyecto\nEl proyecto nimbo-relay sigue siendo MIT.";
 
     const res = await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(corrupted), now: NOW });
 
     expect(res.proposal).toBeUndefined();
-    expect(res.rejection?.reason).toMatch(/fundad|grounded|prog-orbital/i);
+    expect(res.rejection?.reason).toMatch(/fundad|grounded|nimbo-relay/i);
   });
 
   test("a body over the size limit is rejected as not applicable", async () => {
@@ -183,7 +183,7 @@ describe("synthesize — bounded dry-run synthesis", () => {
   test("accepts a single-paragraph generation (no title/body split) as a note", async () => {
     const root = store();
     writeFact(root, "personal", "fact-a", "01J0000000000000000000000A", "deploy");
-    const oneParagraph = "WLED: light.wled era el segmento 0; borrarla apagó los LEDs 1-20. Fix: repuntar a light.wled_monitor_main.";
+    const oneParagraph = "LedStrip: light.strip era el segmento 0; borrarla apagó los LEDs 1-20. Fix: repuntar a light.strip_desk_main.";
 
     const res = await synthesize({ root, scope: "personal", group: group(), generator: fakeGen(oneParagraph), now: NOW });
 

@@ -42,5 +42,5 @@ documentation for your installed OpenCode version first:
 ## See also
 
 - [`memory-instructions.md`](memory-instructions.md) — the block to paste.
-- [`canonical-memory-cutover.md`](canonical-memory-cutover.md) §6 — the cutover step this
-  page expands.
+- [Migrating from native memory](../guide/migrating-from-native-memory.md) — moving an existing
+  setup onto Mnemosyne and switching the native memory off.

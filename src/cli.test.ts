@@ -17,15 +17,15 @@ function storeWith(slug: string): string {
 
 describe("runCli", () => {
   test("search_with_no_relevant_hit_reports_the_best_cosine_and_exits_two", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const code = await runCli(["search", "unrelated query", "--root", root, "--min-cos", "1"], (s) => lines.push(s));
     expect(code).toBe(2);
-    expect(lines.join("\n")).toMatch(/No relevant results; best candidate: yogurtera.*cos .*minimum 1\.000/);
+    expect(lines.join("\n")).toMatch(/No relevant results; best candidate: fermentor.*cos .*minimum 1\.000/);
   });
 
   test("search_rejects_an_invalid_cosine_floor", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const errors: string[] = [];
     expect(await runCli(["search", "test", "--root", root, "--min-cos", "2"], () => {}, (s) => errors.push(s))).toBe(1);
     expect(errors.join("\n")).toMatch(/min-cos/);
@@ -34,46 +34,46 @@ describe("runCli", () => {
   test("search_lexical_floor_rescues_a_below_floor_lexical_match", async () => {
     // MNE-98: --min-cos 1 rejects everything on cosine; a raw-BM25 floor of 0
     // lets the note back in because it shares the query term.
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
-    expect(await runCli(["search", "yogurtera", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
-    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(await runCli(["search", "fermentor", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
+    expect(lines.join("\n")).toMatch(/fermentor/);
   });
 
   test("explain_shows_the_lexical_floor", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
-    expect(await runCli(["explain", "yogurtera", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
+    expect(await runCli(["explain", "fermentor", "--root", root, "--min-cos", "1", "--lexical-floor", "0"], (s) => lines.push(s))).toBe(0);
     expect(lines.join("\n")).toMatch(/lexical rescue floor \(raw BM25\): 0\.000/);
-    expect(lines.join("\n")).toMatch(/yogurtera \[personal\] \(lexical rescue/);
+    expect(lines.join("\n")).toMatch(/fermentor \[personal\] \(lexical rescue/);
   });
 
   test("search_rejects_an_invalid_lexical_floor", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const errors: string[] = [];
     expect(await runCli(["search", "test", "--root", root, "--lexical-floor", "-1"], () => {}, (s) => errors.push(s))).toBe(1);
     expect(errors.join("\n")).toMatch(/lexical-floor/);
   });
 
   test("cli_reindex_then_search_prints_hit", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const out = (s: string) => lines.push(s);
     expect(await runCli(["reindex", "--root", root], out)).toBe(0);
-    expect(await runCli(["search", "yogurtera", "--root", root], out)).toBe(0);
-    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(await runCli(["search", "fermentor", "--root", root], out)).toBe(0);
+    expect(lines.join("\n")).toMatch(/fermentor/);
   });
 
   test("cli_get_prints_full_content", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     await runCli(["reindex", "--root", root], () => {});
-    expect(await runCli(["get", "yogurtera", "--root", root], (s) => lines.push(s))).toBe(0);
-    expect(lines.join("\n")).toContain("body of yogurtera");
+    expect(await runCli(["get", "fermentor", "--root", root], (s) => lines.push(s))).toBe(0);
+    expect(lines.join("\n")).toContain("body of fermentor");
   });
 
   test("cli_get_missing_slug_exits_nonzero", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     await runCli(["reindex", "--root", root], () => {});
     const errs: string[] = [];
     expect(await runCli(["get", "nope", "--root", root], () => {}, (s) => errs.push(s))).toBe(1);
@@ -115,18 +115,18 @@ describe("runCli", () => {
 
   test("cli_scope_reports_mapped_scope_and_ownership", async () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-scope-"));
-    writeFileSync(join(root, ".scopemap"), "/work/acme = acme\n");
-    writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal", "acme"] }));
+    writeFileSync(join(root, ".scopemap"), "/work/work = work\n");
+    writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal", "work"] }));
     const lines: string[] = [];
-    expect(await runCli(["scope", "/work/acme/repo", "--root", root], (s) => lines.push(s))).toBe(0);
+    expect(await runCli(["scope", "/work/work/repo", "--root", root], (s) => lines.push(s))).toBe(0);
     const out = lines.join("\n");
-    expect(out).toMatch(/acme/);
+    expect(out).toMatch(/work/);
     expect(out).toMatch(/owned/);
   });
 
   test("cli_scope_reports_unmapped_path", async () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-scope-"));
-    writeFileSync(join(root, ".scopemap"), "/work/acme = acme\n");
+    writeFileSync(join(root, ".scopemap"), "/work/work = work\n");
     const lines: string[] = [];
     expect(await runCli(["scope", "/tmp/elsewhere", "--root", root], (s) => lines.push(s))).toBe(0);
     expect(lines.join("\n")).toMatch(/unmapped/);
@@ -134,10 +134,10 @@ describe("runCli", () => {
 
   test("cli_scope_reports_not_owned_when_policy_excludes_scope", async () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-scope-"));
-    writeFileSync(join(root, ".scopemap"), "/work/acme = acme\n");
+    writeFileSync(join(root, ".scopemap"), "/work/work = work\n");
     writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal"] }));
     const lines: string[] = [];
-    expect(await runCli(["scope", "/work/acme/repo", "--root", root], (s) => lines.push(s))).toBe(0);
+    expect(await runCli(["scope", "/work/work/repo", "--root", root], (s) => lines.push(s))).toBe(0);
     expect(lines.join("\n")).toMatch(/not owned/i);
   });
 });
@@ -153,7 +153,7 @@ describe("a changed embedder from the CLI", () => {
   }
 
   test("cli_reindex_refuses_an_index_built_by_another_embedder", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     await indexStampedBy(root, "other-model/dim768");
     const errs: string[] = [];
 
@@ -166,7 +166,7 @@ describe("a changed embedder from the CLI", () => {
   });
 
   test("cli_reindex_rebuilds_when_force_embedder_is_passed", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     await indexStampedBy(root, "other-model/dim768");
     const lines: string[] = [];
 
@@ -180,7 +180,7 @@ describe("a changed embedder from the CLI", () => {
     // Session start must never fail. With the embedder disagreeing, the lazy
     // reindex refuses — and the digest is served from the index already there,
     // degraded but present, which is the whole point of not rebuilding unasked.
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     await indexStampedBy(root, "other-model/dim768");
     const lines: string[] = [];
     const errs: string[] = [];
@@ -188,7 +188,7 @@ describe("a changed embedder from the CLI", () => {
     const code = await runCli(["context", "--root", root, "--scope", "personal"], (s) => lines.push(s), (s) => errs.push(s));
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(lines.join("\n")).toMatch(/fermentor/);
     expect(errs.join("\n")).toMatch(/degraded/);
   });
 });

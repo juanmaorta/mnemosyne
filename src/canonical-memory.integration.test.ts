@@ -168,9 +168,9 @@ interface JsonDoc { slug: string; scope: string; path: string; content: string; 
 
 describe("canonical memory: one store, many clients", () => {
   test("importing a native memory directory twice creates the memories exactly once", async () => {
-    const root = makeStore(["acme"]);
+    const root = makeStore(["work"]);
     const source = nativeSource();
-    const args = ["import-claude", "--source", source, "--source-id", "repo-a", "--scope", "acme", "--apply", "--root", root];
+    const args = ["import-claude", "--source", source, "--source-id", "repo-a", "--scope", "work", "--apply", "--root", root];
 
     const first = await cli(...args);
     expect(first.code).toBe(0);
@@ -182,8 +182,8 @@ describe("canonical memory: one store, many clients", () => {
     for (const f of SOURCE_FACTS) expect(statusOf(first.stdout, f)).toBe("imported");
     expect(statusOf(first.stdout, "MEMORY.md")).toBe("ignored");
     expect(statusOf(first.stdout, "apuntes.txt")).toBe("ignored");
-    const notesAfterFirst = notesIn(root, "acme");
-    const factsAfterFirst = factsIn(root, "acme");
+    const notesAfterFirst = notesIn(root, "work");
+    const factsAfterFirst = factsIn(root, "work");
     expect(notesAfterFirst).toHaveLength(SOURCE_NOTES.length);
     expect(factsAfterFirst).toHaveLength(SOURCE_FACTS.length);
 
@@ -193,37 +193,37 @@ describe("canonical memory: one store, many clients", () => {
     for (const f of [...SOURCE_NOTES, ...SOURCE_FACTS]) expect(statusOf(second.stdout, f)).toBe("skipped-identical");
     expect(second.stdout).toMatch(/summary: imported 0, skipped-identical 4, conflict 0, failed 0/);
     // The disk is the real assertion: same files, same names, same bytes.
-    expect(notesIn(root, "acme")).toEqual(notesAfterFirst);
-    expect(factsIn(root, "acme")).toEqual(factsAfterFirst);
+    expect(notesIn(root, "work")).toEqual(notesAfterFirst);
+    expect(factsIn(root, "work")).toEqual(factsAfterFirst);
     // The source was only ever read.
     expect(readdirSync(source).sort()).toEqual([...SOURCE_FACTS, "MEMORY.md", "apuntes.txt", ...SOURCE_NOTES].sort());
   }, 60_000);
 
   test("imported history is retrievable after a reindex, in the scope it was imported into", async () => {
-    const root = makeStore(["acme"]);
+    const root = makeStore(["work"]);
     expect((await cli("import-claude", "--source", nativeSource(), "--source-id", "repo-a",
-      "--scope", "acme", "--apply", "--root", root)).code).toBe(0);
+      "--scope", "work", "--apply", "--root", root)).code).toBe(0);
     // The importer deliberately does not touch the index: on disk is not the
     // same as retrievable until this runs.
     expect((await cli("reindex", "--root", root)).code).toBe(0);
 
-    const file = factsIn(root, "acme").find((f) => readFileSync(join(root, "acme", "facts", f), "utf8").includes("02:00 a 04:00"))!;
-    const slug = factSlugMatching(root, "acme", "02:00 a 04:00");
-    const found = await cli("search", "ventana de backup del cluster kraken", "--scope", "acme", "-k", "10", "--root", root);
+    const file = factsIn(root, "work").find((f) => readFileSync(join(root, "work", "facts", f), "utf8").includes("02:00 a 04:00"))!;
+    const slug = factSlugMatching(root, "work", "02:00 a 04:00");
+    const found = await cli("search", "ventana de backup del cluster kraken", "--scope", "work", "-k", "10", "--root", root);
 
     expect(found.code).toBe(0);
     expect(found.stdout).toContain(slug);
-    expect(found.stdout).toContain("[acme]");
+    expect(found.stdout).toContain("[work]");
 
-    const read = await cli("get", slug, "--scope", "acme", "--json", "--root", root);
+    const read = await cli("get", slug, "--scope", "work", "--json", "--root", root);
     expect(read.code).toBe(0);
     const doc = JSON.parse(read.stdout) as JsonDoc;
     // Scope and content are the claim: the history came across whole, under the
     // scope the operator named, not under `personal`.
-    expect(doc.scope).toBe("acme");
-    expect(doc.path).toBe(join(root, "acme", "facts", file));
+    expect(doc.scope).toBe("work");
+    expect(doc.path).toBe(join(root, "work", "facts", file));
     expect(doc.content).toContain("La ventana de backup del cluster kraken es de 02:00 a 04:00, no a medianoche.");
-    expect(parseFrontmatter(doc.content).data).toMatchObject({ name: slug, scope: "acme", type: "feedback" });
+    expect(parseFrontmatter(doc.content).data).toMatchObject({ name: slug, scope: "work", type: "feedback" });
     expect(existsSync(join(root, "personal"))).toBe(false);
   }, 60_000);
 
@@ -231,27 +231,27 @@ describe("canonical memory: one store, many clients", () => {
     const wdA = workdir("repo-a");
     const wdB = workdir("repo-b");
     // Two working directories, one scope: this is the whole cross-repo claim.
-    const root = makeStore(["acme"], { [wdA]: "acme", [wdB]: "acme" });
+    const root = makeStore(["work"], { [wdA]: "work", [wdB]: "work" });
 
     const written = await cli("add", "El despliegue de kraken exige aprobacion de dos revisores.",
       "--type", "project", "--slug", "despliegue-kraken", "--description", "regla de despliegue de kraken",
       "--cwd", wdA, "--root", root);
     expect(written.code).toBe(0);
-    expect(written.stdout).toContain("[acme]");
-    expect(existsSync(join(root, "acme", "despliegue-kraken.md"))).toBe(true);
+    expect(written.stdout).toContain("[work]");
+    expect(existsSync(join(root, "work", "despliegue-kraken.md"))).toBe(true);
 
     // Another process, another repo, no --scope: the scope comes from its cwd.
     const digest = await spawned("context", "--cwd", wdB, "--root", root, "--budget", "100000");
     expect(digest.code).toBe(0);
-    expect(digest.stdout).toContain("scope: acme");
+    expect(digest.stdout).toContain("scope: work");
     expect(digest.stdout).toContain("- [despliegue-kraken]");
 
-    const read = await spawned("get", "despliegue-kraken", "--scope", "acme", "--json", "--root", root);
+    const read = await spawned("get", "despliegue-kraken", "--scope", "work", "--json", "--root", root);
     expect(read.code).toBe(0);
     const doc = JSON.parse(read.stdout) as JsonDoc;
     expect(doc.content).toContain("El despliegue de kraken exige aprobacion de dos revisores.");
     // Retrieved from the one store, not from a copy next to the second repo.
-    expect(doc.path).toBe(join(root, "acme", "despliegue-kraken.md"));
+    expect(doc.path).toBe(join(root, "work", "despliegue-kraken.md"));
     expect(readdirSync(wdB)).toEqual([]);
   }, 120_000);
 
@@ -322,12 +322,12 @@ describe("canonical memory: one store, many clients", () => {
     const root = makeStore(["personal"], { [mapped]: "personal" });
     const before = tree(root);
 
-    const notOwned = await cli("add", "dato del cliente", "--type", "feedback", "--scope", "acme", "--root", root);
+    const notOwned = await cli("add", "dato del cliente", "--type", "feedback", "--scope", "work", "--root", root);
     expect(notOwned.code).toBe(1);
-    expect(notOwned.stderr).toContain("does not own scope 'acme'");
+    expect(notOwned.stderr).toContain("does not own scope 'work'");
     // A refused write must not even materialize the scope directory: the folder
     // IS the compliance boundary, and an empty one says the scope lives here.
-    expect(existsSync(join(root, "acme"))).toBe(false);
+    expect(existsSync(join(root, "work"))).toBe(false);
 
     const unresolved = await cli("add", "dato sin destino", "--type", "feedback", "--cwd", unmapped, "--root", root);
     expect(unresolved.code).toBe(1);
@@ -340,20 +340,20 @@ describe("canonical memory: one store, many clients", () => {
   }, 60_000);
 
   test("deleting the index loses nothing: the truth is the Markdown", async () => {
-    const root = makeStore(["acme"]);
+    const root = makeStore(["work"]);
     expect((await cli("import-claude", "--source", nativeSource(), "--source-id", "repo-a",
-      "--scope", "acme", "--apply", "--root", root)).code).toBe(0);
+      "--scope", "work", "--apply", "--root", root)).code).toBe(0);
     expect((await cli("add", "El runbook de kraken vive en el repo de infraestructura.",
-      "--type", "reference", "--scope", "acme", "--slug", "runbook-kraken",
+      "--type", "reference", "--scope", "work", "--slug", "runbook-kraken",
       "--description", "donde vive el runbook de kraken", "--root", root)).code).toBe(0);
     expect((await cli("reindex", "--root", root)).code).toBe(0);
 
-    const query = ["search", "kraken backup runbook", "--scope", "acme", "-k", "10", "--root", root];
+    const query = ["search", "kraken backup runbook", "--scope", "work", "-k", "10", "--root", root];
     const before = await cli(...query);
     expect(before.code).toBe(0);
     const slugsBefore = before.stdout.split("\n").map((l) => l.trim().split(/\s+/)[1]).filter(Boolean);
     expect(slugsBefore).toContain("runbook-kraken");
-    const contentBefore = (JSON.parse((await cli("get", "runbook-kraken", "--scope", "acme", "--json", "--root", root)).stdout) as JsonDoc).content;
+    const contentBefore = (JSON.parse((await cli("get", "runbook-kraken", "--scope", "work", "--json", "--root", root)).stdout) as JsonDoc).content;
 
     rmSync(join(root, ".index"), { recursive: true, force: true });
     expect(existsSync(join(root, ".index"))).toBe(false);
@@ -366,6 +366,6 @@ describe("canonical memory: one store, many clients", () => {
     // Same memories, same bytes: the index is derived state and rebuilding it
     // from scratch is always allowed.
     expect(slugsAfter.sort()).toEqual(slugsBefore.sort());
-    expect((JSON.parse((await cli("get", "runbook-kraken", "--scope", "acme", "--json", "--root", root)).stdout) as JsonDoc).content).toBe(contentBefore);
+    expect((JSON.parse((await cli("get", "runbook-kraken", "--scope", "work", "--json", "--root", root)).stdout) as JsonDoc).content).toBe(contentBefore);
   }, 60_000);
 });

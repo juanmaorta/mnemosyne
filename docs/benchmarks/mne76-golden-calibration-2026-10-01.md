@@ -20,7 +20,7 @@ captured the full `searchExplain` candidate set once, verified the reconstructed
 production top ten, and reranked those candidates offline. It checked corpus
 content, ranking metadata, and access-event fingerprints before and after each
 scope. No memory notes or events were written. Review sets and numeric local
-scorecards remain under `/private/tmp/mnemosyne-5b-mne76/`; neither questions,
+scorecards remain in a local scratch directory outside git; neither questions,
 document identifiers, nor relevance labels are committed.
 
 The refreshed baseline is measured on the **same** questions, labels, corpus,

@@ -7,7 +7,7 @@ index built from the current local corpus with `nomic-embed-text`. Every query
 was run with the production weights and Nomic cosine floor (`0.70`), then with
 recency and importance weights set to zero and the floor disabled. The local
 diagnostic scorecards contain query IDs, ranks, cosine values, and score-signal
-breakdowns. They remain outside git at `/private/tmp/mnemosyne-5b-golden/`.
+breakdowns. They remain outside git, in a local scratch directory.
 Because the corpora changed, decay was evaluated at the current time instead
 of the review set's older timestamp.
 
@@ -76,8 +76,8 @@ No query text, slug, or note content is recorded here.
    the changed review sets. Do not treat the present personal nDCG difference
    as a release gate because it excludes one previously labeled query.
 3. After that review, use the remaining personal misses to justify
-   MNE-33
-   or MNE-32
+   MNE-33 (vector granularity)
+   or MNE-32 (embedding model A/B)
    with a measured target. The current evidence does not justify changing the
    embedding model globally.
 

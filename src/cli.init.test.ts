@@ -86,13 +86,13 @@ describe("mneme init", () => {
     await runCli(["init", "--root", root, "--write"], () => {});
     mkdirSync(join(root, "personal"), { recursive: true });
     const { writeFileSync } = await import("node:fs");
-    writeFileSync(join(root, "personal", "yogurtera.md"),
-      ["---", "name: yogurtera", "description: yogurt maker", "scope: personal", "type: reference",
+    writeFileSync(join(root, "personal", "fermentor.md"),
+      ["---", "name: fermentor", "description: yogurt maker", "scope: personal", "type: reference",
         "created: 2026-06-01T10:00:00", "importance: 5", "---", "yogurt maker body", ""].join("\n"));
     const lines: string[] = [];
     // BM25 is lexical: query terms that actually appear in the note.
     expect(await runCli(["search", "yogurt maker", "--root", root], (s) => lines.push(s))).toBe(0);
-    expect(lines.join("\n")).toMatch(/yogurtera/);
+    expect(lines.join("\n")).toMatch(/fermentor/);
     // Tier 0 → no vectors were written.
     const db = openDb(storePaths(root).indexDb);
     expect((db.prepare("select count(*) as n from vec_engrams").get() as { n: number }).n).toBe(0);

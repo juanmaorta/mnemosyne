@@ -122,11 +122,11 @@ describe("runCli import-claude", () => {
     const root = store(["personal"]);
     const src = sourceDir({ "riego.md": NOTE });
 
-    const r = await cli(["import-claude", "--source", src, "--source-id", "repo-a", "--scope", "acme", "--root", root]);
+    const r = await cli(["import-claude", "--source", src, "--source-id", "repo-a", "--scope", "work", "--root", root]);
 
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/^failed\s+riego\.md\s+\[not-owner\]/m);
-    expect(existsSync(join(root, "acme"))).toBe(false);
+    expect(existsSync(join(root, "work"))).toBe(false);
   });
 
   test("cli_import_report_never_echoes_bodies_or_secrets", async () => {

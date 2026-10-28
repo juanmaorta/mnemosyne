@@ -68,13 +68,13 @@ describe("runCli add", () => {
     writeFileSync(join(root, ".owner"), JSON.stringify({ owns: ["personal"] }));
     const errs: string[] = [];
     const code = await runCli(
-      ["add", "some content", "--type", "feedback", "--scope", "acme", "--description", "d", "--root", root],
+      ["add", "some content", "--type", "feedback", "--scope", "work", "--description", "d", "--root", root],
       () => {},
       (s) => errs.push(s),
     );
     expect(code).toBe(1);
     const out = errs.join("\n");
-    expect(out).toContain("acme");
+    expect(out).toContain("work");
     expect(out).toContain(join(root, ".owner"));
   });
 

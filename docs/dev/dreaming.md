@@ -20,7 +20,8 @@ stale — without ever growing what gets loaded into context.
 
 Opting into a larger model on a remote endpoint is possible but never the default: it is
 configured per machine in `<root>/.dreaming.json`, names the scopes allowed to leave, and fails
-closed when its API key variable is missing.
+closed when its API key variable is missing. The file format and its guarantees are in
+[Dreaming — remote opt-in](../dreaming-remote-opt-in.md).
 
 Not built yet: the scheduled nightly runner (and with it, per-run enforcement of the
 [one-owner-per-scope](../guide/configuration.md#which-scopes-a-machine-may-write-owner) rule),

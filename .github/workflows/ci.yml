@@ -44,3 +44,24 @@ jobs:
       # on purpose and assert the error path.
       - run: npm test
 
+
+  privacy:
+    name: privacy check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Fails if a tracked file matches the private denylist. The denylist is a
+      # repository secret, never a file in the repo: committing it would publish
+      # exactly what it guards. Pull requests from forks get no secrets, so there
+      # the script warns and passes. Its output names only path:line and the
+      # entry number, never the matched term (these logs are public).
+      - run: node scripts/privacy-check.mjs
+        env:
+          MNEMOSYNE_PRIVACY_DENYLIST: ${{ secrets.MNEMOSYNE_PRIVACY_DENYLIST }}

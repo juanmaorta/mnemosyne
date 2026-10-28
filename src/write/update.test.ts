@@ -112,7 +112,7 @@ function note(
 }
 
 const FULL = [
-  "name: yogurtera",
+  "name: fermentor",
   "description: como hacer yogur",
   "scope: personal",
   "created: 2026-06-01T10:00:00",
@@ -136,20 +136,20 @@ function leftovers(dir: string): string[] {
 describe("updateNote", () => {
   test("update_replaces_the_body_and_preserves_every_identity_field", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const before = revisionOnDisk(path);
 
     const res = updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: before,
       content: "cuerpo nuevo\ncon dos lineas\n",
     });
 
-    expect(res).toMatchObject({ path, scope: "personal", slug: "yogurtera" });
+    expect(res).toMatchObject({ path, scope: "personal", slug: "fermentor" });
     const doc = parseFrontmatter(readFileSync(path, "utf8"));
     expect(doc.data).toEqual({
-      name: "yogurtera",
+      name: "fermentor",
       description: "como hacer yogur",
       scope: "personal",
       created: "2026-06-01T10:00:00",
@@ -167,10 +167,10 @@ describe("updateNote", () => {
 
   test("update_changes_description_and_importance_without_touching_the_body", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL, "cuerpo intacto\n");
+    const path = note(root, "personal", "fermentor.md", FULL, "cuerpo intacto\n");
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       description: "receta revisada",
@@ -186,10 +186,10 @@ describe("updateNote", () => {
 
   test("update_requires_at_least_one_change", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
       })
@@ -198,12 +198,12 @@ describe("updateNote", () => {
 
   test("update_rejects_a_stale_revision_without_touching_the_bytes", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const original = readFileSync(path);
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: "0".repeat(64),
         content: "no debe escribirse",
@@ -216,7 +216,7 @@ describe("updateNote", () => {
 
   test("update_refuses_a_slug_that_does_not_exist", () => {
     const { root, home } = store();
-    note(root, "personal", "yogurtera.md", FULL);
+    note(root, "personal", "fermentor.md", FULL);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
         slug: "inexistente",
@@ -251,7 +251,7 @@ describe("updateNote", () => {
 
   test("update_refuses_two_files_claiming_the_same_slug", () => {
     const { root, home } = store();
-    const a = note(root, "personal", "yogurtera.md", FULL);
+    const a = note(root, "personal", "fermentor.md", FULL);
     // A hand-copied note that kept the original `name`: the index would reject
     // this pair too, but update must not depend on the index being current.
     note(root, "personal", "copia.md", FULL);
@@ -259,7 +259,7 @@ describe("updateNote", () => {
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(a),
         content: "x",
@@ -273,7 +273,7 @@ describe("updateNote", () => {
     const path = note(root, "personal", "otro-nombre.md", FULL);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         content: "x",
@@ -282,14 +282,14 @@ describe("updateNote", () => {
   });
 
   test("update_refuses_a_note_whose_frontmatter_scope_disagrees_with_its_folder", () => {
-    const { root, home } = store(["personal", "acme"]);
-    const path = note(root, "personal", "yogurtera.md", [
+    const { root, home } = store(["personal", "work"]);
+    const path = note(root, "personal", "fermentor.md", [
       ...FULL.filter((l) => !l.startsWith("scope:")),
-      "scope: acme",
+      "scope: work",
     ]);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         content: "x",
@@ -299,14 +299,14 @@ describe("updateNote", () => {
 
   test("update_refuses_a_note_whose_frontmatter_does_not_satisfy_the_schema", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", [
-      "name: yogurtera", "description: d", "scope: personal",
+    const path = note(root, "personal", "fermentor.md", [
+      "name: fermentor", "description: d", "scope: personal",
       "created: 2026-06-01T10:00:00", "importance: 99", "type: reference",
     ]);
     const original = readFileSync(path);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         content: "x",
@@ -319,13 +319,13 @@ describe("updateNote", () => {
     const { root, home } = store();
     const real = join(root, "fuera.md");
     writeFileSync(real, `---\n${FULL.join("\n")}\n---\ncuerpo\n`);
-    const link = join(root, "personal", "yogurtera.md");
+    const link = join(root, "personal", "fermentor.md");
     symlinkSync(real, link);
     const original = readFileSync(real);
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(link),
         content: "x",
@@ -338,12 +338,12 @@ describe("updateNote", () => {
 
   test("update_with_an_invalid_importance_is_refused_before_anything_is_written", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const original = readFileSync(path);
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         importance: 42,
@@ -358,7 +358,7 @@ describe("updateNote", () => {
 
   test("update_cleans_up_the_temporary_when_the_rename_fails", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const original = readFileSync(path);
 
     fsHook.failRename = true;
@@ -366,7 +366,7 @@ describe("updateNote", () => {
     try {
       expect(() =>
         updateNote({ root, cwd: "/anywhere", home }, {
-          slug: "yogurtera",
+          slug: "fermentor",
           scope: "personal",
           ifMatch: revisionOnDisk(path),
           content: "esto no debe llegar al disco",
@@ -388,7 +388,7 @@ describe("updateNote", () => {
 
   test("update_reports_a_note_deleted_between_the_walk_and_the_lock_as_not_found", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const ifMatch = revisionOnDisk(path);
     // The walk located it; by the time the lock is held it is gone. The user
     // must get a domain error, never Node's raw ENOENT.
@@ -396,7 +396,7 @@ describe("updateNote", () => {
     try {
       expect(() =>
         updateNote({ root, cwd: "/anywhere", home }, {
-          slug: "yogurtera", scope: "personal", ifMatch, content: "x",
+          slug: "fermentor", scope: "personal", ifMatch, content: "x",
         })
       ).toThrow(NoteNotFoundError);
     } finally {
@@ -406,12 +406,12 @@ describe("updateNote", () => {
 
   test("update_refuses_a_secret_pasted_into_the_new_description", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const original = readFileSync(path);
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         description: "token sk-abcdefghij0123456789",
@@ -424,12 +424,12 @@ describe("updateNote", () => {
 
   test("update_refuses_a_secret_in_the_new_body", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const original = readFileSync(path);
 
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         content: "la clave es sk-abcdefghij0123456789",
@@ -440,10 +440,10 @@ describe("updateNote", () => {
 
   test("update_refuses_a_scope_this_machine_does_not_own", () => {
     const { root, home } = store([]);
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         scope: "personal",
         ifMatch: revisionOnDisk(path),
         content: "x",
@@ -453,10 +453,10 @@ describe("updateNote", () => {
 
   test("update_is_fail_closed_when_the_cwd_maps_to_no_scope", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     expect(() =>
       updateNote({ root, cwd: "/anywhere", home }, {
-        slug: "yogurtera",
+        slug: "fermentor",
         ifMatch: revisionOnDisk(path),
         content: "x",
       })
@@ -466,10 +466,10 @@ describe("updateNote", () => {
   test("update_resolves_the_scope_from_the_cwd_when_none_is_given", () => {
     const wd = mkdtempSync(join(tmpdir(), "mneme-wd-"));
     const { root, home } = store(["personal"], `${wd} = personal\n`);
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
 
     const res = updateNote({ root, cwd: wd, home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       ifMatch: revisionOnDisk(path),
       content: "desde el cwd\n",
     });
@@ -480,11 +480,11 @@ describe("updateNote", () => {
 
   test("update_fsyncs_the_temporary_before_the_rename_and_the_directory_after_it", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     fsHook.durability = [];
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       content: "cuerpo que debe sobrevivir a un corte de luz\n",
@@ -503,12 +503,12 @@ describe("updateNote", () => {
 
   test("update_preserves_the_original_file_mode", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     chmodSync(path, 0o640);
     const before = statSync(path).mode;
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       content: "nuevo\n",
@@ -530,12 +530,12 @@ describe("line endings", () => {
   test("update_keeps_crlf_line_endings_when_only_the_description_changes", () => {
     const { root, home } = store();
     const crlf = (s: string): string => s.replace(/\n/g, "\r\n");
-    const path = join(root, "personal", "yogurtera.md");
+    const path = join(root, "personal", "fermentor.md");
     mkdirSync(join(root, "personal"), { recursive: true });
     writeFileSync(path, crlf(`---\n${FULL.join("\n")}\n---\ncuerpo original\nsegunda linea\n`));
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       description: "receta revisada",
@@ -552,12 +552,12 @@ describe("line endings", () => {
     // Hashing the pre-conversion text would hand back a revision no file ever
     // had, and the following update would be refused as a phantom conflict.
     const { root, home } = store();
-    const path = join(root, "personal", "yogurtera.md");
+    const path = join(root, "personal", "fermentor.md");
     mkdirSync(join(root, "personal"), { recursive: true });
     writeFileSync(path, `---\r\n${FULL.join("\r\n")}\r\n---\r\ncuerpo original\r\n`);
 
     const res = updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       description: "receta revisada",
@@ -570,10 +570,10 @@ describe("line endings", () => {
     // The mirror of the above: preserving what was there must not mean
     // introducing CRLF into a file that never had it.
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL, "cuerpo original\nsegunda linea\n");
+    const path = note(root, "personal", "fermentor.md", FULL, "cuerpo original\nsegunda linea\n");
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       description: "receta revisada",
@@ -591,19 +591,19 @@ describe("supersession", () => {
    */
   test("update_marks_a_note_superseded_and_names_the_replacement", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "network-upgrade.md", FULL.map((l) => l.replace("name: yogurtera", "name: network-upgrade")));
-    note(root, "personal", "network-upgrade-mesh.md", FULL.map((l) => l.replace("name: yogurtera", "name: network-upgrade-mesh")));
+    const path = note(root, "personal", "db-migration.md", FULL.map((l) => l.replace("name: fermentor", "name: db-migration")));
+    note(root, "personal", "db-migration-v2.md", FULL.map((l) => l.replace("name: fermentor", "name: db-migration-v2")));
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "network-upgrade",
+      slug: "db-migration",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
-      supersededBy: "network-upgrade-mesh",
+      supersededBy: "db-migration-v2",
     });
 
     const doc = parseFrontmatter(readFileSync(path, "utf8"));
     expect(doc.data.status).toBe("superseded");
-    expect(doc.data.superseded_by).toBe("network-upgrade-mesh");
+    expect(doc.data.superseded_by).toBe("db-migration-v2");
     // Nothing is destroyed: the body is exactly what it was.
     expect(doc.body).toContain("cuerpo original");
   });
@@ -612,11 +612,11 @@ describe("supersession", () => {
     // A dangling pointer is worse than no pointer: the note drops out of the
     // ranking and names a replacement nobody can read.
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const before = readFileSync(path, "utf8");
 
     expect(() => updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
       supersededBy: "no-existe",
@@ -626,14 +626,14 @@ describe("supersession", () => {
 
   test("update_refuses_a_note_that_supersedes_itself", () => {
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
     const before = readFileSync(path, "utf8");
 
     expect(() => updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera",
+      slug: "fermentor",
       scope: "personal",
       ifMatch: revisionOnDisk(path),
-      supersededBy: "yogurtera",
+      supersededBy: "fermentor",
     })).toThrow();
     expect(readFileSync(path, "utf8")).toBe(before);
   });
@@ -642,10 +642,10 @@ describe("supersession", () => {
     // `flagged` is the "somebody noticed a contradiction and has not resolved
     // it" state. It takes no pointer, and it is NOT hidden from the ranking.
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", FULL);
+    const path = note(root, "personal", "fermentor.md", FULL);
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera", scope: "personal", ifMatch: revisionOnDisk(path), status: "flagged",
+      slug: "fermentor", scope: "personal", ifMatch: revisionOnDisk(path), status: "flagged",
     });
 
     const doc = parseFrontmatter(readFileSync(path, "utf8"));
@@ -658,10 +658,10 @@ describe("supersession", () => {
     // never superseded and one that stopped being superseded look the same on
     // disk, which is the only way the "absent means active" rule stays true.
     const { root, home } = store();
-    const path = note(root, "personal", "yogurtera.md", [...FULL, "status: flagged"]);
+    const path = note(root, "personal", "fermentor.md", [...FULL, "status: flagged"]);
 
     updateNote({ root, cwd: "/anywhere", home }, {
-      slug: "yogurtera", scope: "personal", ifMatch: revisionOnDisk(path), status: "active",
+      slug: "fermentor", scope: "personal", ifMatch: revisionOnDisk(path), status: "active",
     });
 
     const raw = readFileSync(path, "utf8");

@@ -6,9 +6,9 @@ const HOME = "/Users/j";
 
 describe("parseScopeMap", () => {
   test("parseScopeMap_expands_tilde_and_skips_comments_and_blanks", () => {
-    const text = ["# a comment", "", "~/Projects/acme = acme", "/abs/personal = personal"].join("\n");
+    const text = ["# a comment", "", "~/Projects/work = work", "/abs/personal = personal"].join("\n");
     expect(parseScopeMap(text, HOME)).toEqual([
-      { prefix: "/Users/j/Projects/acme", scope: "acme" },
+      { prefix: "/Users/j/Projects/work", scope: "work" },
       { prefix: "/abs/personal", scope: "personal" },
     ]);
   });
@@ -27,8 +27,8 @@ describe("parseScopeMap canonical prefixes", () => {
   test("parseScopeMap_records_the_canonical_prefix_when_it_differs", () => {
     const canonicalize = (path: string) => path.replace("/tmp", "/private/tmp");
 
-    expect(parseScopeMap("/tmp/client = acme", HOME, canonicalize)).toEqual([
-      { prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "acme" },
+    expect(parseScopeMap("/tmp/client = work", HOME, canonicalize)).toEqual([
+      { prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "work" },
     ]);
   });
 
@@ -52,10 +52,10 @@ describe("parseScopeMap canonical prefixes", () => {
 describe("resolveScope", () => {
   const entries = [
     { prefix: "/Users/j/Projects", scope: "personal" },
-    { prefix: "/Users/j/Projects/acme", scope: "acme" },
+    { prefix: "/Users/j/Projects/work", scope: "work" },
   ];
   test("resolveScope_picks_longest_prefix", () => {
-    expect(resolveScope(entries, "/Users/j/Projects/acme/repo")).toBe("acme");
+    expect(resolveScope(entries, "/Users/j/Projects/work/repo")).toBe("work");
   });
   test("resolveScope_matches_general_prefix_when_specific_absent", () => {
     expect(resolveScope(entries, "/Users/j/Projects/misc")).toBe("personal");
@@ -68,38 +68,38 @@ describe("resolveScope", () => {
   });
 
   test("resolveScope_matches_a_prefix_written_through_a_symlink", () => {
-    const entries = [{ prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "acme" }];
+    const entries = [{ prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "work" }];
 
-    expect(resolveScope(entries, "/private/tmp/client/repo")).toBe("acme");
+    expect(resolveScope(entries, "/private/tmp/client/repo")).toBe("work");
   });
 
   test("resolveScope_prefers_the_longest_MATCHING_form_not_the_longest_written_prefix", () => {
     const entries = [
       { prefix: "/private/tmp", scope: "personal" },        // written length 12
-      { prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "acme" }, // written 11, matching 19
+      { prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "work" }, // written 11, matching 19
     ];
 
     // Ranking by the written prefix would hand a client's directory to
     // `personal` — the more specific entry must win on the form that matched.
-    expect(resolveScope(entries, "/private/tmp/client/repo")).toBe("acme");
+    expect(resolveScope(entries, "/private/tmp/client/repo")).toBe("work");
   });
 
   test("resolveScopeStrict_matches_a_canonical_prefix_too", () => {
-    const entries = [{ prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "acme" }];
+    const entries = [{ prefix: "/tmp/client", canonical: "/private/tmp/client", scope: "work" }];
 
     // The write path is fail-closed, so a missed match here is not a silent
     // fallback but a refusal — the symlink bug made writes impossible, not wrong.
-    expect(resolveScopeStrict(entries, "/private/tmp/client")).toBe("acme");
+    expect(resolveScopeStrict(entries, "/private/tmp/client")).toBe("work");
   });
 });
 
 describe("resolveScopeStrict (write-side, fail-closed)", () => {
   const entries = [
     { prefix: "/Users/j/Projects", scope: "personal" },
-    { prefix: "/Users/j/Projects/acme", scope: "acme" },
+    { prefix: "/Users/j/Projects/work", scope: "work" },
   ];
   test("resolveScopeStrict_picks_longest_prefix", () => {
-    expect(resolveScopeStrict(entries, "/Users/j/Projects/acme/repo")).toBe("acme");
+    expect(resolveScopeStrict(entries, "/Users/j/Projects/work/repo")).toBe("work");
   });
   test("resolveScopeStrict_matches_general_prefix_when_specific_absent", () => {
     expect(resolveScopeStrict(entries, "/Users/j/Projects/misc")).toBe("personal");

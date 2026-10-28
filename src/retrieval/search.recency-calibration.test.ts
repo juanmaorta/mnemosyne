@@ -35,7 +35,7 @@ describe("recency calibration (5a-lite)", () => {
     mkdirSync(join(root, "personal"), { recursive: true });
     // Both created long ago, so creation-seeded recency is equal: the only
     // recency difference is the access below, isolating the access signal.
-    note(root, "yogurtera", "yogurt maker control fermentation temperature", oldIso); // on-topic → high cosine
+    note(root, "fermentor", "yogurt maker control fermentation temperature", oldIso); // on-topic → high cosine
     note(root, "router", "omada wifi router vlan network", oldIso);                     // off-topic → low cosine
     const db = openDb(join(root, ".index", "store.db"));
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
@@ -54,9 +54,9 @@ describe("recency calibration (5a-lite)", () => {
     );
 
     // Cosine wins: the on-topic note leads and the off-topic fresh read trails.
-    expect(hits[0]!.slug).toBe("yogurtera");
+    expect(hits[0]!.slug).toBe("fermentor");
     expect(hits.map((h) => h.slug)).toContain("router");
-    expect(hits.findIndex((h) => h.slug === "yogurtera"))
+    expect(hits.findIndex((h) => h.slug === "fermentor"))
       .toBeLessThan(hits.findIndex((h) => h.slug === "router"));
   });
 });

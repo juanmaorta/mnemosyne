@@ -6,7 +6,7 @@ describe("storePaths", () => {
 
   test("scope data lives in a folder per scope", () => {
     expect(paths.scopeDir("personal")).toBe("/home/u/memory/personal");
-    expect(paths.scopeDir("acme")).toBe("/home/u/memory/acme");
+    expect(paths.scopeDir("work")).toBe("/home/u/memory/work");
   });
 
   test("facts are append-only under the scope's facts/ folder", () => {

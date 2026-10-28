@@ -17,20 +17,20 @@ function storeWith(slug: string): string {
 
 describe("search --json", () => {
   test("emits_one_json_array_of_hits_with_the_machine_fields", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const code = await runCli(["search", "riego plantas", "--root", root, "--json"], (s) => lines.push(s));
 
     expect(code).toBe(0);
     const parsed = JSON.parse(lines.join("\n"));
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed[0]).toMatchObject({ slug: "yogurtera", scope: "personal", isDerived: false });
+    expect(parsed[0]).toMatchObject({ slug: "fermentor", scope: "personal", isDerived: false });
     expect(typeof parsed[0].score).toBe("number");
     expect(typeof parsed[0].snippet).toBe("string");
   });
 
   test("rejects_combining_json_with_explain_instead_of_silently_ignoring_it", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const errors: string[] = [];
     const code = await runCli(["search", "riego", "--root", root, "--json", "--explain"], () => {}, (s) => errors.push(s));
 
@@ -39,7 +39,7 @@ describe("search --json", () => {
   });
 
   test("emits_an_empty_array_and_exits_two_when_nothing_is_relevant", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const code = await runCli(["search", "consulta sin respuesta", "--root", root, "--min-cos", "1", "--json"], (s) => lines.push(s));
 
@@ -50,7 +50,7 @@ describe("search --json", () => {
 
 describe("context --json", () => {
   test("emits_a_json_object_with_the_digest_and_its_metadata", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const code = await runCli(["context", "--root", root, "--scope", "personal", "--json"], (s) => lines.push(s));
 
@@ -58,7 +58,7 @@ describe("context --json", () => {
     const parsed = JSON.parse(lines.join("\n"));
     expect(parsed).toMatchObject({ scope: "personal" });
     expect(typeof parsed.digest).toBe("string");
-    expect(parsed.included).toContain("yogurtera");
+    expect(parsed.included).toContain("fermentor");
     expect(typeof parsed.omitted).toBe("number");
     expect(Array.isArray(parsed.degraded)).toBe(true);
   });

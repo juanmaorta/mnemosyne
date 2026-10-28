@@ -5,9 +5,9 @@
 > experimentos ya hechos — cada uno cuesta 15 minutos de una cuota gratuita.
 >
 > Contexto: el workflow de CI (MNE-24,
-> PR [#25](https://github.com/juanmaorta/mnemosyne/pull/25)) no ha pasado nunca en verde.
+> PR #25) no ha pasado nunca en verde.
 > Runner: `ubuntu-latest`, cuenta gratuita, repo privado → **2 vCPU / 7 GB**. Node 24.
-> Local: MacBook/Mac Mini, 12 núcleos, la misma suite en **13 segundos**.
+> Local: una máquina de 12 núcleos, la misma suite en **13 segundos**.
 >
 > Repro y comandos: [Apéndice A](#apéndice-a--reproducir).
 

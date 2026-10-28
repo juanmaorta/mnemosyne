@@ -101,13 +101,13 @@ describe("selectWithinBudget", () => {
 
 describe("formatContextDigest", () => {
   test("formatContextDigest_lists_entries_and_always_appends_hint", () => {
-    const out = formatContextDigest([{ slug: "yogurtera", scope: "personal", description: "control MQTT", score: 1, created: "2026-06-01T10:00:00" }], "personal", 0);
-    expect(out).toContain("- [yogurtera] control MQTT");
+    const out = formatContextDigest([{ slug: "fermentor", scope: "personal", description: "control MQTT", score: 1, created: "2026-06-01T10:00:00" }], "personal", 0);
+    expect(out).toContain("- [fermentor] control MQTT");
     expect(out).toContain("mneme search");
     expect(out).toContain("scope: personal");
   });
   test("formatContextDigest_starved_budget_does_not_claim_scope_is_empty", () => {
-    const out = formatContextDigest([], "acme", 5);
+    const out = formatContextDigest([], "work", 5);
     expect(out).toContain("none fit the token budget");
     expect(out).not.toContain("no memory");
   });
@@ -134,14 +134,14 @@ describe("rankContext and supersession", () => {
     // importance would otherwise put it at the very top.
     const root = mkdtempSync(join(tmpdir(), "mneme-ctx-sup-"));
     mkdirSync(join(root, ".index"), { recursive: true });
-    supersededNote(root, "network-upgrade", "network-upgrade-mesh");
-    note(root, "network-upgrade-mesh", 5, "el plan que manda");
+    supersededNote(root, "db-migration", "db-migration-v2");
+    note(root, "db-migration-v2", 5, "el plan que manda");
     const db = openDb(join(root, ".index", "store.db"));
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
 
     const ranked = rankContext(db, root, "personal", Date.parse("2026-06-01T10:00:00Z"));
 
-    expect(ranked.map((e) => e.slug)).toEqual(["network-upgrade-mesh"]);
+    expect(ranked.map((e) => e.slug)).toEqual(["db-migration-v2"]);
   });
 
   test("rankContext_keeps_flagged_notes_in_the_digest", async () => {

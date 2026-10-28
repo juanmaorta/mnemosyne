@@ -24,10 +24,10 @@ describe("getMachineId", () => {
 describe("append + read", () => {
   test("appendEvent_then_readEvents_returns_grouped", () => {
     const r = root();
-    appendEvent(r, "personal", "M1", { slug: "yogurtera", ts: "2026-07-06T10:00:00.000Z", kind: "get" });
-    appendEvent(r, "personal", "M1", { slug: "yogurtera", ts: "2026-07-06T11:00:00.000Z", kind: "get" });
+    appendEvent(r, "personal", "M1", { slug: "fermentor", ts: "2026-07-06T10:00:00.000Z", kind: "get" });
+    appendEvent(r, "personal", "M1", { slug: "fermentor", ts: "2026-07-06T11:00:00.000Z", kind: "get" });
     const grouped = readEvents(r, ["personal"]);
-    expect(grouped.get(eventKey("personal", "yogurtera"))).toHaveLength(2);
+    expect(grouped.get(eventKey("personal", "fermentor"))).toHaveLength(2);
   });
 
   test("readEvents_merges_multiple_machines", () => {
@@ -47,11 +47,11 @@ describe("append + read", () => {
 
   test("readEvents_does_not_merge_same_slug_across_scopes", () => {
     const r = root();
-    mkdirSync(join(r, "acme"), { recursive: true });
+    mkdirSync(join(r, "work"), { recursive: true });
     appendEvent(r, "personal", "M1", { slug: "s", ts: "2026-07-06T10:00:00.000Z", kind: "get" });
-    appendEvent(r, "acme", "M1", { slug: "s", ts: "2026-07-06T10:00:00.000Z", kind: "get" });
-    const g = readEvents(r, ["personal", "acme"]);
+    appendEvent(r, "work", "M1", { slug: "s", ts: "2026-07-06T10:00:00.000Z", kind: "get" });
+    const g = readEvents(r, ["personal", "work"]);
     expect(g.get(eventKey("personal", "s"))).toHaveLength(1);
-    expect(g.get(eventKey("acme", "s"))).toHaveLength(1);
+    expect(g.get(eventKey("work", "s"))).toHaveLength(1);
   });
 });

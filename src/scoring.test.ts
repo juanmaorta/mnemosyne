@@ -35,7 +35,7 @@ describe("blendedScore", () => {
   });
 });
 
-describe("recency inversion (regression: diagnostico-retrieval-2026-09-03)", () => {
+describe("recency inversion (regression: retrieval diagnosis, 2026-09-03)", () => {
   // The old code gave a never-accessed engram recencyNorm 1 — the MAXIMUM of
   // the axis, not a neutral value. Reading an engram therefore PENALISED it:
   // measured in the field, accessed engrams reached the top-k 4-8x less often

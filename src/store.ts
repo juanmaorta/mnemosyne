@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { ulid } from "ulid";
 
 /**
- * Store layout (plan.md — "Layout del store"):
+ * Store layout (docs/architecture.md — "Store layout"):
  *
  *   <root>/<scope>/facts/*.md   append-only fact stream (observed, immutable)
  *   <root>/<scope>/*.md         notes: derived + authored

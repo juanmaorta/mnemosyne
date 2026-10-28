@@ -150,6 +150,9 @@ prints the note in full. Then:
 
 If something is off, see [Troubleshooting](troubleshooting.md).
 
+Already using Claude Code's built-in memory? [Migrating from native memory](migrating-from-native-memory.md)
+imports it and switches it off, so there is one store instead of two.
+
 ## Update
 
 ```sh

@@ -140,8 +140,8 @@ describe("buildPlan — plan artifact", () => {
 
   test("rejects a source that exists only in another scope (scope boundary)", () => {
     const root = store();
-    mkdirSync(join(root, "acme", "facts"), { recursive: true });
-    writeFact(root, "acme", "fact-a", "01J0000000000000000000000A", "other scope");
+    mkdirSync(join(root, "work", "facts"), { recursive: true });
+    writeFact(root, "work", "fact-a", "01J0000000000000000000000A", "other scope");
 
     expect(() =>
       buildPlan({ root, scope: "personal", model: MODEL, now: NOW, proposals: [proposal()] }),

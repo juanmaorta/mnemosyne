@@ -30,6 +30,7 @@
     "bench:scale": "npm run build && node scripts/bench-scale.mjs",
     "eval:dream": "npm run build && node scripts/eval-dream-synthesis.mjs",
     "migrate": "tsc && node dist/bin/migrate.js",
+    "privacy:check": "node scripts/privacy-check.mjs",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

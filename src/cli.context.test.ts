@@ -19,12 +19,12 @@ function storeWith(slug: string): string {
 
 describe("runCli context", () => {
   test("cli_context_prints_digest_with_hint_and_scope", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     const code = await runCli(["context", "--root", root, "--scope", "personal"], (s) => lines.push(s));
     const out = lines.join("\n");
     expect(code).toBe(0);
-    expect(out).toContain("- [yogurtera] yogurtera one-liner");
+    expect(out).toContain("- [fermentor] fermentor one-liner");
     expect(out).toContain("mneme search");
   });
 
@@ -36,17 +36,17 @@ describe("runCli context", () => {
   });
 
   test("cli_context_emits_retrieval_injected_with_what_the_budget_cut", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     await runCli(["context", "--root", root, "--scope", "personal"], () => {});
 
     const ev = readTelemetry(root).find((e) => e.kind === "retrieval.injected")!;
     expect(ev).toMatchObject({ scope: "personal", droppedForBudget: 0 });
-    expect(ev.injectedSlugs).toEqual(["yogurtera"]);
+    expect(ev.injectedSlugs).toEqual(["fermentor"]);
     expect(ev.corrId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   });
 
   test("cli_context_records_the_engrams_dropped_for_budget", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     // Budget of 1 token starves the digest: nothing is injected, and the log
     // has to say so — a scorecard reading only the ranking would never see it.
     await runCli(["context", "--root", root, "--scope", "personal", "--budget", "1"], () => {});
@@ -58,7 +58,7 @@ describe("runCli context", () => {
   });
 
   test("cli_context_respects_budget", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     const lines: string[] = [];
     await runCli(["context", "--root", root, "--scope", "personal", "--budget", "1"], (s) => lines.push(s));
     const out = lines.join("\n");
@@ -67,8 +67,8 @@ describe("runCli context", () => {
   });
 
   test("cli_context_treats_blank_scope_flag_as_unset", async () => {
-    const root = storeWith("yogurtera");
-    mkdirSync(join(root, "acme"), { recursive: true }); // arbitrary scope map dir presence isn't required; default falls back to "personal"
+    const root = storeWith("fermentor");
+    mkdirSync(join(root, "work"), { recursive: true }); // arbitrary scope map dir presence isn't required; default falls back to "personal"
     const lines: string[] = [];
     const code = await runCli(["context", "--root", root, "--scope", ""], (s) => lines.push(s));
     expect(code).toBe(0);
@@ -99,7 +99,7 @@ describe("runCli context", () => {
     vi.resetModules();
     try {
       const { runCli: freshCli } = await import("./cli.js");
-      const root = storeWith("yogurtera");
+      const root = storeWith("fermentor");
       const code = await freshCli(["context", "--root", root, "--scope", "personal"], () => {}, () => {});
       expect(code).toBe(0);
 
@@ -125,7 +125,7 @@ describe("runCli context", () => {
     delete process.env.MNEMOSYNE_FAKE_EMBED;
     process.env.OLLAMA_MODEL = "mystery-embed";
     try {
-      const root = storeWith("yogurtera");
+      const root = storeWith("fermentor");
       const code = await runCli(["context", "--root", root, "--scope", "personal"], () => {}, () => {});
 
       expect(code).toBe(0);
@@ -159,7 +159,7 @@ describe("runCli context", () => {
   });
 
   test("cli_context_does_not_call_budget_truncation_degraded", async () => {
-    const root = storeWith("yogurtera");
+    const root = storeWith("fermentor");
     // A starved budget is a deliberate, configured outcome — already reported
     // by droppedForBudget. Conflating it with failure would make the degraded
     // rate useless, since a tight budget would peg it at 100%.
@@ -181,12 +181,12 @@ describe("runCli context", () => {
     const prevEnv = process.env.MNEMOSYNE_CONTEXT_BUDGET;
     process.env.MNEMOSYNE_CONTEXT_BUDGET = "abc";
     try {
-      const root = storeWith("yogurtera");
+      const root = storeWith("fermentor");
       const lines: string[] = [];
       const code = await runCli(["context", "--root", root, "--scope", "personal"], (s) => lines.push(s));
       const out = lines.join("\n");
       expect(code).toBe(0);
-      expect(out).toContain("- [yogurtera] yogurtera one-liner"); // default budget (1000) applied, not NaN-unbounded
+      expect(out).toContain("- [fermentor] fermentor one-liner"); // default budget (1000) applied, not NaN-unbounded
     } finally {
       if (prevEnv === undefined) delete process.env.MNEMOSYNE_CONTEXT_BUDGET;
       else process.env.MNEMOSYNE_CONTEXT_BUDGET = prevEnv;

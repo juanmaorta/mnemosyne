@@ -6,11 +6,9 @@ folder, or tells an agent it saved something it never saved. That is the bar eve
 held to, and it is the reason most of the rules below exist.
 
 The user-facing contract is the [`README`](README.md), the user guide in
-[`docs/guide/`](docs/guide/) and the [CLI reference](docs/reference/cli.md). The design reasoning lives in
-[`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md), which are **in Spanish**
-— that is internal history, not a language policy. Anything a user reads (README,
-`CONTRIBUTING.md`, `SECURITY.md`, issue templates) is in English, and issues and pull
-requests in English are welcome.
+[`docs/guide/`](docs/guide/) and the [CLI reference](docs/reference/cli.md). The design reasoning —
+goal, principles, data model, roadmap — lives in [`docs/architecture.md`](docs/architecture.md).
+Documentation is in English, and issues and pull requests in English are welcome.
 
 Security problems do **not** go in an issue or a pull request. See
 [`SECURITY.md`](SECURITY.md).
@@ -61,8 +59,9 @@ Those three are the whole checklist. **Do not run `npm run lint`.** The script i
 every checkout. Whether this project gets a linter at all is still being decided; until then
 a red `lint` means nothing and proves nothing.
 
-A CI workflow (`typecheck` + `test` + `build` on every pull request) is on its way in but is
-not on `main` yet, so for now the gate is you running the three commands above and saying so.
+CI (`.github/workflows/ci.yml`) runs `typecheck`, `build` and `test` on every pull request,
+plus a privacy check (`scripts/privacy-check.mjs`) against a denylist that is not in the
+repository; still run the three commands above locally and say so in the pull request.
 
 ### About the tests
 

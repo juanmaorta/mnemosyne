@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Frontmatter schema for an engram.
  *
- * Two classes, discriminated by `type` (plan.md — "Dos clases de memoria"):
+ * Two classes, discriminated by `type` (docs/architecture.md — "Two kinds of memory"):
  *  - Authored / reference (`user`, `reference`, `project`): note = truth, hand-editable.
  *  - Observed / learned (`feedback`): append-only fact stream, distilled by dreaming.
  *
@@ -21,7 +21,7 @@ export const Slug = z
  * Scope is an extensible but constrained folder name: a kebab-case slug.
  * It maps directly to a directory on disk, so it must never contain path
  * separators or traversal — that would break the blast-radius-of-deletion
- * invariant (plan.md §4, fail-closed on scope).
+ * invariant (docs/architecture.md, principle 4: fail-closed on scope).
  */
 export const Scope = Slug;
 

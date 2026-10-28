@@ -23,9 +23,9 @@ function note(root: string, scope: string, slug: string, desc: string, body: str
 
 async function indexedTier0() {
   const root = mkdtempSync(join(tmpdir(), "mneme-tier0-"));
-  note(root, "personal", "yogurtera", "yogurt maker", "yogurt maker control fermentation temperature");
+  note(root, "personal", "fermentor", "yogurt maker", "yogurt maker control fermentation temperature");
   note(root, "personal", "router", "network router", "omada router network wifi mesh");
-  note(root, "acme", "policy", "policy search", "insurance policy claim status deadline");
+  note(root, "work", "policy", "policy search", "retention policy review status deadline");
   const db = openDb(":memory:");
   await reindex({ root, db, embedder: null });
   return { db, root };
@@ -49,7 +49,7 @@ describe("tier 0 — no embedder", () => {
       { query: "yogurt maker" },
     );
     const included = res.candidates.filter((c) => c.included).map((c) => c.slug);
-    expect(included[0]).toBe("yogurtera");
+    expect(included[0]).toBe("fermentor");
   });
 
   test("search_without_embedder_disables_the_cosine_floor", async () => {
@@ -90,7 +90,7 @@ describe("tier 0 — no embedder", () => {
       { db, root, embedder: createFakeEmbedder(), clock: systemClock },
       { query: "yogurt maker" },
     );
-    expect(res.candidates.some((c) => c.slug === "yogurtera")).toBe(true);
+    expect(res.candidates.some((c) => c.slug === "fermentor")).toBe(true);
   });
 
   test("scoped_backfill_after_tier0_does_not_wipe_other_scopes_vectors", async () => {
@@ -98,9 +98,9 @@ describe("tier 0 — no embedder", () => {
     // whole vector table — a scoped reindex (as `context` runs every session)
     // for one scope would otherwise strip another scope's vectors and re-embed
     // unchanged notes forever.
-    const { db, root } = await indexedTier0(); // personal (2) + acme (1)
+    const { db, root } = await indexedTier0(); // personal (2) + work (1)
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
-    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["acme"] });
+    await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["work"] });
     const engrams = (db.prepare("select count(*) as n from engrams").get() as { n: number }).n;
     const vec = (db.prepare("select count(*) as n from vec_engrams").get() as { n: number }).n;
     expect(vec).toBe(engrams); // every scope keeps its vectors
@@ -108,7 +108,7 @@ describe("tier 0 — no embedder", () => {
       { db, root, embedder: createFakeEmbedder(), clock: systemClock },
       { query: "yogurt maker", scopes: ["personal"] },
     );
-    expect(res.candidates.some((c) => c.slug === "yogurtera")).toBe(true);
+    expect(res.candidates.some((c) => c.slug === "fermentor")).toBe(true);
   });
 
   test("enabling_a_non_default_dim_embedder_after_tier0_initializes_without_force", async () => {

@@ -8,7 +8,7 @@ describe("migrateLegacy", () => {
   test("migrates an authored note into a scoped, kebab-named engram", () => {
     const raw = [
       "---",
-      "name: Yogurtera DIY thermostat",
+      "name: Fermentor DIY thermostat",
       "description: M5StickC + DS18B20 + Tapo governed by HA",
       "type: project",
       "originSessionId: 6aab4ca7-1917-49a3-99bf-bfaf3306796d",
@@ -17,12 +17,12 @@ describe("migrateLegacy", () => {
       "",
     ].join("\n");
 
-    const result = migrateLegacy({ raw, filename: "project_yogurtera.md", created: CREATED });
+    const result = migrateLegacy({ raw, filename: "project_fermentor.md", created: CREATED });
 
     expect(result.kind).toBe("note");
-    expect(result.filename).toBe("yogurtera.md");
+    expect(result.filename).toBe("fermentor.md");
     expect(result.engram).toMatchObject({
-      name: "yogurtera",
+      name: "fermentor",
       type: "project",
       scope: "personal",
       importance: 5,
@@ -43,17 +43,17 @@ describe("migrateLegacy", () => {
       "",
     ].join("\n");
 
-    const result = migrateLegacy({ raw, filename: "reference_home_network.md", created: CREATED });
+    const result = migrateLegacy({ raw, filename: "reference_lan_notes.md", created: CREATED });
 
     const { data } = parseFrontmatter(result.content);
     expect(data).not.toHaveProperty("originSessionId");
-    expect(result.filename).toBe("lan-setup.md");
+    expect(result.filename).toBe("lan-notes.md");
   });
 
   test("reads type from a nested legacy metadata block", () => {
     const raw = [
       "---",
-      "name: lan-setup",
+      "name: lan-notes",
       "description: d",
       "metadata:",
       "  node_type: memory",
@@ -64,7 +64,7 @@ describe("migrateLegacy", () => {
       "",
     ].join("\n");
 
-    const result = migrateLegacy({ raw, filename: "reference_home_network.md", created: CREATED });
+    const result = migrateLegacy({ raw, filename: "reference_lan_notes.md", created: CREATED });
 
     expect(result.kind).toBe("note");
     expect(result.engram.type).toBe("reference");
@@ -73,9 +73,9 @@ describe("migrateLegacy", () => {
   test("uses the provided scope instead of the personal default", () => {
     const raw = ["---", "name: n", "description: d", "type: project", "---", "b", ""].join("\n");
 
-    const result = migrateLegacy({ raw, filename: "project_x.md", created: CREATED, scope: "acme" });
+    const result = migrateLegacy({ raw, filename: "project_x.md", created: CREATED, scope: "work" });
 
-    expect(result.engram.scope).toBe("acme");
+    expect(result.engram.scope).toBe("work");
   });
 
   test("routes observed feedback into the fact stream with a ULID filename", () => {
@@ -103,7 +103,7 @@ describe("migrateLegacy", () => {
       "description: d",
       "type: reference",
       "links:",
-      "  - home_network",
+      "  - lan_notes",
       "sources:",
       "  - some_fact",
       "---",
@@ -113,7 +113,7 @@ describe("migrateLegacy", () => {
 
     const result = migrateLegacy({ raw, filename: "reference_x.md", created: CREATED });
 
-    expect(result.engram).toMatchObject({ links: ["lan-setup"], sources: ["some-fact"] });
+    expect(result.engram).toMatchObject({ links: ["lan-notes"], sources: ["some-fact"] });
   });
 
   test("seeds the fact ULID from created so migrated facts keep chronology", () => {
@@ -129,8 +129,8 @@ describe("migrateLegacy", () => {
 
   test("slugifies filenames with spaces and unknown prefixes", () => {
     const raw = ["---", "name: n", "description: d", "type: user", "---", "b", ""].join("\n");
-    expect(migrateLegacy({ raw, filename: "Home Network.md", created: CREATED }).filename).toBe(
-      "lan-setup.md",
+    expect(migrateLegacy({ raw, filename: "Lan Notes.md", created: CREATED }).filename).toBe(
+      "lan-notes.md",
     );
   });
 
@@ -157,29 +157,29 @@ describe("migrateLegacy", () => {
   });
 
   test("rewrites stale legacy wikilinks in the body to the new slug", () => {
-    const raw = ["---", "name: n", "description: d", "type: project", "---", "see [[project_yogurtera]]", ""].join("\n");
+    const raw = ["---", "name: n", "description: d", "type: project", "---", "see [[project_fermentor]]", ""].join("\n");
 
     const result = migrateLegacy({ raw, filename: "project_x.md", created: CREATED });
 
-    expect(parseFrontmatter(result.content).body).toBe("see [[yogurtera]]\n");
+    expect(parseFrontmatter(result.content).body).toBe("see [[fermentor]]\n");
   });
 });
 
 describe("rewriteBodyLinks", () => {
   test("maps a legacy-prefixed target to its migrated slug", () => {
-    expect(rewriteBodyLinks("[[project_yogurtera]]")).toBe("[[yogurtera]]");
+    expect(rewriteBodyLinks("[[project_fermentor]]")).toBe("[[fermentor]]");
   });
 
   test("preserves an alias after the pipe", () => {
-    expect(rewriteBodyLinks("[[reference_home_network|la red]]")).toBe("[[lan-setup|la red]]");
+    expect(rewriteBodyLinks("[[reference_lan_notes|la red]]")).toBe("[[lan-notes|la red]]");
   });
 
   test("preserves a heading anchor", () => {
-    expect(rewriteBodyLinks("[[project_riego_automatico#Seguridad]]")).toBe("[[auto-watering#Seguridad]]");
+    expect(rewriteBodyLinks("[[project_riego_jardin#Seguridad]]")).toBe("[[riego-jardin#Seguridad]]");
   });
 
   test("is idempotent on already-kebab targets", () => {
-    expect(rewriteBodyLinks("[[sensor-plants]]")).toBe("[[sensor-plants]]");
+    expect(rewriteBodyLinks("[[sensor-plantas]]")).toBe("[[sensor-plantas]]");
   });
 
   test("leaves a target that slugifies to empty untouched (no [[]])", () => {

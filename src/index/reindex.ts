@@ -293,7 +293,7 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
   // scopes' paths — the prune candidate set must be narrowed to the reindexed
   // scopes, or a scoped run (e.g. the SessionStart `mneme context` hook) would
   // wipe every other scope from the index. A full reindex (no `scopes`) prunes
-  // globally, as before. Trailing `sep` keeps `acme` from matching `acme-x`.
+  // globally, as before. Trailing `sep` keeps `work` from matching `work-x`.
   const prefixes = scopes?.map((s) => join(root, s) + sep);
   const known = (db.prepare("select path from file_state").all() as { path: string }[]).filter(
     (r) => !prefixes || prefixes.some((p) => r.path.startsWith(p)),

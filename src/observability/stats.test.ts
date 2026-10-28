@@ -21,9 +21,9 @@ function note(root: string, scope: string, slug: string, type: string, importanc
 
 async function seeded() {
   const root = mkdtempSync(join(tmpdir(), "mneme-stats-"));
-  note(root, "personal", "yogurtera", "reference", 5);
+  note(root, "personal", "fermentor", "reference", 5);
   note(root, "personal", "router", "project", 8);
-  note(root, "acme", "policy", "reference", 3);
+  note(root, "work", "policy", "reference", 3);
   const db = openDb(join(root, ".index", "store.db"));
   await reindex({ root, db, embedder: createFakeEmbedder(), clock: CLOCK });
   return { db, root };
@@ -43,7 +43,7 @@ describe("computeStats", () => {
   test("counts engrams by scope and by type from the index", async () => {
     const { db, root } = await seeded();
     const s = computeStats(db, root);
-    expect(s.countsByScope).toEqual({ personal: 2, acme: 1 });
+    expect(s.countsByScope).toEqual({ personal: 2, work: 1 });
     expect(s.countsByType).toEqual({ reference: 2, project: 1 });
   });
 
@@ -122,14 +122,14 @@ describe("computeStats", () => {
 
   test("buckets hot-state strength and counts the access-event stream", async () => {
     const { db, root } = await seeded();
-    recordAccess(db, root, "personal", "yogurtera", "2026-08-01T10:00:00.000Z");
-    recordAccess(db, root, "personal", "yogurtera", "2026-08-02T10:00:00.000Z");
+    recordAccess(db, root, "personal", "fermentor", "2026-08-01T10:00:00.000Z");
+    recordAccess(db, root, "personal", "fermentor", "2026-08-02T10:00:00.000Z");
 
     const s = computeStats(db, root);
 
     expect(s.factStreamSize).toBe(2);
-    // Two reinforcements take yogurtera from strength 1 to 3; router, untouched
-    // but in the same materialized scope, stays in the first bucket. The acme
+    // Two reinforcements take fermentor from strength 1 to 3; router, untouched
+    // but in the same materialized scope, stays in the first bucket. The work
     // engram has no hot_state row at all — recordAccess only materializes the
     // scope it touched, so the histogram covers 2 of the 3 engrams.
     expect(s.strengthHistogram["3-4"]).toBe(1);

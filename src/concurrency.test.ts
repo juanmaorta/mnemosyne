@@ -177,12 +177,12 @@ describe("concurrent harnesses on one store", () => {
 
   test("concurrent_update_from_one_revision_lets_exactly_one_writer_win", async () => {
     const root = writableStore();
-    const path = join(root, "personal", "yogurtera.md");
+    const path = join(root, "personal", "fermentor.md");
 
     expect((await run(["add", "cuerpo original", "--type", "reference", "--scope", "personal",
-      "--description", "como hacer yogur", "--slug", "yogurtera", "--root", root])).code).toBe(0);
+      "--description", "como hacer yogur", "--slug", "fermentor", "--root", root])).code).toBe(0);
     expect((await run(["reindex", "--root", root])).code).toBe(0);
-    const read = await run(["get", "yogurtera", "--json", "--root", root]);
+    const read = await run(["get", "fermentor", "--json", "--root", root]);
     expect(read.code).toBe(0);
     const revision = (JSON.parse(read.stdout) as { revision: string }).revision;
 
@@ -190,24 +190,24 @@ describe("concurrent harnesses on one store", () => {
     // Last-write-wins would silently destroy one of them; this is the whole
     // reason `update` is a compare-and-swap and not a write.
     const runs = await raceSettled([
-      ["update", "yogurtera", "version A", "--if-match", revision, "--scope", "personal", "--root", root],
-      ["update", "yogurtera", "version B", "--if-match", revision, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "version A", "--if-match", revision, "--scope", "personal", "--root", root],
+      ["update", "fermentor", "version B", "--if-match", revision, "--scope", "personal", "--root", root],
     ]);
 
     expect(runs.filter((r) => r.code === 0)).toHaveLength(1);
     const loser = runs.find((r) => r.code !== 0)!;
-    expect(loser.stderr).toContain("mneme get yogurtera --json");
+    expect(loser.stderr).toContain("mneme get fermentor --json");
     expect(loser.stderr).not.toMatch(/--force/);
 
     const text = readFileSync(path, "utf8");
     const doc = parseFrontmatter(text);
-    expect(doc.data).toMatchObject({ name: "yogurtera", scope: "personal", type: "reference" });
+    expect(doc.data).toMatchObject({ name: "fermentor", scope: "personal", type: "reference" });
     // Exactly one of the two edits survives — never a splice of both.
     expect(text.includes("version A")).toBe(!text.includes("version B"));
     expect(text).not.toContain("cuerpo original");
     // No temporary and no lock survived the race, and no second note appeared.
     const left = readdirSync(join(root, "personal"));
-    expect(left.filter((f) => f.endsWith(".md"))).toEqual(["yogurtera.md"]);
+    expect(left.filter((f) => f.endsWith(".md"))).toEqual(["fermentor.md"]);
     expect(left.filter((f) => f.includes(".tmp-"))).toEqual([]);
     expect(existsSync(join(root, "personal", ".mneme-write.lock"))).toBe(false);
   }, 120_000);

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { EngramSchema, FactSchema, NoteSchema } from "./schema.js";
 
 const baseNote = {
-  name: "yogurtera-config",
+  name: "fermentor-config",
   description: "How to run the yogurt maker",
   scope: "personal",
   type: "reference",
@@ -12,7 +12,7 @@ const baseNote = {
 
 describe("NoteSchema", () => {
   test("accepts an authored note (reference/project/user)", () => {
-    expect(NoteSchema.parse(baseNote)).toMatchObject({ name: "yogurtera-config", type: "reference" });
+    expect(NoteSchema.parse(baseNote)).toMatchObject({ name: "fermentor-config", type: "reference" });
   });
 
   test("rejects an observed type (feedback belongs to the fact stream)", () => {
@@ -76,7 +76,7 @@ describe("EngramSchema", () => {
 // one" in the session, without deleting anything.
 describe("supersession fields", () => {
   const base = {
-    name: "network-upgrade",
+    name: "db-migration",
     description: "el plan viejo",
     scope: "personal",
     created: "2026-06-01T10:00:00",
@@ -91,7 +91,7 @@ describe("supersession fields", () => {
   });
 
   test("schema_accepts_a_superseded_note_pointing_at_its_replacement", () => {
-    const parsed = EngramSchema.safeParse({ ...base, status: "superseded", superseded_by: "network-upgrade-mesh" });
+    const parsed = EngramSchema.safeParse({ ...base, status: "superseded", superseded_by: "db-migration-v2" });
     expect(parsed.success).toBe(true);
   });
 

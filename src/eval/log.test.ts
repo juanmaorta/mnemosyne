@@ -12,10 +12,10 @@ describe("eval log", () => {
   test("appendEvalLog_then_readEvalLog_round_trips", () => {
     const r = root();
     appendEvalLog(r, { ts: "2026-07-07T10:00:00.000Z", cmd: "context", scope: "personal", slugs: ["a", "b"] });
-    appendEvalLog(r, { ts: "2026-07-07T10:01:00.000Z", cmd: "search", scope: "acme", slugs: ["c"] });
+    appendEvalLog(r, { ts: "2026-07-07T10:01:00.000Z", cmd: "search", scope: "work", slugs: ["c"] });
     const recs = readEvalLog(r);
     expect(recs).toHaveLength(2);
-    expect(recs[1]).toMatchObject({ cmd: "search", scope: "acme", slugs: ["c"] });
+    expect(recs[1]).toMatchObject({ cmd: "search", scope: "work", slugs: ["c"] });
   });
 
   test("readEvalLog_returns_empty_when_absent", () => {

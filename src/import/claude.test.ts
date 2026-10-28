@@ -73,12 +73,12 @@ function frontmatterOf(path: string): Record<string, unknown> {
 describe("import planning (pure)", () => {
   test("import_slug_is_deterministic_namespaced_and_kebab", () => {
     // claude-<source-id>-<slugified filename without .md>-<sha256(filename)[0:12]>
-    expect(importSlug("repo-a", "project_yogurtera.md")).toBe(
-      "claude-repo-a-project-yogurtera-2dbc94ab80cc",
+    expect(importSlug("repo-a", "project_fermentor.md")).toBe(
+      "claude-repo-a-project-fermentor-cb8e2c89a68f",
     );
     // Same filename, another logical source → a different identity.
-    expect(importSlug("repo-b", "project_yogurtera.md")).toBe(
-      "claude-repo-b-project-yogurtera-2dbc94ab80cc",
+    expect(importSlug("repo-b", "project_fermentor.md")).toBe(
+      "claude-repo-b-project-fermentor-cb8e2c89a68f",
     );
     // The hash is over the basename INCLUDING .md.
     expect(importSlug("repo-a", "riego.md")).toBe("claude-repo-a-riego-228878a4046f");
@@ -309,10 +309,10 @@ describe("importClaudeMemory", () => {
     const src = sourceDir({ "riego.md": NOTE });
 
     for (const apply of [false, true]) {
-      const report = importClaudeMemory(deps(root), { source: src, sourceId: "repo-a", scope: "acme", apply });
+      const report = importClaudeMemory(deps(root), { source: src, sourceId: "repo-a", scope: "work", apply });
       expect(report.counts.failed).toBe(1);
       expect(report.files[0]!.reason).toBe("not-owner");
-      expect(existsSync(join(root, "acme"))).toBe(false);
+      expect(existsSync(join(root, "work"))).toBe(false);
     }
   });
 
@@ -529,12 +529,12 @@ describe("a note already migrated under its own slug (MNE-60)", () => {
   // can never collide with the migrated copy. Measured on the real store: what
   // the dry run called `conflict 0, importable 13` was in fact 13 pending
   // duplicates, each one OLDER than what the store already held.
-  const NATIVE = native(["type: project", "description: el HGU pierde el bridge"], "version corta de julio");
+  const NATIVE = native(["type: project", "description: el módem pierde el bridge"], "version corta de julio");
 
   /** The same engram as the store holds it: bare slug, richer body. */
   function migrated(slug: string): string {
     return [
-      "---", `name: ${slug}`, "description: el HGU pierde el bridge", "scope: personal",
+      "---", `name: ${slug}`, "description: el módem pierde el bridge", "scope: personal",
       "type: project", "created: 2026-07-01T10:00:00", "importance: 5", "---",
       "version larga, ampliada despues de migrar", "",
     ].join("\n");
@@ -548,35 +548,35 @@ describe("a note already migrated under its own slug (MNE-60)", () => {
   }
 
   test("is reported as a conflict, not as importable", () => {
-    const root = storeWithMigrated("modem-bridge-reboot");
-    const src = sourceDir({ "modem-bridge-reboot.md": NATIVE });
+    const root = storeWithMigrated("modem-bridge-reset");
+    const src = sourceDir({ "modem-bridge-reset.md": NATIVE });
 
     const report = importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: false });
 
-    const r = byName(report)["modem-bridge-reboot.md"]!;
+    const r = byName(report)["modem-bridge-reset.md"]!;
     expect(r.status).toBe("conflict");
-    expect(r.existing).toEqual([join(root, "personal", "modem-bridge-reboot.md")]);
+    expect(r.existing).toEqual([join(root, "personal", "modem-bridge-reset.md")]);
     expect(report.counts.conflict).toBe(1);
     expect(report.counts.importable).toBe(0);
   });
 
   test("--apply creates nothing for it and leaves the store untouched", () => {
-    const root = storeWithMigrated("modem-bridge-reboot");
-    const src = sourceDir({ "modem-bridge-reboot.md": NATIVE });
+    const root = storeWithMigrated("modem-bridge-reset");
+    const src = sourceDir({ "modem-bridge-reset.md": NATIVE });
     const before = snapshotDir(join(root, "personal"));
 
     importClaudeMemory(deps(root), { source: src, sourceId: "home", scope: "personal", apply: true });
 
     expect(snapshotDir(join(root, "personal"))).toEqual(before);
-    expect(notesIn(root)).toEqual(["modem-bridge-reboot.md"]);
+    expect(notesIn(root)).toEqual(["modem-bridge-reset.md"]);
   });
 
   test("a genuinely new note still imports alongside the conflicting one", () => {
     // The fix must not turn the importer into a no-op: only the colliding
     // identity is held back.
-    const root = storeWithMigrated("modem-bridge-reboot");
+    const root = storeWithMigrated("modem-bridge-reset");
     const src = sourceDir({
-      "modem-bridge-reboot.md": NATIVE,
+      "modem-bridge-reset.md": NATIVE,
       "nota-nueva.md": native(["type: reference", "description: algo nuevo"], "nunca migrado"),
     });
 
@@ -584,7 +584,7 @@ describe("a note already migrated under its own slug (MNE-60)", () => {
 
     expect(report.counts.conflict).toBe(1);
     expect(report.counts.imported).toBe(1);
-    expect(notesIn(root)).toContain("modem-bridge-reboot.md");
+    expect(notesIn(root)).toContain("modem-bridge-reset.md");
     expect(notesIn(root).some((n) => n.startsWith("claude-home-nota-nueva-"))).toBe(true);
   });
 
