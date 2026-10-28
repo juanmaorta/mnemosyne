@@ -5,7 +5,8 @@ here does not render a page wrong — it loses a note, leaks a client's name int
 folder, or tells an agent it saved something it never saved. That is the bar every change is
 held to, and it is the reason most of the rules below exist.
 
-The user-facing contract is the [`README`](README.md). The design reasoning lives in
+The user-facing contract is the [`README`](README.md), the user guide in
+[`docs/guide/`](docs/guide/) and the [CLI reference](docs/reference/cli.md). The design reasoning lives in
 [`docs/plan.md`](docs/plan.md) and [`docs/tasks.md`](docs/tasks.md), which are **in Spanish**
 — that is internal history, not a language policy. Anything a user reads (README,
 `CONTRIBUTING.md`, `SECURITY.md`, issue templates) is in English, and issues and pull
@@ -91,8 +92,9 @@ what landed on disk), not against the shape of the implementation.
 - **Never make a failure look like an empty result.** `mneme context` cannot fail by design,
   which means a broken digest looks exactly like "you have no memories". If you add a path
   that can degrade, make it visible (`degraded injections` in `mneme stats` is the pattern).
-- **Docs are part of the change.** A flag that is not in the README does not exist for users.
-  If you touch the CLI surface, update the README, and check
+- **Docs are part of the change.** A flag that is not in the [CLI reference](docs/reference/cli.md)
+  does not exist for users. If you touch the CLI surface, update it (and the
+  [user guide](docs/guide/) where behaviour changes), and check
   [`docs/integrations/memory-instructions.md`](docs/integrations/memory-instructions.md) —
   it is pasted into agents' instruction files verbatim, so a command that drifts there becomes
   a write the agent believes it made.
