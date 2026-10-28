@@ -31,3 +31,5 @@ apm_modules/
 apm.yml
 apm.lock.yaml
 .claude
+# --- install.sh: marks the clone the installer owns ---
+.mnemosyne-installer

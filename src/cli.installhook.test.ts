@@ -67,3 +67,60 @@ describe("install-hook", () => {
     expect(errs.join("\n")).toMatch(/[Cc]ould not parse/);
   });
 });
+
+// MNE-97: the installer's uninstall removes exactly what init/install-hook added.
+describe("uninstall-hook", () => {
+  const seed = (settings: unknown) => {
+    mkdirSync(join(fakeHome, ".claude"), { recursive: true });
+    writeFileSync(settingsPath(), `${JSON.stringify(settings, null, 2)}\n`);
+  };
+
+  test("dry_run_reports_and_leaves_the_file_untouched", async () => {
+    seed({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context --root '/x'" }] }] } });
+    const before = readFileSync(settingsPath(), "utf8");
+    const lines: string[] = [];
+    expect(await runCli(["uninstall-hook"], (s) => lines.push(s))).toBe(0);
+    expect(lines.join("\n")).toContain("mneme context --root '/x'");
+    expect(readFileSync(settingsPath(), "utf8")).toBe(before);
+  });
+
+  test("write_removes_only_mnemosyne_hooks_and_keeps_everything_else", async () => {
+    seed({
+      model: "opus",
+      hooks: {
+        SessionStart: [
+          { matcher: "startup", hooks: [{ type: "command", command: "mneme context --root '/x'" }, { type: "command", command: "echo hi" }] },
+          { hooks: [{ type: "command", command: "mneme context" }] },
+        ],
+        Stop: [{ hooks: [{ type: "command", command: "say done" }] }],
+      },
+    });
+    expect(await runCli(["uninstall-hook", "--write"], () => {})).toBe(0);
+    const after = JSON.parse(readFileSync(settingsPath(), "utf8"));
+    expect(after).toEqual({
+      model: "opus",
+      hooks: {
+        SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "echo hi" }] }],
+        Stop: [{ hooks: [{ type: "command", command: "say done" }] }],
+      },
+    });
+  });
+
+  test("drops_an_emptied_SessionStart_key", async () => {
+    seed({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context" }] }] } });
+    await runCli(["uninstall-hook", "--write"], () => {});
+    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({ hooks: {} });
+  });
+
+  test("is_a_noop_when_there_is_no_settings_file", async () => {
+    expect(await runCli(["uninstall-hook", "--write"], () => {})).toBe(0);
+    expect(existsSync(settingsPath())).toBe(false);
+  });
+
+  test("refuses_to_touch_an_unparseable_file", async () => {
+    mkdirSync(join(fakeHome, ".claude"), { recursive: true });
+    writeFileSync(settingsPath(), "{ not json");
+    expect(await runCli(["uninstall-hook", "--write"], () => {}, () => {})).toBe(1);
+    expect(readFileSync(settingsPath(), "utf8")).toBe("{ not json");
+  });
+});

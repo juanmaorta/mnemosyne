@@ -43,3 +43,4 @@ jobs:
       # The suite needs no Ollama: the embedder tests point at unreachable hosts
       # on purpose and assert the error path.
       - run: npm test
+

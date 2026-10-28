@@ -320,3 +320,44 @@ export function installSessionStartHook(
   writeFileSync(settingsPath, `${JSON.stringify(reconciled, null, 2)}\n`);
   return "installed";
 }
+
+/**
+ * Remove every Mnemosyne SessionStart hook (any `mneme context…` command) from a
+ * settings/hooks file, for the installer's uninstall (MNE-97). The inverse of
+ * `installSessionStartHook`: unrelated hooks, keys and matcher groups stay; a
+ * group left empty BY THIS removal is dropped, and so is a `SessionStart` key
+ * left empty. `dryRun` reports without writing. A missing file is nothing to
+ * do; an unparseable one is refused, never rewritten.
+ */
+export function uninstallSessionStartHook(
+  settingsPath: string,
+  opts: { dryRun?: boolean } = {},
+): { status: "removed" | "absent" | "parse-error"; removed: string[] } {
+  let current: Record<string, unknown>;
+  try {
+    current = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+  } catch (e) {
+    return { status: (e as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "parse-error", removed: [] };
+  }
+  const hooks = current.hooks as Record<string, unknown> | undefined;
+  const groups = hooks && Array.isArray(hooks.SessionStart) ? (hooks.SessionStart as (HookGroup | null)[]) : [];
+  const removed: string[] = [];
+  const kept = groups.flatMap((g) => {
+    if (g == null || !Array.isArray(g.hooks)) return [g];
+    const rest = g.hooks.filter((h) => {
+      if (!isMnemosyneHook(h)) return true;
+      removed.push(h.command);
+      return false;
+    });
+    if (rest.length === g.hooks.length) return [g];
+    return rest.length === 0 ? [] : [{ ...g, hooks: rest }];
+  });
+  if (removed.length === 0) return { status: "absent", removed };
+  if (!opts.dryRun) {
+    const nextHooks: Record<string, unknown> = { ...hooks };
+    if (kept.length === 0) delete nextHooks.SessionStart;
+    else nextHooks.SessionStart = kept;
+    writeFileSync(settingsPath, `${JSON.stringify({ ...current, hooks: nextHooks }, null, 2)}\n`);
+  }
+  return { status: "removed", removed };
+}

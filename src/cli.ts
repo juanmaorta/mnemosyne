@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { storePaths, DEFAULT_SCOPE } from "./store.js";
-import { resolveRoot } from "./config.js";
+import { resolveRoot, loadStoreConfig } from "./config.js";
 import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
 import { searchExplainInstrumented } from "./retrieval/instrumented.js";
@@ -16,7 +16,7 @@ import { emitEvent } from "./telemetry/events.js";
 import { loadTelemetryConfig } from "./telemetry/config.js";
 import { purgeTelemetryScope } from "./telemetry/purge.js";
 import { getEngramWithRevision } from "./retrieval/get.js";
-import { createOllamaClient, probeOllama, type EmbeddingClient } from "./embeddings.js";
+import { createOllamaClient, probeOllama, resolveEmbeddingDim, DEFAULT_EMBEDDING_MODEL, type EmbeddingClient } from "./embeddings.js";
 import { createFakeEmbedder } from "./embeddings.fake.js";
 import { resolveScope, resolveScopeStrict, loadScopeMap, scopeMapPath, realpathOrUndefined, resolvesViaCatchAll, catchAllIsIntentionalAt, ensureCatchAllScopeMap } from "./scope/scopemap.js";
 import { listScopes } from "./index/walk.js";
@@ -33,6 +33,7 @@ import {
   cwdFromHookPayload,
   hookSnippet,
   installSessionStartHook,
+  uninstallSessionStartHook,
   SESSION_START_COMMAND,
 } from "./hook.js";
 import { mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
@@ -119,9 +120,13 @@ function parseImportance(raw: string): number | null {
   return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
 }
 
-function configuredMinCos(flag: string | undefined): number | undefined {
+/**
+ * Flag > env > the store's `.config.json` (MNE-97) > the per-model default.
+ * The config value is already a validated number; the other two are text.
+ */
+function configuredMinCos(flag: string | undefined, root: string): number | undefined {
   const raw = flag ?? process.env.MNEMOSYNE_MIN_COS;
-  if (raw === undefined) return undefined;
+  if (raw === undefined) return loadStoreConfig(root).minCos;
   if (raw.trim() === "") throw new Error("--min-cos must be a number between -1 and 1.");
   const value = Number(raw);
   if (!Number.isFinite(value) || value < -1 || value > 1) {
@@ -130,10 +135,10 @@ function configuredMinCos(flag: string | undefined): number | undefined {
   return value;
 }
 
-function configuredLexicalFloor(flag: string | undefined): number | undefined {
+function configuredLexicalFloor(flag: string | undefined, root: string): number | undefined {
   const raw = flag ?? process.env.MNEMOSYNE_LEXICAL_FLOOR;
-  if (raw === undefined) return undefined;
-  const value = raw.trim() === "" ? Number.NaN : Number(raw);
+  const value = raw === undefined ? loadStoreConfig(root).lexicalFloor : raw.trim() === "" ? Number.NaN : Number(raw);
+  if (value === undefined) return undefined;
   return resolveLexicalFloor(value) ?? undefined;
 }
 
@@ -166,7 +171,11 @@ function embedder(root: string): EmbeddingClient | null {
   // over FTS and `reindex` indexes the FTS table only. Explicit on purpose — it
   // never masks a transient Ollama failure as a silent quality drop.
   if (configuredTier(root) === "none") return null;
-  return process.env.MNEMOSYNE_FAKE_EMBED === "1" ? createFakeEmbedder() : createOllamaClient();
+  if (process.env.MNEMOSYNE_FAKE_EMBED === "1") return createFakeEmbedder();
+  // `OLLAMA_MODEL` wins; else the model `init` persisted (MNE-97), so a process
+  // that never saw the shell's env still embeds with the model the index holds.
+  const model = process.env.OLLAMA_MODEL ?? loadStoreConfig(root).model;
+  return createOllamaClient(model === undefined ? {} : { model });
 }
 
 function openIndex(root: string) {
@@ -218,8 +227,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const db = openIndex(root);
         const lazy = await reindex({ root, db, embedder: embedder(root), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) }); // lazy reindex before search
         if (lazy.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
-        const minCos = configuredMinCos(values["min-cos"]);
-        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"]);
+        const minCos = configuredMinCos(values["min-cos"], root);
+        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"], root);
         const searchOpts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }), ...(lexicalFloor === undefined ? {} : { lexicalFloor }), ...(values.fusion === "rrf" ? { fusion: "rrf" as const } : {}) };
         if (values.explain) {
           // Diagnostic path: still instrumented, so an explained search is not
@@ -362,8 +371,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const db = openIndex(root);
         await reindex({ root, db, embedder: embedder(root), clock: systemClock, ...(values.scope ? { scopes: values.scope } : {}) });
         const deps = { db, root, embedder: embedder(root), clock: systemClock };
-        const minCos = configuredMinCos(values["min-cos"]);
-        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"]);
+        const minCos = configuredMinCos(values["min-cos"], root);
+        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"], root);
         const opts = { query, ...(values.scope ? { scopes: values.scope } : {}), ...(values.k ? { k: Number(values.k) } : {}), ...(minCos === undefined ? {} : { minCos }), ...(lexicalFloor === undefined ? {} : { lexicalFloor }) };
         out(formatExplain(await searchExplainInstrumented(deps, opts, newCorrId(systemClock)), values.all ? { limit: null } : {}));
         return 0;
@@ -474,8 +483,31 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         out(`Installed SessionStart hook into ${settingsPath}.${trustNote}`);
         return 0;
       }
+      case "uninstall-hook": {
+        // MNE-97: the installer's uninstall. Dry run by default, like init.
+        const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" }, harness: { type: "string" } }, allowPositionals: true });
+        const harness = values.harness?.trim() || "claude-code";
+        if (harness !== "claude-code" && harness !== "codex") {
+          err(`unknown harness: ${harness}. Supported: claude-code, codex.`);
+          return 1;
+        }
+        const settingsPath = harness === "codex"
+          ? join(process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"), "hooks.json")
+          : join(homedir(), ".claude", "settings.json");
+        const result = uninstallSessionStartHook(settingsPath, { dryRun: !values.write });
+        if (result.status === "parse-error") {
+          err(`Could not parse ${settingsPath}; not modifying it. Remove any 'mneme context' SessionStart hook by hand.`);
+          return 1;
+        }
+        if (result.status === "absent") { out(`No Mnemosyne SessionStart hook in ${settingsPath}; nothing to remove.`); return 0; }
+        const list = result.removed.map((c) => `  ${c}`).join("\n");
+        out(values.write
+          ? `Removed from ${settingsPath}:\n${list}`
+          : `Would remove from ${settingsPath} (dry run — pass --write to apply):\n${list}`);
+        return 0;
+      }
       case "init": {
-        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, write: { type: "boolean" } }, allowPositionals: true });
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, write: { type: "boolean" }, model: { type: "string" }, embedder: { type: "string" }, "min-cos": { type: "string" }, "lexical-floor": { type: "string" } }, allowPositionals: true });
         // Absolute, and independent of the invoking environment: the hook runs in
         // future sessions with a different cwd and without this process's env, so
         // a relative or MNEMOSYNE_ROOT-derived path would target the wrong store.
@@ -488,15 +520,55 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // Single-quoted for the shell.
         const quoteArg = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
         const hookCommand = `${SESSION_START_COMMAND} --root ${quoteArg(root)}`;
-        // Tier: use the embedder if Ollama serves the model, else tier 0 (BM25
-        // over FTS). The probe never throws; anything else just means tier 0.
-        const hasOllama = await probeOllama();
+
+        // MNE-97: the embedding settings are persisted so the normal case needs no
+        // env vars. Each comes from the flag, else the env var present right now
+        // (so a ~/.zshenv setup is captured once and can then be dropped), else
+        // what this store's config already says — a re-run (the installer's
+        // `update`) preserves rather than re-decides. Validated BEFORE anything
+        // is written: a half-applied init is worse than a refused one.
+        let existing: Record<string, unknown> = {};
+        try {
+          const parsed = JSON.parse(readFileSync(paths.config, "utf8")) as unknown;
+          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) existing = parsed as Record<string, unknown>;
+        } catch { /* no config yet, or unreadable: start fresh, as before */ }
+        const prior = loadStoreConfig(root);
+        if (values.embedder !== undefined && values.embedder !== "ollama" && values.embedder !== "none") {
+          err(`init: --embedder must be 'ollama' or 'none', got '${values.embedder}'.`);
+          return 1;
+        }
+        const explicitModel = values.model?.trim() || process.env.OLLAMA_MODEL?.trim() || prior.model;
+        if (explicitModel !== undefined) resolveEmbeddingDim(explicitModel, process.env.OLLAMA_EMBEDDING_DIM); // unknown model → throws
+        const minCos = configuredMinCos(values["min-cos"], root);
+        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"], root);
+        if (minCos !== undefined && (minCos < -1 || minCos > 1)) { err("init: --min-cos must be a number between -1 and 1."); return 1; }
+        // Tier: an explicit flag, else the tier this store already has (an
+        // Ollama that is down during an update must not demote a working store),
+        // else detection: the embedder if Ollama serves the model, tier 0 (BM25
+        // over FTS) otherwise. The probe never throws.
+        // Probe for the model this store will actually use, not the bare default.
+        const hasOllama = await probeOllama(undefined, explicitModel);
+        const priorTier = typeof existing.embedder === "string" ? existing.embedder : undefined;
+        const tier = values.embedder ?? priorTier ?? (hasOllama ? "ollama" : "none");
+        const model = explicitModel ?? (tier === "ollama" ? DEFAULT_EMBEDDING_MODEL : undefined);
+        const nextConfig: Record<string, unknown> = {
+          ...existing,
+          embedder: tier,
+          ...(model === undefined ? {} : { model }),
+          ...(minCos === undefined ? {} : { minCos }),
+          ...(lexicalFloor === undefined ? {} : { lexicalFloor }),
+        };
+        const tierLine = tier === "ollama"
+          ? `embedder (Ollama, model ${model})${hasOllama ? "" : " — but Ollama does not serve it right now"}`
+          : "0 — no embedder; search/context use BM25 over FTS";
         if (!values.write) {
           out([
             "mneme init (dry run — pass --write to apply):",
             `  hook:     SessionStart -> "${hookCommand}" in ${settingsPath}`,
             `  scopemap: ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}')`,
-            `  tier:     ${hasOllama ? "embedder (Ollama detected)" : "0 — no embedder (Ollama not reachable); search/context use BM25"}`,
+            `  tier:     ${tierLine}`,
+            `  config:   ${paths.config}`,
+            ...JSON.stringify(nextConfig, null, 2).split("\n").map((l) => `            ${l}`),
           ].join("\n"));
           return 0;
         }
@@ -508,11 +580,18 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // Persist the tier so EVERY mneme invocation honours it, not just the
         // hook. `MNEMOSYNE_EMBEDDER` still overrides this at runtime.
         mkdirSync(dirname(paths.config), { recursive: true });
-        writeFileSync(paths.config, `${JSON.stringify({ embedder: hasOllama ? "ollama" : "none" }, null, 2)}\n`);
+        writeFileSync(paths.config, `${JSON.stringify(nextConfig, null, 2)}\n`);
+        if (tier === "ollama" && !hasOllama) {
+          err(`warning: Ollama is not serving '${model}' right now. Start Ollama and run 'ollama pull ${model}'; until then search fails (or choose tier 0 with 'mneme init --write --embedder none').`);
+        }
+        if (tier === "none" && hasOllama && priorTier === "none" && values.embedder === undefined) {
+          err("note: Ollama is available, but this store stays on tier 0 as configured. Switch with 'mneme init --write --embedder ollama'.");
+        }
         out([
           `Installed SessionStart hook into ${settingsPath}.`,
           wroteScopeMap ? `Wrote ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}').` : `Left existing ${paths.scopeMap} untouched.`,
-          hasOllama ? "Tier: embedder (Ollama detected)." : "Tier 0: no embedder; search/context use BM25 over FTS.",
+          tier === "ollama" ? `Tier: embedder (Ollama, model ${model}).` : "Tier 0: no embedder; search/context use BM25 over FTS.",
+          `Wrote ${paths.config}.`,
         ].join("\n"));
         return 0;
       }
@@ -881,7 +960,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, add, update, import-claude, dream.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, uninstall-hook, add, update, import-claude, dream.`);
         return 1;
     }
   } catch (e) {

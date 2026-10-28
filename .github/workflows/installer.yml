@@ -1,0 +1,79 @@
+name: Installer
+
+# MNE-97: the installer, on both platforms it promises. Split out of ci.yml so a
+# PR that only touches docs or unrelated code does not pay for a macOS runner:
+# on pull requests it runs only when something the installer depends on
+# changes. On main it always runs, so a breakage that slips past the filter
+# still shows up on the next merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - install.sh
+      - .github/workflows/installer.yml
+      - package.json
+      - package-lock.json
+      - src/bin/**
+      - src/cli.ts
+      - src/config.ts
+      - src/hook.ts
+      - src/store.ts
+      # Pasted into CLAUDE.md by the installer.
+      - docs/integrations/memory-instructions.md
+
+permissions:
+  contents: read
+
+jobs:
+  # Modes that never touch the runner's own HOME — every step points HOME at a
+  # fresh temp dir. Linux runs it under dash (Ubuntu's sh), which is what `curl … | sh` gets.
+  installer:
+    name: install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: dry run from a clone writes nothing
+        run: |
+          export HOME="$(mktemp -d)"
+          sh ./install.sh --dry-run
+          test -z "$(ls -A "$HOME")"
+
+      - name: dry run piped through sh (the curl | sh path) writes nothing
+        run: |
+          export HOME="$(mktemp -d)"
+          sh -s -- --dry-run < install.sh
+          test -z "$(ls -A "$HOME")"
+
+      - name: install, update and uninstall end to end in a temporary HOME
+        run: |
+          # The clone comes from this very checkout, so the run tests the PR's
+          # code. No Ollama on the runner: this is the tier 0 path.
+          git checkout -B ci-installer
+          export MNEMOSYNE_REPO_URL="$GITHUB_WORKSPACE" MNEMOSYNE_BRANCH=ci-installer
+          export HOME="$(mktemp -d)"
+          export PATH="$HOME/.local/bin:$PATH"
+          sh -s -- --yes --no-ollama-pull < install.sh
+          mneme scan "hello"
+          grep -q "mneme context --root" "$HOME/.claude/settings.json"
+          grep -q '"embedder": "none"' "$HOME/memory/.config.json"
+          grep -q "mnemosyne:begin" "$HOME/.claude/CLAUDE.md"
+          cp "$HOME/.claude/settings.json" "$RUNNER_TEMP/settings.before-update"
+          sh "$HOME/.mnemosyne/install.sh" update --yes
+          cmp "$HOME/.claude/settings.json" "$RUNNER_TEMP/settings.before-update"
+          sh "$HOME/.mnemosyne/install.sh" uninstall --yes
+          test ! -e "$HOME/.mnemosyne"
+          test ! -e "$HOME/.local/bin/mneme"
+          test -d "$HOME/memory"
+          if grep -q "mneme context" "$HOME/.claude/settings.json"; then exit 1; fi

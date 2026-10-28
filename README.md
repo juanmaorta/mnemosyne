@@ -28,47 +28,85 @@ to remember versus to forget. That duality is the whole system.
 
 ### Install
 
-Mnemosyne is not on npm yet — build it from source, then let it set itself up in one command:
+Mnemosyne is not on npm — the installer clones it from git and builds it locally, in one step:
 
 ```sh
-git clone https://github.com/juanmaorta/mnemosyne.git && cd mnemosyne
-npm install && npm run build
-npm link                   # puts `mneme` (and the `mem` alias) on your PATH — the hook needs it too
-mneme init --write
+curl -fsSL https://raw.githubusercontent.com/juanmaorta/mnemosyne/main/install.sh | sh
 ```
 
-`mneme init --write` is the one-command setup: it installs the session-start hook, writes a
-default `~/memory/.scopemap`, and detects whether [Ollama](https://ollama.com) is serving an
-embedding model. Run `mneme init` with no flags first to preview exactly what it will change.
-
-- **With Ollama** (`ollama pull nomic-embed-text`) you get semantic search.
-- **Without it**, run `mneme init --write` while Ollama is unavailable (or set
-  `MNEMOSYNE_EMBEDDER=none`) to configure **tier 0** — keyword (BM25) search that runs fully
-  offline. An unreachable Ollama is not an automatic fallback: tier 0 is a mode you select.
-
-#### Environment variables that must persist
-
-`mneme init` does not write environment variables. Mnemosyne reads them on every run, so set
-them where **every** process that runs `mneme` sees them, not only your interactive shell: the
-session-start hook and coding agents run it too, often from non-interactive shells. With zsh
-that means `~/.zshenv` (read by every zsh), not `~/.zshrc` (interactive only). Set them on each
-machine that shares the store.
-
-| Variable | When you need it |
-|---|---|
-| `OLLAMA_MODEL` | Only if you use an embedding model other than `nomic-embed-text`, e.g. `nomic-embed-text-v2-moe` (recommended, see [Usage](#usage)). A process that misses it falls back to `nomic-embed-text`, which disagrees with the index, and `mneme` refuses to use that index. |
-| `MNEMOSYNE_LEXICAL_FLOOR` | Optional. Turns on lexical rescue with a value calibrated **for your store** (see [Usage](#usage)). Without it, search uses the cosine floor alone. |
+Prefer to read it first? Preview everything without changing anything, or run it from a clone:
 
 ```sh
-# ~/.zshenv — example for nomic-embed-text-v2-moe with a calibrated lexical floor
-export OLLAMA_MODEL=nomic-embed-text-v2-moe
-export MNEMOSYNE_LEXICAL_FLOOR=12      # your own calibrated value; this one is the author's store
+curl -fsSL https://raw.githubusercontent.com/juanmaorta/mnemosyne/main/install.sh | sh -s -- --dry-run
+git clone https://github.com/juanmaorta/mnemosyne.git && cd mnemosyne && ./install.sh --dry-run
 ```
+
+The installer checks what it needs and, for anything missing, prints the exact command that
+fixes it: **Node.js ≥ 20** and **git** (required), the C/C++ build tools for the SQLite
+modules (Xcode Command Line Tools on macOS, `build-essential`/`python3` on Linux — only used
+when no prebuilt binary matches your machine), and **Claude Code** (`claude`).
+[Ollama](https://ollama.com) is **optional**: if it is running, the installer offers to
+download the recommended embedding model (`nomic-embed-text-v2-moe`) and you get semantic
+search; without it Mnemosyne runs in **tier 0** — keyword (BM25) search, fully offline — and
+the installer tells you how to add semantic search later.
+
+Before changing anything it lists what it will change, and asks:
+
+- the code goes to `~/.mnemosyne` (a clone, built there; or your clone, used in place), and
+  two small wrappers, `mneme` and `mem`, go to `~/.local/bin` — which must be on your `PATH`,
+  because the hook runs `mneme` (the installer tells you the line to add; it does not edit
+  your shell files);
+- a `SessionStart` hook is added to `~/.claude/settings.json` (other settings are untouched,
+  and the original is kept once as `settings.json.before-mnemosyne`);
+- your memories live in `~/memory` as plain Markdown; a default `.scopemap` and a
+  `.config.json` with the search tier and model are added there if missing;
+- a marked block telling Claude to use `mneme` for memory is appended to
+  `~/.claude/CLAUDE.md` (skipped if that file already mentions `mneme`; `--no-claude-md` to
+  opt out). The block is [`docs/integrations/memory-instructions.md`](docs/integrations/memory-instructions.md).
+
+```sh
+sh ~/.mnemosyne/install.sh update                 # pull, rebuild; keeps config, hook, .scopemap and data
+sh ~/.mnemosyne/install.sh uninstall              # removes hook, CLAUDE.md block, commands, code; KEEPS ~/memory
+sh ~/.mnemosyne/install.sh uninstall --delete-data   # ...and deletes ~/memory too (asks first)
+```
+
+Every command takes `--dry-run`; `--help` lists the rest (`--root`, `--model`, `--dir`,
+`--bin-dir`, `--yes` for a run with no terminal). With `--root`, the hook and the `mneme`/`mem`
+wrappers both default to that store (`MNEMOSYNE_ROOT` still overrides it). `update` never
+changes the model a store already uses; pass `--model` to choose one explicitly.
+
+Underneath, the installer runs `mneme init --write`, which you can also run by hand from a
+manual build (`npm install && npm run build && npm link`): it installs the session-start hook,
+writes a default `~/memory/.scopemap`, and persists the search tier in `~/memory/.config.json`
+— the embedder if Ollama serves the model, tier 0 otherwise. Run `mneme init` with no flags to
+preview. Re-running it keeps what the store already has; choose explicitly with
+`--embedder ollama|none` and `--model <name>`.
+
+#### Settings live in the store, not in your shell
+
+`mneme init` saves the embedding model and, if you give them, the search floors in the
+store's `.config.json`, so every process that runs `mneme` — the hook, an agent's
+non-interactive shell — uses the same model the index was built with. Nothing has to go in
+`~/.zshenv`.
+
+```sh
+mneme init --write --model nomic-embed-text-v2-moe --lexical-floor 12   # 12 is the author's store; calibrate yours
+```
+
+| Setting (`.config.json`) | `init` flag | Env var that overrides it |
+|---|---|---|
+| `embedder` (`ollama` / `none`) | `--embedder` | `MNEMOSYNE_EMBEDDER` |
+| `model` | `--model` | `OLLAMA_MODEL` |
+| `minCos` | `--min-cos` | `MNEMOSYNE_MIN_COS` |
+| `lexicalFloor` | `--lexical-floor` | `MNEMOSYNE_LEXICAL_FLOOR` (see [Usage](#usage)) |
+
+The environment variables still work and **win** over the config (a command-line flag wins
+over both). If you already set them in `~/.zshenv`, run `mneme init --write` once with them in
+the environment: it copies them into `.config.json`, and you can then remove them.
 
 Every other variable in the [reference table](#configuration-environment-variables) has a working default.
 
-(`mneme` is the CLI; `mem` is an alias. A one-command installer that skips the build and link
-steps is on the roadmap.)
+(`mneme` is the CLI; `mem` is an alias.)
 
 ### What the hook does
 
@@ -164,12 +202,12 @@ cosine bands overlap (about 0.28–0.38), so no floor separates them. 0.35 is th
 choice: it keeps every note that a stricter floor would drop, at the cost of some off-topic hits
 (3 of 17 negatives). Lexical rescue (below) recovers what it still misses. Numbers in
 [`docs/benchmarks/mne98-floor-calibration-2026-10-24.md`](docs/benchmarks/mne98-floor-calibration-2026-10-24.md).
-To adopt it (persist `OLLAMA_MODEL` as described in
-[Environment variables that must persist](#environment-variables-that-must-persist)):
+To adopt it (saved in the store's config, see
+[Settings live in the store](#settings-live-in-the-store-not-in-your-shell)):
 
 ```sh
 ollama pull nomic-embed-text-v2-moe
-export OLLAMA_MODEL=nomic-embed-text-v2-moe
+mneme init --write --model nomic-embed-text-v2-moe
 mneme reindex --force-embedder          # re-embeds the store with the new model, on purpose
 ```
 
@@ -285,8 +323,8 @@ sweeps the cosine floor × lexical floor grid on the reviewed golden and reports
 style (natural paraphrase vs. keyword). On the author's store (MNE-98), `0.35` plus a lexical
 floor of `12` reached the golden's recall ceiling without adding false positives, and any value
 from 10 to 14.5 gave the same result. Raw BM25 drifts as the store grows, so recalibrate after
-big changes. Adopt it by persisting `MNEMOSYNE_LEXICAL_FLOOR` (see
-[Environment variables that must persist](#environment-variables-that-must-persist)). `explain` marks rescued rows and
+big changes. Adopt it with `mneme init --write --lexical-floor <n>`, which saves it in the store's config (see
+[Settings live in the store](#settings-live-in-the-store-not-in-your-shell)). `explain` marks rescued rows and
 telemetry records each candidate's BM25. Tier 0 ignores it (BM25 already ranks there).
 With `nomic-embed-text` and task prefixes, the default floor is `0.70`; other embedding
 models have no default floor until calibrated. `--min-cos` overrides it for a query, and
@@ -692,6 +730,7 @@ digest before the first turn, so the agent starts every session already knowing:
 ```sh
 mneme install-hook                           # prints the SessionStart snippet for ~/.claude/settings.json
 mneme install-hook --write                   # opt-in: merges it into ~/.claude/settings.json
+mneme uninstall-hook [--write]               # removes every `mneme context` SessionStart hook (dry run without --write)
 
 mneme install-hook --harness codex           # the same, for $CODEX_HOME/hooks.json
 mneme install-hook --harness codex --write
@@ -893,10 +932,10 @@ scope directory reads as a complete purge while leaving the client's slugs behin
 |-----|---------|---------|
 | `MNEMOSYNE_ROOT` | `~/memory` | Store root (overridden by `--root`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint for embeddings |
-| `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model; changing it needs `mneme reindex --force-embedder` |
+| `OLLAMA_MODEL` | the store's `.config.json`, else `nomic-embed-text` | Embedding model; changing it needs `mneme reindex --force-embedder` |
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those) |
-| `MNEMOSYNE_MIN_COS` | `0.70` for prefixed `nomic-embed-text`; off for other models | Raw cosine floor for search (overridden by `--min-cos`) |
-| `MNEMOSYNE_LEXICAL_FLOOR` | off | Raw-BM25 lexical rescue floor for search/explain (overridden by `--lexical-floor`); calibrate per store and persist it (see [Install](#environment-variables-that-must-persist)) |
+| `MNEMOSYNE_MIN_COS` | the store's `.config.json`, else `0.70` for prefixed `nomic-embed-text`, `0.35` for `nomic-embed-text-v2-moe`, off for other models | Raw cosine floor for search (overridden by `--min-cos`) |
+| `MNEMOSYNE_LEXICAL_FLOOR` | off | Raw-BM25 lexical rescue floor for search/explain (overridden by `--lexical-floor`); calibrate per store and persist it with `mneme init --write --lexical-floor <n>` (see [Install](#settings-live-in-the-store-not-in-your-shell)) |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest (overridden by `--budget`) |
 | `MNEMOSYNE_EMBEDDER` | — | `none` runs tier 0: no embedder, `search`/`context` rank by BM25 over FTS (works without Ollama) |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder (tests only) |

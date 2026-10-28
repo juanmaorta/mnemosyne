@@ -399,3 +399,79 @@ describe("mneme init", () => {
     expect(settings.model).toBe("opus");
   });
 });
+
+// MNE-97: init persists the embedding settings into `.config.json` so nothing
+// has to live in `~/.zshenv`, and re-running it (the installer's `update`)
+// preserves what is already there instead of re-deciding it.
+describe("mneme init — persisted embedding settings (MNE-97)", () => {
+  const SCRUB = ["OLLAMA_MODEL", "MNEMOSYNE_MIN_COS", "MNEMOSYNE_LEXICAL_FLOOR"] as const;
+  let scrubbed: Record<string, string | undefined>;
+  beforeEach(() => {
+    scrubbed = Object.fromEntries(SCRUB.map((k) => [k, process.env[k]]));
+    for (const k of SCRUB) delete process.env[k];
+  });
+  afterEach(() => {
+    for (const k of SCRUB) { if (scrubbed[k] === undefined) delete process.env[k]; else process.env[k] = scrubbed[k]; }
+  });
+
+  const config = () => JSON.parse(readFileSync(join(root, ".config.json"), "utf8")) as Record<string, unknown>;
+  const writeConfig = async (cfg: Record<string, unknown>) => {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(root, ".config.json"), `${JSON.stringify(cfg)}\n`);
+  };
+
+  test("persists_model_and_floors_given_as_flags", async () => {
+    const code = await runCli(["init", "--root", root, "--write", "--model", "nomic-embed-text-v2-moe", "--lexical-floor", "12", "--min-cos", "0.35"], () => {});
+    expect(code).toBe(0);
+    expect(config()).toMatchObject({ model: "nomic-embed-text-v2-moe", lexicalFloor: 12, minCos: 0.35 });
+  });
+
+  test("captures_the_env_vars_present_at_init_into_the_config", async () => {
+    // Someone who configured Mnemosyne through ~/.zshenv runs init (or the
+    // installer's update) once, and can then drop the variables.
+    process.env.OLLAMA_MODEL = "nomic-embed-text-v2-moe";
+    process.env.MNEMOSYNE_LEXICAL_FLOOR = "12";
+    process.env.MNEMOSYNE_MIN_COS = "0.4";
+    await runCli(["init", "--root", root, "--write"], () => {});
+    expect(config()).toMatchObject({ model: "nomic-embed-text-v2-moe", lexicalFloor: 12, minCos: 0.4 });
+  });
+
+  test("rerun_preserves_existing_settings_and_the_embedder_tier", async () => {
+    // Ollama unreachable during an update must not silently demote a working
+    // embedder store to tier 0, nor drop its model or floors.
+    await writeConfig({ embedder: "ollama", model: "nomic-embed-text-v2-moe", lexicalFloor: 12, extra: "kept" });
+    const err: string[] = [];
+    const code = await runCli(["init", "--root", root, "--write"], () => {}, (s) => err.push(s));
+    expect(code).toBe(0);
+    expect(config()).toEqual({ embedder: "ollama", model: "nomic-embed-text-v2-moe", lexicalFloor: 12, extra: "kept" });
+    expect(err.join("\n")).toMatch(/ollama pull nomic-embed-text-v2-moe/);
+  });
+
+  test("an_explicit_embedder_flag_switches_the_tier", async () => {
+    await writeConfig({ embedder: "ollama", model: "nomic-embed-text-v2-moe" });
+    await runCli(["init", "--root", root, "--write", "--embedder", "none"], () => {});
+    expect(config()).toMatchObject({ embedder: "none", model: "nomic-embed-text-v2-moe" });
+  });
+
+  test("rejects_invalid_values_before_writing_anything", async () => {
+    const err: string[] = [];
+    expect(await runCli(["init", "--root", root, "--write", "--lexical-floor", "-3"], () => {}, (s) => err.push(s))).toBe(1);
+    expect(await runCli(["init", "--root", root, "--write", "--embedder", "gpu"], () => {}, (s) => err.push(s))).toBe(1);
+    expect(await runCli(["init", "--root", root, "--write", "--model", "mystery-model"], () => {}, (s) => err.push(s))).toBe(1);
+    expect(err.join("\n")).toMatch(/lexical-floor/);
+    expect(err.join("\n")).toMatch(/embedder/);
+    expect(err.join("\n")).toMatch(/Unknown embedding model "mystery-model"/);
+    expect(existsSync(settingsPath())).toBe(false);
+    expect(existsSync(join(root, ".config.json"))).toBe(false);
+  });
+
+  test("dry_run_shows_the_config_it_would_write_and_writes_nothing", async () => {
+    const lines: string[] = [];
+    await runCli(["init", "--root", root, "--model", "nomic-embed-text-v2-moe", "--lexical-floor", "12"], (s) => lines.push(s));
+    const out = lines.join("\n");
+    expect(out).toContain(join(root, ".config.json"));
+    expect(out).toContain('"model": "nomic-embed-text-v2-moe"');
+    expect(out).toContain('"lexicalFloor": 12');
+    expect(existsSync(join(root, ".config.json"))).toBe(false);
+  });
+});
