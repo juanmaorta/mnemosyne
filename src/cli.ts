@@ -4,7 +4,7 @@ import { resolveRoot, loadStoreConfig } from "./config.js";
 import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
 import { searchExplainInstrumented } from "./retrieval/instrumented.js";
-import { resolveLexicalFloor } from "./retrieval/search.js";
+import { resolveLexicalFloor, defaultLexicalFloorForModel } from "./retrieval/search.js";
 import { newCorrId } from "./telemetry/corr.js";
 import { computeStats } from "./observability/stats.js";
 import { formatExplain } from "./observability/explain.js";
@@ -540,7 +540,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const explicitModel = values.model?.trim() || process.env.OLLAMA_MODEL?.trim() || prior.model;
         if (explicitModel !== undefined) resolveEmbeddingDim(explicitModel, process.env.OLLAMA_EMBEDDING_DIM); // unknown model → throws
         const minCos = configuredMinCos(values["min-cos"], root);
-        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"], root);
+        const configuredFloor = configuredLexicalFloor(values["lexical-floor"], root);
         if (minCos !== undefined && (minCos < -1 || minCos > 1)) { err("init: --min-cos must be a number between -1 and 1."); return 1; }
         // Tier: an explicit flag, else the tier this store already has (an
         // Ollama that is down during an update must not demote a working store),
@@ -551,6 +551,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const priorTier = typeof existing.embedder === "string" ? existing.embedder : undefined;
         const tier = values.embedder ?? priorTier ?? (hasOllama ? "ollama" : "none");
         const model = explicitModel ?? (tier === "ollama" ? DEFAULT_EMBEDDING_MODEL : undefined);
+        // MNE-97: a v2-moe store on the embedder tier gets the calibrated lexical
+        // rescue unless something already says otherwise (flag, env, or a value
+        // this store's config holds). Tier 0 ranks by BM25 and ignores it.
+        const lexicalFloor = configuredFloor
+          ?? (tier === "ollama" && model !== undefined ? defaultLexicalFloorForModel(model) : undefined);
         const nextConfig: Record<string, unknown> = {
           ...existing,
           embedder: tier,

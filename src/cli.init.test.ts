@@ -474,4 +474,50 @@ describe("mneme init — persisted embedding settings (MNE-97)", () => {
     expect(out).toContain('"lexicalFloor": 12');
     expect(existsSync(join(root, ".config.json"))).toBe(false);
   });
+
+  // MNE-97 decision: v2-moe's cosine bands overlap, so without the lexical
+  // rescue it loses literal matches. The calibrated floor ships as the default
+  // for that model only, written once by init so the store says what it uses.
+  describe("default lexicalFloor for nomic-embed-text-v2-moe", () => {
+    test("v2_moe_on_the_embedder_tier_writes_lexicalFloor_12", async () => {
+      expect(await runCli(["init", "--root", root, "--write", "--embedder", "ollama", "--model", "nomic-embed-text-v2-moe"], () => {}, () => {})).toBe(0);
+      expect(config()).toMatchObject({ embedder: "ollama", model: "nomic-embed-text-v2-moe", lexicalFloor: 12 });
+    });
+
+    test("the_latest_tag_counts_as_v2_moe", async () => {
+      await runCli(["init", "--root", root, "--write", "--embedder", "ollama", "--model", "nomic-embed-text-v2-moe:latest"], () => {}, () => {});
+      expect(config()).toMatchObject({ lexicalFloor: 12 });
+    });
+
+    test("the_dry_run_shows_the_default_it_would_write", async () => {
+      const lines: string[] = [];
+      await runCli(["init", "--root", root, "--embedder", "ollama", "--model", "nomic-embed-text-v2-moe"], (s) => lines.push(s));
+      expect(lines.join("\n")).toContain('"lexicalFloor": 12');
+    });
+
+    test("an_explicit_flag_or_env_wins_over_the_default", async () => {
+      await runCli(["init", "--root", root, "--write", "--embedder", "ollama", "--model", "nomic-embed-text-v2-moe", "--lexical-floor", "7"], () => {}, () => {});
+      expect(config()).toMatchObject({ lexicalFloor: 7 });
+      process.env.MNEMOSYNE_LEXICAL_FLOOR = "9";
+      await runCli(["init", "--root", root, "--write"], () => {}, () => {});
+      expect(config()).toMatchObject({ lexicalFloor: 9 });
+    });
+
+    test("a_rerun_keeps_an_existing_lexicalFloor", async () => {
+      await writeConfig({ embedder: "ollama", model: "nomic-embed-text-v2-moe", lexicalFloor: 14.5 });
+      await runCli(["init", "--root", root, "--write"], () => {}, () => {});
+      expect(config()).toMatchObject({ lexicalFloor: 14.5 });
+    });
+
+    test("other_models_get_no_lexicalFloor", async () => {
+      await runCli(["init", "--root", root, "--write", "--embedder", "ollama", "--model", "nomic-embed-text"], () => {}, () => {});
+      expect(config()).not.toHaveProperty("lexicalFloor");
+    });
+
+    test("tier_0_gets_no_lexicalFloor_even_with_v2_moe", async () => {
+      await runCli(["init", "--root", root, "--write", "--embedder", "none", "--model", "nomic-embed-text-v2-moe"], () => {}, () => {});
+      expect(config()).toMatchObject({ embedder: "none", model: "nomic-embed-text-v2-moe" });
+      expect(config()).not.toHaveProperty("lexicalFloor");
+    });
+  });
 });

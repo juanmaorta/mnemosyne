@@ -81,7 +81,9 @@ What `init --write` does:
   `mneme context --root '<absolute store root>'` (the root is always baked in, so the hook reads
   this store whatever the environment at session time);
 - writes `<root>/.scopemap` with a catch-all `~ = personal`, only if there is none;
-- writes `<root>/.config.json` with the search tier and model (and the floors, if given).
+- writes `<root>/.config.json` with the search tier and model (and the floors, if given). For
+  `nomic-embed-text-v2-moe` on the embedder tier it also writes `"lexicalFloor": 12` when no
+  lexical floor is given or already configured.
 
 | Flag | Meaning |
 |---|---|

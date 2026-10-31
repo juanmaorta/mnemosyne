@@ -105,6 +105,23 @@ export const NOMIC_MIN_COS = 0.70;
  */
 export const NOMIC_V2MOE_MIN_COS = 0.35;
 
+/**
+ * The lexical rescue floor `mneme init` writes for a v2-moe store (MNE-97).
+ *
+ * v2-moe's cosine bands overlap (see `NOMIC_V2MOE_MIN_COS`), so without the
+ * rescue a search loses notes that share a rare literal term with the query.
+ * 12 is the MNE-98 calibration (any value from 10 to 14.5 gave the same result
+ * there). It is a starting point, not a property of the model: raw BM25 drifts
+ * with the store, so it is persisted in the store's config — where a user can
+ * see and recalibrate it — rather than applied silently at search time.
+ */
+export const NOMIC_V2MOE_LEXICAL_FLOOR = 12;
+
+/** The lexical floor `init` writes for a fresh store on `model`, if any. */
+export function defaultLexicalFloorForModel(model: string): number | undefined {
+  return /^nomic-embed-text-v2-moe(?::latest)?$/.test(model.trim()) ? NOMIC_V2MOE_LEXICAL_FLOOR : undefined;
+}
+
 export function resolveMinCos(embedderId: string, configured?: number): number | null {
   if (configured !== undefined) {
     if (!Number.isFinite(configured) || configured < -1 || configured > 1) {
@@ -126,9 +143,11 @@ export function resolveMinCos(embedderId: string, configured?: number): number |
  * so it cannot tell a strong match from the best of a bad lot. Raw BM25 carries
  * IDF, which is what separates "shares a rare term" from "shares stopwords".
  *
- * There is no default: the scale depends on the store (corpus size, note
- * length), so a value is only meaningful once calibrated against that store's
- * golden (MNE-98). Unset means off.
+ * There is no search-time default: the scale depends on the store (corpus size,
+ * note length), so a value is only meaningful once calibrated against that
+ * store's golden (MNE-98). Unset means off. `mneme init` does write a starting
+ * value for v2-moe stores (`defaultLexicalFloorForModel`), into the store's
+ * config, where it is visible and can be changed.
  */
 export function resolveLexicalFloor(configured?: number): number | null {
   if (configured === undefined) return null;
