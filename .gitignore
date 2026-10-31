@@ -35,3 +35,5 @@ apm.lock.yaml
 .claude
 # --- install.sh: marks the clone the installer owns ---
 .mnemosyne-installer
+# --- MNE-111: the new-version check cache, kept next to the code ---
+.update-check.json*

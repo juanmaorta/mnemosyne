@@ -67,6 +67,13 @@ mneme dream revert --run <runId> --scope <scope> [--apply] [--root r]
 # Session-start hook for Claude Code (default) or the Codex CLI. Dry run without --write.
 mneme install-hook   [--harness codex] [--write]
 mneme uninstall-hook [--harness codex] [--write]
+
+# The version, plus the git tag or commit when running from a checkout.
+mneme --version          # or -V
+
+# Update an installer-managed install to the latest release (runs its install.sh update).
+# From your own clone it only says how to update it yourself, and exits 1.
+mneme upgrade [--yes] [--dry-run]
 ```
 
 ---

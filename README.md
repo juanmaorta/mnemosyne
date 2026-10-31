@@ -74,8 +74,19 @@ mneme search "answers"
 Open a new Claude Code session: it starts with your memories already loaded.
 
 Prefer to read the script first? `git clone https://github.com/juanmaorta/mnemosyne.git && cd
-mnemosyne && ./install.sh --dry-run`. Update and uninstall are one command each; see
+mnemosyne && ./install.sh --dry-run`. The installer installs the latest release; `mneme upgrade`
+moves you to a newer one, and uninstall is one command too; see
 [Getting started](docs/guide/getting-started.md).
+
+## Privacy
+
+Your memories never leave your machine. The **only network request Mnemosyne makes on its own**
+is a once-a-day check for a newer release: a plain HTTPS `GET` to GitHub's releases API that
+carries nothing about you or your memories. It never delays session start, and when a release
+is out your next session says so in one line. Turn it off with `"updateCheck": false` in
+`~/memory/.config.json` or `MNEMOSYNE_NO_UPDATE_CHECK=1`; details in
+[Configuration](docs/guide/configuration.md#the-new-version-check). Semantic search talks only to
+the Ollama you point it at (your own machine by default).
 
 ## What changes on your machine
 
