@@ -296,15 +296,32 @@ TARGET_WHY=""
 
 # stdin: tag names, one per line -> stdout: the newest `vX.Y.Z`, or when there
 # is none, the newest pre-release `vX.Y.Z-…`; nothing at all when neither exists.
-# Sorted field by field as numbers, so v0.10.0 comes after v0.9.0.
+# Compared by semver precedence (numbers as numbers, so v0.10.0 is after v0.9.0;
+# pre-release identifiers left to right, so beta.1 is after alpha.9). Other tags
+# are ignored.
 newest_tag() {
-  _tags="$(cat)"
-  _pick="$(printf '%s\n' "$_tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
-  if [ -z "$_pick" ]; then
-    _pick="$(printf '%s\n' "$_tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1)"
-  fi
-  if [ -n "$_pick" ]; then printf 'v%s\n' "$_pick"; fi
-  return 0
+  awk '
+    function cmpid(x, y,   xn, yn) {
+      xn = (x ~ /^[0-9]+$/); yn = (y ~ /^[0-9]+$/)
+      if (xn && yn) return (x + 0 < y + 0) ? -1 : (x + 0 > y + 0)
+      if (xn != yn) return xn ? -1 : 1
+      return (x "" < y "") ? -1 : (x "" > y "")
+    }
+    function cmpver(a, b,   ia, ib, ca, cb, pa, pb, xa, xb, ya, yb, na, nb, i, c) {
+      ia = index(a, "-"); ib = index(b, "-")
+      ca = ia ? substr(a, 1, ia - 1) : a; pa = ia ? substr(a, ia + 1) : ""
+      cb = ib ? substr(b, 1, ib - 1) : b; pb = ib ? substr(b, ib + 1) : ""
+      split(ca, xa, "."); split(cb, xb, ".")
+      for (i = 1; i <= 3; i++) if (xa[i] + 0 != xb[i] + 0) return (xa[i] + 0 < xb[i] + 0) ? -1 : 1
+      if (pa == "" || pb == "") return (pa == "") - (pb == "")
+      na = split(pa, ya, "."); nb = split(pb, yb, ".")
+      for (i = 1; i <= na && i <= nb; i++) { c = cmpid(ya[i], yb[i]); if (c) return c }
+      return (na < nb) ? -1 : (na > nb)
+    }
+    /^v[0-9]+[.][0-9]+[.][0-9]+$/ { v = substr($0, 2); if (stable == "" || cmpver(v, stable) > 0) stable = v; next }
+    /^v[0-9]+[.][0-9]+[.][0-9]+-[0-9A-Za-z.-]+$/ { v = substr($0, 2); if (pre == "" || cmpver(v, pre) > 0) pre = v }
+    END { if (stable != "") print "v" stable; else if (pre != "") print "v" pre }
+  '
 }
 
 # Tag names of a repo, read-only: `git ls-remote` works the same for https,

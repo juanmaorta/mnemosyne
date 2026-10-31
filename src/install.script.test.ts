@@ -330,6 +330,12 @@ describe("install.sh release channel (MNE-111)", () => {
     const repoUrl = fixtureRepo([{ tag: "v0.1.0-rc.2" }, { tag: "v0.1.0-rc.10" }, { tag: "v0.0.9-beta" }]);
     const r = await pipedInstall(freshHome(), repoUrl, ["--dry-run"]);
     expect(r.stdout).toMatch(/git clone --branch v0\.1\.0-rc\.10 /);
+    // Identifier by identifier, as semver says: beta.1 is newer than alpha.9, and a
+    // longer list of equal identifiers is newer than its prefix.
+    const ids = fixtureRepo([{ tag: "v1.0.0-alpha.9" }, { tag: "v1.0.0-beta.1" }, { tag: "v1.0.0-alpha" }, { tag: "v0.9.0-rc.1" }]);
+    expect((await pipedInstall(freshHome(), ids, ["--dry-run"])).stdout).toMatch(/git clone --branch v1\.0\.0-beta\.1 /);
+    const prefix = fixtureRepo([{ tag: "v1.0.0-rc" }, { tag: "v1.0.0-rc.1" }]);
+    expect((await pipedInstall(freshHome(), prefix, ["--dry-run"])).stdout).toMatch(/git clone --branch v1\.0\.0-rc\.1 /);
   });
 
   test("no_tags_falls_back_to_main_and_says_so", async () => {
