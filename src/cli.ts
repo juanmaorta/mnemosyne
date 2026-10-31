@@ -66,6 +66,7 @@ import {
 import { BodyInputError, resolveBody } from "./write/body.js";
 import { ImportUsageError, importClaudeMemory, importFailed, formatImportReport } from "./import/claude.js";
 import { LockBusyError } from "./write/lock.js";
+import { runUpgrade, updateNotice, versionLine } from "./release.js";
 
 type Out = (s: string) => void;
 
@@ -373,7 +374,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
          * plain/codex digest otherwise. `degraded` is read at call time, so push
          * every degradation BEFORE emitting.
          */
-        const emitResult = (digest: string, includedSlugs: string[], omitted: number): void => {
+        const emitResult = (digestOnly: string, includedSlugs: string[], omitted: number): void => {
+          // MNE-111: at most one line, from a local cache — never waits on the network.
+          const newer = updateNotice({ root: root ?? resolveRoot() });
+          const digest = newer ? `${digestOnly}\n${newer}` : digestOnly;
           if (emitJson) { out(JSON.stringify({ scope, budget, digest, included: includedSlugs, omitted, degraded })); return; }
           emitDigest(digest);
         };
@@ -1039,6 +1043,13 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           err((e as Error).message); return 1;
         }
       }
+      case "--version":
+      case "-V": {
+        out(versionLine());
+        return 0;
+      }
+      case "upgrade":
+        return runUpgrade(rest, { err });
       default:
         err(`unknown command: ${command ?? "(none)"}. Commands: ${Object.keys(COMMAND_USAGE).join(", ")}.`);
         return 1;

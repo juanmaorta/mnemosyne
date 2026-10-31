@@ -32,6 +32,11 @@ export interface StoreConfig {
   minCos?: number;
   /** Raw-BM25 lexical rescue floor (`MNEMOSYNE_LEXICAL_FLOOR` overrides it). */
   lexicalFloor?: number;
+  /**
+   * `false` turns off the once-a-day new-version notice (MNE-111);
+   * `MNEMOSYNE_NO_UPDATE_CHECK=1` does the same from the environment.
+   */
+  updateCheck?: boolean;
 }
 
 /**
@@ -61,6 +66,10 @@ export function loadStoreConfig(root: string): StoreConfig {
     const v = obj[key];
     if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`${path}: "${key}" must be a number, got ${JSON.stringify(v)}.`);
     cfg[key] = v;
+  }
+  if (obj.updateCheck !== undefined) {
+    if (typeof obj.updateCheck !== "boolean") throw new Error(`${path}: "updateCheck" must be true or false, got ${JSON.stringify(obj.updateCheck)}.`);
+    cfg.updateCheck = obj.updateCheck;
   }
   return cfg;
 }

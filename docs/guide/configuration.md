@@ -31,6 +31,7 @@ then uses the same model the index was built with. Nothing has to go in `~/.zshe
 | `model` | `--model <name>` | `OLLAMA_MODEL` | Embedding model Ollama serves. |
 | `minCos` | `--min-cos <n>` | `MNEMOSYNE_MIN_COS` | Cosine floor for search (`-1` to `1`). |
 | `lexicalFloor` | `--lexical-floor <n>` | `MNEMOSYNE_LEXICAL_FLOOR` | Keyword-rescue floor for search ([below](#lexical-rescue-floor)). |
+| `updateCheck` | — (edit the file) | `MNEMOSYNE_NO_UPDATE_CHECK` | `false` turns off the [new-version check](#the-new-version-check). |
 
 **Precedence: command-line flag > environment variable > `.config.json` > built-in default.**
 
@@ -124,6 +125,37 @@ mneme init --write --lexical-floor 10.5    # your store's calibrated value
 
 Raw BM25 drifts as the store grows, so recalibrate after big changes. Tier 0 ignores it (BM25
 already ranks there).
+
+## The new-version check
+
+Once a day, `mneme context` — the session-start hook — checks whether a newer release of
+Mnemosyne exists. If one does, the digest ends with one line:
+
+```
+Mnemosyne v0.2.0 is available (you have v0.1.0) — run `mneme upgrade`.
+```
+
+This is **the only network request Mnemosyne makes on its own.** It is a plain HTTPS `GET` of
+`https://api.github.com/repos/juanmaorta/mnemosyne/releases/latest` with no data of yours in
+it: no memories, no scopes, no paths, no identifiers — just standard request headers (the
+`User-Agent` is `mnemosyne`). GitHub sees what any web request shows it, such as your IP
+address.
+
+- **At most once every 24 hours.** The answer is cached in `~/.mnemosyne/.update-check.json`,
+  next to the code — never in your memory store.
+- **It never slows down session start.** The hook reads only the cache. When the cache is a day
+  old it starts a separate background process to refresh it and does not wait for it; the result
+  shows up in the next session. That request gives up after 1.5 seconds, and any failure
+  (offline, rate limit) is silently ignored until the next day.
+- **Only where `mneme upgrade` works**: an install the installer manages. Your own clone, used
+  in place, is never checked.
+
+Turn it off with any of:
+
+- `"updateCheck": false` in the store's `.config.json`;
+- `MNEMOSYNE_NO_UPDATE_CHECK=1` in the environment (it has to reach the hook's environment, so
+  `.config.json` is the more reliable place);
+- it is also off whenever the `CI` environment variable is set.
 
 ## Scopes (`.scopemap`)
 
@@ -257,6 +289,7 @@ and a command-line flag overrides both.
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest. Overridden by `--budget`. |
 | `MNEMOSYNE_CONTEXT_MAX_ENTRIES` | `25` | Maximum number of lines in the digest. |
 | `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json`. |
+| `MNEMOSYNE_NO_UPDATE_CHECK` | — (check on) | `1` turns off the daily [new-version check](#the-new-version-check). It is also off when `CI` is set. |
 | `MNEMOSYNE_FAKE_EMBED` | — | `1` uses a deterministic fake embedder. Tests only. |
 
 Variables that only matter when developing or benchmarking Mnemosyne (`MNEMOSYNE_GOLDEN_DIR` and
