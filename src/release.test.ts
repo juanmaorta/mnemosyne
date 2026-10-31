@@ -3,7 +3,7 @@
 // MNE-111: versions, the update notice and `mneme upgrade`. Nothing here ever
 // touches the network: fetch, the clock and the background refresh are all
 // injected, and every install dir is a throwaway temp dir.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -13,6 +13,7 @@ import {
   OWNER_MARK,
   RELEASES_LATEST_URL,
   UPDATE_CHECK_FILE,
+  UPDATE_CHECK_LOCK,
   compareSemver,
   parseSemver,
   refreshUpdateCheck,
@@ -116,6 +117,13 @@ describe("updateCheckDisabledReason", () => {
     expect(updateCheckDisabledReason({ installDir: managed, root: store({ updateCheck: "false" }), env: {} })).not.toBeNull();
   });
 
+  test("a_malformed_config_fails_closed_but_a_missing_one_does_not", () => {
+    const root = store();
+    writeFileSync(join(root, ".config.json"), '{ "updateCheck": false, }'); // trailing comma
+    expect(updateCheckDisabledReason({ installDir: managed, root, env: {} })).not.toBeNull();
+    expect(updateCheckDisabledReason({ installDir: managed, root: join(root, "missing"), env: {} })).toBeNull();
+  });
+
   test("CI_turns_it_off", () => {
     expect(updateCheckDisabledReason({ installDir: managed, root: store(), env: { CI: "true" } })).toMatch(/CI/);
   });
@@ -166,6 +174,27 @@ describe("updateNotice (the SessionStart hot path)", () => {
     expect(updateNotice(opts)).toMatch(/v0\.2\.0 is available/);
     expect(spawned).toEqual([dir]);
     expect(readCache(dir)).toEqual({ checkedAt: T0 + CHECK_INTERVAL_MS, latest: "v0.2.0" });
+  });
+
+  test("a_session_racing_another_one_s_claim_does_not_start_a_second_refresh", () => {
+    // Two sessions starting together both see a stale cache; only the one
+    // that takes the claim lock may refresh.
+    const dir = installDir();
+    writeFileSync(join(dir, UPDATE_CHECK_LOCK), "");
+    const { spawned, opts } = deps(dir, Date.now());
+    updateNotice(opts);
+    expect(spawned).toEqual([]);
+  });
+
+  test("an_abandoned_claim_lock_does_not_block_checks_forever", () => {
+    const dir = installDir();
+    writeFileSync(join(dir, UPDATE_CHECK_LOCK), "");
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(join(dir, UPDATE_CHECK_LOCK), old, old);
+    const { spawned, opts } = deps(dir, Date.now());
+    updateNotice(opts);
+    expect(spawned).toEqual([dir]);
+    expect(existsSync(join(dir, UPDATE_CHECK_LOCK))).toBe(false);
   });
 
   test("disabled_means_no_line_no_refresh_and_no_cache_file", () => {

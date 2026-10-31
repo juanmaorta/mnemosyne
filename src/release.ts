@@ -21,14 +21,19 @@
  * store, which may be synced, shared or committed by its owner.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadStoreConfig } from "./config.js";
+import { storePaths } from "./store.js";
 
 /** Written by install.sh into the clone it owns (see OWNER_MARK there). */
 export const OWNER_MARK = ".mnemosyne-installer";
 export const UPDATE_CHECK_FILE = ".update-check.json";
+/** Held for the instant it takes to claim the day's check (see claimDailyCheck). */
+export const UPDATE_CHECK_LOCK = ".update-check.lock";
+/** A lock older than this was left by a process that died mid-claim. */
+const STALE_LOCK_MS = 60_000;
 export const RELEASES_LATEST_URL = "https://api.github.com/repos/juanmaorta/mnemosyne/releases/latest";
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const FETCH_TIMEOUT_MS = 1500;
@@ -130,10 +135,19 @@ export function updateCheckDisabledReason(opts: { installDir: string; root: stri
   if (envFlag(env.MNEMOSYNE_NO_UPDATE_CHECK)) return "MNEMOSYNE_NO_UPDATE_CHECK is set";
   if (envFlag(env.CI)) return "running in CI";
   if (!isManagedInstall(opts.installDir)) return "not an installer-managed install";
+  // A config nobody can read may be someone's attempt to opt out (a trailing
+  // comma, `"false"` in quotes): fail closed. loadStoreConfig reads an
+  // unparseable file as empty, which is right for search but not here, so the
+  // file is parsed once more on its own; only a MISSING file means "no opinion".
+  const configPath = storePaths(opts.root).config;
+  try {
+    JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return "the store's .config.json could not be read (updateCheck)";
+  }
   try {
     if (loadStoreConfig(opts.root).updateCheck === false) return "updateCheck is false in .config.json";
   } catch {
-    // A config nobody can read may be someone's attempt to opt out: fail closed.
     return "the store's .config.json could not be read (updateCheck)";
   }
   return null;
@@ -168,6 +182,41 @@ function spawnDetachedRefresh(dir: string): void {
   child.unref();
 }
 
+function isStale(cache: UpdateCheckCache | null, now: number): boolean {
+  return !cache || now - cache.checkedAt >= CHECK_INTERVAL_MS || now < cache.checkedAt;
+}
+
+/**
+ * Claim today's check for this process, or return false when another one has
+ * it. Renaming the cache is atomic but not exclusive — two sessions starting
+ * together would both read the stale cache and both refresh — so the claim is
+ * an exclusively created lock file, and freshness is checked again while
+ * holding it. A lock left by a crashed process is cleared after a minute.
+ */
+function claimDailyCheck(dir: string, now: number, retry = true): boolean {
+  const lock = join(dir, UPDATE_CHECK_LOCK);
+  let fd: number;
+  try {
+    fd = openSync(lock, "wx");
+  } catch {
+    let abandoned = false;
+    try {
+      abandoned = Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS;
+      if (abandoned) rmSync(lock, { force: true });
+    } catch { /* gone already */ }
+    return abandoned && retry ? claimDailyCheck(dir, now, false) : false;
+  }
+  try {
+    const cache = readCache(dir);
+    if (!isStale(cache, now)) return false;
+    writeCache(dir, cache?.latest ? { checkedAt: now, latest: cache.latest } : { checkedAt: now });
+    return true;
+  } finally {
+    closeSync(fd);
+    rmSync(lock, { force: true });
+  }
+}
+
 export interface UpdateNoticeOptions {
   root: string;
   installDir?: string;
@@ -186,12 +235,9 @@ export function updateNotice(opts: UpdateNoticeOptions): string | null {
     if (updateCheckDisabledReason({ installDir: dir, root: opts.root, env: opts.env ?? process.env }) !== null) return null;
     const now = (opts.now ?? Date.now)();
     const cache = readCache(dir);
-    if (!cache || now - cache.checkedAt >= CHECK_INTERVAL_MS || now < cache.checkedAt) {
+    if (isStale(cache, now)) {
       try {
-        // Claim the day's check first, so sessions starting meanwhile do not
-        // each start their own refresh.
-        writeCache(dir, cache?.latest ? { checkedAt: now, latest: cache.latest } : { checkedAt: now });
-        (opts.spawnRefresh ?? spawnDetachedRefresh)(dir);
+        if (claimDailyCheck(dir, now)) (opts.spawnRefresh ?? spawnDetachedRefresh)(dir);
       } catch { /* the notice is a courtesy; nothing here may cost the digest */ }
     }
     const current = packageVersion(dir);
