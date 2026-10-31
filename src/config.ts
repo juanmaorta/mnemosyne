@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { storePaths } from "./store.js";
 
 export function resolveRoot(flag?: string): string {
-  return flag ?? process.env.MNEMOSYNE_ROOT ?? join(homedir(), "memory");
+  const root = flag ?? process.env.MNEMOSYNE_ROOT ?? join(homedir(), "memory");
+  // MNE-106: a root like `--help` is a flag that landed in the wrong place, and
+  // the first write would create a store under a directory of that name.
+  if (root.startsWith("-")) {
+    const source = flag !== undefined ? "--root" : "MNEMOSYNE_ROOT";
+    throw new Error(`${source} expects a path, got '${root}'. A path that starts with '-' must be written as './${root}'.`);
+  }
+  return root;
 }
 
 /**

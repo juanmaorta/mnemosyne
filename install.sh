@@ -68,14 +68,22 @@ Options:
 EOF
 }
 
+# A directory option's value, refused when it looks like a flag (MNE-106):
+# `--root --help` would otherwise install a store at ./--help.
+check_dir_arg() { # $1 = option, $2 = value
+  case "$2" in
+    -*) echo "install.sh: $1 expects a directory, got '$2' (write a path that starts with '-' as './$2')" >&2; exit 2 ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall) ACTION="$1" ;;
     --dry-run) DRY_RUN=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
-    --dir) shift; INSTALL_DIR="${1:?--dir needs a value}" ;;
-    --bin-dir) shift; BIN_DIR="${1:?--bin-dir needs a value}" ;;
-    --root) shift; STORE_ROOT="${1:?--root needs a value}" ;;
+    --dir) shift; check_dir_arg --dir "${1:?--dir needs a value}"; INSTALL_DIR="$1" ;;
+    --bin-dir) shift; check_dir_arg --bin-dir "${1:?--bin-dir needs a value}"; BIN_DIR="$1" ;;
+    --root) shift; check_dir_arg --root "${1:?--root needs a value}"; STORE_ROOT="$1" ;;
     --model) shift; MODEL="${1:?--model needs a value}"; MODEL_EXPLICIT=1 ;;
     --no-ollama-pull) DO_OLLAMA_PULL=0 ;;
     --no-claude-md) DO_CLAUDE_MD=0 ;;

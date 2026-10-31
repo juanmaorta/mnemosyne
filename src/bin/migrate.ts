@@ -12,10 +12,20 @@ import { DEFAULT_SCOPE } from "../store.js";
  *     ~/.claude/projects/<cwd-slug>/memory \
  *     ~/memory work
  */
+const USAGE = "usage: migrate <sourceDir> <destRoot> [scope]";
+
 async function main(): Promise<void> {
-  const [sourceDir, destRoot, scope] = argv.slice(2);
-  if (!sourceDir || !destRoot) {
-    console.error("usage: migrate <sourceDir> <destRoot> [scope]");
+  const args = argv.slice(2);
+  // MNE-106: every argument is a path or a scope name, so a flag is never one.
+  // `migrate <src> --help` used to take `--help` as the destination and create
+  // `./--help/personal/facts/` before reading anything.
+  if (args.some((a) => a === "--help" || a === "-h")) {
+    console.log(USAGE);
+    exit(0);
+  }
+  const [sourceDir, destRoot, scope] = args;
+  if (!sourceDir || !destRoot || args.some((a) => a.startsWith("-"))) {
+    console.error(USAGE);
     exit(2);
   }
 
