@@ -613,7 +613,7 @@ build() {
   # the same way): download the prebuilt binary, or compile it.
   if ! sqlite_loads; then
     say "The SQLite module (better-sqlite3) has no native binary; fetching it..."
-    (cd "$INSTALL_DIR/node_modules/better-sqlite3" 2>/dev/null && { npx --no prebuild-install || npx --no node-gyp rebuild --release; }) || true
+    (cd "$INSTALL_DIR/node_modules/better-sqlite3" 2>/dev/null && { npx --no prebuild-install || node_gyp rebuild --release; }) || true
     if ! sqlite_loads; then
       say ""
       say "The SQLite module (better-sqlite3) still does not load: no prebuilt binary matched"
@@ -622,6 +622,13 @@ build() {
       exit 1
     fi
   fi
+}
+
+# npm's own copy of node-gyp (what it would use for the install script); a
+# fresh one through npx only if that is not where npm normally keeps it.
+node_gyp() {
+  _gyp="$(npm prefix -g 2>/dev/null)/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+  if [ -f "$_gyp" ]; then node "$_gyp" "$@"; else npx --yes node-gyp "$@"; fi
 }
 
 sqlite_loads() {
