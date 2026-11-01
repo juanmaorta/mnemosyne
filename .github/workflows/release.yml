@@ -17,7 +17,9 @@ on:
 permissions:
   contents: write
 
-# Two merges in a row must not race to create the same tag.
+# Two merges in a row must not race to create the same tag. A pending run can be
+# replaced by a newer one; `plan` targets the commit that set the version, so the
+# tag still lands on the release merge.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -25,6 +27,8 @@ concurrency:
 jobs:
   release:
     name: tag and GitHub Release
+    # Releases come from main only — workflow_dispatch can be run on any ref.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -43,15 +47,17 @@ jobs:
       - id: plan
         run: node scripts/release.mjs plan --notes-out "$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
 
-      # `gh release create` creates the tag on the pushed commit. A pre-release
+      # `gh release create` creates the tag on the commit that set the version
+      # (not necessarily the pushed one, when runs were coalesced). A pre-release
       # (X.Y.Z-rc.N) is never marked latest, so the update notice, which reads
       # /releases/latest, does not offer it.
       - if: steps.plan.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.plan.outputs.tag }}
+          TARGET: ${{ steps.plan.outputs.target }}
           PRERELEASE: ${{ steps.plan.outputs.prerelease }}
         run: |
           if [ "$PRERELEASE" = true ]; then flag=--prerelease; else flag=--latest; fi
-          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" \
+          gh release create "$TAG" --target "$TARGET" --title "$TAG" \
             --notes-file "$RUNNER_TEMP/notes.md" "$flag"

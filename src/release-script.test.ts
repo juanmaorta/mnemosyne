@@ -158,6 +158,18 @@ describe("release helpers", () => {
     expect(release.planPublish({ version: "0.1.5", tags: ["v0.2.0"] }).action).toBe("error");
     expect(release.planPublish({ version: "banana", tags: [] }).action).toBe("error");
   });
+
+  test.each(["v1.2.3", "01.2.3", "1.0.0-", "1.0.0-rc..1", "1.0.0-.", "1.2"])(
+    "planPublish_refuses_the_package_version_%s_which_is_not_strict_semver", (version) => {
+      expect(release.planPublish({ version, tags: [] }).action).toBe("error");
+      expect(release.planPublish({ version, tags: ["v0.1.0"] }).action).toBe("error");
+    });
+
+  test("bumpVersion_refuses_a_current_version_with_a_v_or_leading_zeros", () => {
+    expect(() => release.bumpVersion("v0.1.0", "patch")).toThrow(/not a version/);
+    expect(() => release.bumpVersion("0.01.0", "patch")).toThrow(/not a version/);
+    expect(() => release.bumpVersion("0.1.0", "0.02.0")).toThrow(/not a version/);
+  });
 });
 
 describe("release prepare", () => {
@@ -227,6 +239,12 @@ describe("release prepare", () => {
     ["a_version_already_tagged", () => {}, ["prepare", "0.1.0"], /already tagged/],
     ["a_version_lower_than_the_latest_tag", () => {}, ["prepare", "0.0.9"], /not higher/],
     ["no_bump_argument", () => {}, ["prepare"], /usage/],
+    ["a_version_whose_changelog_section_already_exists", (f: Fixture) => {
+      writeFileSync(join(f.dir, "CHANGELOG.md"), "# Changelog\n\n## v0.2.0 — d\n\nx\n");
+      git(f.dir, "add", ".");
+      git(f.dir, "commit", "-q", "-m", "📝 changelog");
+      git(f.dir, "push", "-q", "origin", "main");
+    }, ["prepare", "minor"], /already has a section/],
   ])("refuses %s and changes nothing", (_name, setup, args, message) => {
     const f = fixture("0.1.0", ["✨ feature"], ["v0.1.0"]);
     setup(f);
@@ -235,7 +253,8 @@ describe("release prepare", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toMatch(message);
     expect(git(f.dir, "rev-parse", "HEAD")).toBe(head);
-    expect(existsSync(join(f.dir, "CHANGELOG.md"))).toBe(false);
+    expect(git(f.dir, "rev-parse", "--abbrev-ref", "HEAD")).not.toMatch(/^release\//);
+    expect(git(f.dir, "status", "--porcelain").includes("CHANGELOG")).toBe(false);
     expect(existsSync(f.ghLog)).toBe(false);
   });
 });
@@ -250,6 +269,21 @@ describe("release plan (the workflow's half)", () => {
     expect(r.stdout).toContain("tag=v0.2.0\n");
     expect(r.stdout).toContain("prerelease=false\n");
     expect(readFileSync(notes, "utf8")).toBe("### Added\n\n- x\n");
+  });
+
+  test("the_target_is_the_commit_that_set_the_version_not_a_later_merge", () => {
+    // Coalesced runs: the run that sees the bump may be for a later push.
+    const f = fixture("0.1.0", [], ["v0.1.0"]);
+    const pkg = join(f.dir, "package.json");
+    writeFileSync(pkg, readFileSync(pkg, "utf8").replace('"0.1.0"', '"0.2.0"'));
+    writeFileSync(join(f.dir, "CHANGELOG.md"), "# Changelog\n\n## v0.2.0 — d\n\nx\n");
+    git(f.dir, "add", ".");
+    git(f.dir, "commit", "-q", "-m", "🔖 release: v0.2.0");
+    const bump = git(f.dir, "rev-parse", "HEAD");
+    git(f.dir, "commit", "-q", "--allow-empty", "-m", "✨ merged right after");
+    const r = run(f, ["plan", "--notes-out", join(f.dir, "..", "notes.md")]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`target=${bump}\n`);
   });
 
   test("a_version_already_tagged_publishes_nothing", () => {

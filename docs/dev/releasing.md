@@ -64,7 +64,7 @@ installs to get it.
 
 - **the version is already tagged** → nothing to do. This is every ordinary merge.
 - **it is new and higher than the latest tag, and `CHANGELOG.md` has its section** →
-  `gh release create vX.Y.Z --target <merge commit>`, which creates the tag and the Release
+  `gh release create vX.Y.Z --target <the commit that set the version>`, which creates the tag and the Release
   with that section as the notes.
 - **anything else** (not semver, not higher than the latest tag, no changelog section) → the
   job fails and publishes nothing. The one exception is before the first release: with no tags
