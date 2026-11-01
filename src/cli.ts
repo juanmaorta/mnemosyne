@@ -4,7 +4,7 @@ import { resolveRoot, loadStoreConfig } from "./config.js";
 import { openDb } from "./index/db.js";
 import { reindex } from "./index/reindex.js";
 import { searchExplainInstrumented } from "./retrieval/instrumented.js";
-import { resolveLexicalFloor } from "./retrieval/search.js";
+import { resolveLexicalFloor, defaultLexicalFloorForModel } from "./retrieval/search.js";
 import { newCorrId } from "./telemetry/corr.js";
 import { computeStats } from "./observability/stats.js";
 import { formatExplain } from "./observability/explain.js";
@@ -68,6 +68,70 @@ import { ImportUsageError, importClaudeMemory, importFailed, formatImportReport 
 import { LockBusyError } from "./write/lock.js";
 
 type Out = (s: string) => void;
+
+const ADD_TYPES_HELP = [...FACT_TYPES, ...NOTE_TYPES].join("|");
+
+/**
+ * What `mneme <command> --help` prints, one entry per command (MNE-106). Also
+ * the list of commands the dispatcher knows: a command without an entry here
+ * has no help, and the test that walks this table would not see it.
+ */
+export const COMMAND_USAGE: Readonly<Record<string, string>> = {
+  context: "usage: mneme context [--scope s] [--cwd d] [--budget n] [--emit codex-session-start] [--json] [--root r]",
+  search: 'usage: mneme search "<query>" [--scope s] [-k N] [--min-cos c] [--lexical-floor b] [--fusion rrf] [--explain [--all]] [--json] [--root r]',
+  explain: 'usage: mneme explain "<query>" [--scope s] [-k N] [--min-cos c] [--lexical-floor b] [--all] [--root r]',
+  get: "usage: mneme get <slug> [--scope s] [--json] [--root r]",
+  stats: "usage: mneme stats [--json] [--root r]",
+  trace: "usage: mneme trace <slug> [--root r]",
+  snapshot: "usage: mneme snapshot [--list] [--root r]",
+  "purge-telemetry": "usage: mneme purge-telemetry --scope <scope> [--apply] [--root r]",
+  reindex: "usage: mneme reindex [--scope s]... [--force-embedder] [--root r]",
+  scan: 'usage: mneme scan "<text>" | --file <path> | --scope <s> [--scope <s2>] | --all [--root <path>]',
+  "compliance-lint": "usage: mneme compliance-lint --config <path> [--scope <s>]... [--root <path>]",
+  scope: "usage: mneme scope [<path>] [--root r]",
+  init: "usage: mneme init [--write] [--root r] [--model <name>] [--embedder ollama|none] [--min-cos <n>] [--lexical-floor <n>]",
+  "install-hook": "usage: mneme install-hook [--write] [--harness claude-code|codex]",
+  "uninstall-hook": "usage: mneme uninstall-hook [--write] [--harness claude-code|codex]",
+  add: `usage: mneme add "<content>" | --file <path> --type ${ADD_TYPES_HELP} [--scope s] [--description d] [--importance n] [--slug s]\n`
+    + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme add --type t [flags] -- \"- uno\"",
+  update: 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged] [--pinned | --unpinned]\n'
+    + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"",
+  "import-claude": "usage: mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply] [--root r]",
+  dream: "usage: mneme dream apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
+    + "       dry-run by default (shows what would change); --apply commits the write.",
+};
+
+const GENERAL_USAGE = `usage: mneme <command> [options]   (mneme <command> --help for one command)\ncommands: ${Object.keys(COMMAND_USAGE).join(", ")}`;
+
+/** Options whose value is a filesystem path. */
+const PATH_OPTIONS = ["root", "cwd", "file", "source", "config"] as const;
+
+/** The tokens that are options: everything before a bare `--`. */
+function optionTokens(args: string[]): string[] {
+  const end = args.indexOf("--");
+  return end === -1 ? args : args.slice(0, end);
+}
+
+/**
+ * The first path option handed something that looks like a flag, as an error
+ * message, or undefined. `--root --help` and `--root=--help` would otherwise
+ * become a directory named `--help` (MNE-106); a path that really starts with
+ * a dash can still be written `./-name`.
+ */
+function flagLikePathValue(args: string[]): string | undefined {
+  const tokens = optionTokens(args);
+  for (let i = 0; i < tokens.length; i++) {
+    for (const name of PATH_OPTIONS) {
+      const flag = `--${name}`;
+      const tok = tokens[i]!;
+      const value = tok === flag ? tokens[i + 1] : tok.startsWith(`${flag}=`) ? tok.slice(flag.length + 1) : undefined;
+      if (value !== undefined && value.startsWith("-")) {
+        return `${flag} expects a path, got '${value}'. A path that starts with '-' must be written as './${value}'.`;
+      }
+    }
+  }
+  return undefined;
+}
 
 /** Token budget for the injected digest when neither --budget nor the env var says. */
 const DEFAULT_CONTEXT_BUDGET = 1000;
@@ -184,6 +248,21 @@ function openIndex(root: string) {
 
 export async function runCli(argv: string[], out: Out = console.log, err: Out = console.error): Promise<number> {
   const [command, ...rest] = argv;
+  // MNE-106: help is answered before anything can resolve a store, read a path
+  // or create a directory. `--` ends the options, so `-- --help` stays content.
+  if (command === "--help" || command === "-h" || command === "help") {
+    const topic = command === "help" ? rest[0] : undefined;
+    out(topic !== undefined && Object.hasOwn(COMMAND_USAGE, topic) ? COMMAND_USAGE[topic]! : GENERAL_USAGE);
+    return 0;
+  }
+  if (command !== undefined && Object.hasOwn(COMMAND_USAGE, command)) {
+    // Checked first: in `--root --help` the flag is the path's value, and the
+    // answer is the refusal that says so, not a usage that hides the mistake.
+    const badPath = flagLikePathValue(rest);
+    // compliance-lint reserves exit 1 for findings; its errors are 2.
+    if (badPath !== undefined) { err(`${command}: ${badPath}`); return command === "compliance-lint" ? 2 : 1; }
+    if (optionTokens(rest).some((a) => a === "--help" || a === "-h")) { out(COMMAND_USAGE[command]!); return 0; }
+  }
   // MNE-94: warn on stderr when a write actually resolved through the `~`
   // catch-all (no specific prefix matched this cwd) and more than one scope
   // exists — the moment a context could silently land in the wrong scope. An
@@ -540,7 +619,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const explicitModel = values.model?.trim() || process.env.OLLAMA_MODEL?.trim() || prior.model;
         if (explicitModel !== undefined) resolveEmbeddingDim(explicitModel, process.env.OLLAMA_EMBEDDING_DIM); // unknown model → throws
         const minCos = configuredMinCos(values["min-cos"], root);
-        const lexicalFloor = configuredLexicalFloor(values["lexical-floor"], root);
+        const configuredFloor = configuredLexicalFloor(values["lexical-floor"], root);
         if (minCos !== undefined && (minCos < -1 || minCos > 1)) { err("init: --min-cos must be a number between -1 and 1."); return 1; }
         // Tier: an explicit flag, else the tier this store already has (an
         // Ollama that is down during an update must not demote a working store),
@@ -551,6 +630,11 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         const priorTier = typeof existing.embedder === "string" ? existing.embedder : undefined;
         const tier = values.embedder ?? priorTier ?? (hasOllama ? "ollama" : "none");
         const model = explicitModel ?? (tier === "ollama" ? DEFAULT_EMBEDDING_MODEL : undefined);
+        // MNE-97: a v2-moe store on the embedder tier gets the calibrated lexical
+        // rescue unless something already says otherwise (flag, env, or a value
+        // this store's config holds). Tier 0 ranks by BM25 and ignores it.
+        const lexicalFloor = configuredFloor
+          ?? (tier === "ollama" && model !== undefined ? defaultLexicalFloorForModel(model) : undefined);
         const nextConfig: Record<string, unknown> = {
           ...existing,
           embedder: tier,
@@ -597,7 +681,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
       }
       case "scan": {
         const { values, positionals } = parseArgs({ args: rest, options: { file: { type: "string" }, scope: { type: "string", multiple: true }, all: { type: "boolean" }, root: { type: "string" } }, allowPositionals: true });
-        const scanUsage = 'usage: mneme scan "<text>" | --file <path> | --scope <s> [--scope <s2>] | --all [--root <path>]';
+        const scanUsage = COMMAND_USAGE.scan!;
         // Same command, same exit code, one more input: a whole store instead of
         // one text. The write-path gate never sees a note edited by hand, so the
         // re-scan lives where someone already looks for "is this clean?".
@@ -630,7 +714,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         //   incomplete scan). Every failure path — including parseArgs throwing
         //   on a bad flag and any unexpected error — maps to 2, never to the
         //   generic exit 1, so automation never mistakes a failure for a leak.
-        const usage = "usage: mneme compliance-lint --config <path> [--scope <s>]... [--root <path>]";
+        const usage = COMMAND_USAGE["compliance-lint"]!;
         try {
           const { values } = parseArgs({ args: rest, options: { config: { type: "string" }, scope: { type: "string", multiple: true }, root: { type: "string" } }, allowPositionals: false });
           if (!values.config) { err(usage); return 2; }
@@ -707,9 +791,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // Kept in sync with the schema so a new type (e.g. snapshot, MNE-29) is
         // accepted here the moment it is added to NOTE_TYPES/FACT_TYPES.
         const ADD_TYPES = [...FACT_TYPES, ...NOTE_TYPES] as readonly string[];
-        const typesHelp = ADD_TYPES.join("|");
-        const usage = `usage: mneme add "<content>" | --file <path> --type ${typesHelp} [--scope s] [--description d] [--importance n] [--slug s]\n`
-          + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme add --type t [flags] -- \"- uno\"";
+        const usage = COMMAND_USAGE.add!;
         const type = values.type ?? "";
         if (!ADD_TYPES.includes(type)) { err(`--type is required: ${ADD_TYPES.join(" | ")}`); return 1; }
         let importance: number | undefined;
@@ -770,8 +852,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           },
           allowPositionals: true,
         });
-        const usage = 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged] [--pinned | --unpinned]\n'
-          + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"";
+        const usage = COMMAND_USAGE.update!;
         const slug = positionals[0];
         if (!slug) { err(usage); return 1; }
         const ifMatch = values["if-match"]?.trim();
@@ -853,7 +934,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           },
           allowPositionals: true,
         });
-        const usage = "usage: mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply] [--root r]";
+        const usage = COMMAND_USAGE["import-claude"]!;
         const source = values.source?.trim();
         if (!source) { err(usage); return 1; }
         const root = resolveRoot(values.root);
@@ -889,8 +970,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           allowPositionals: true,
         });
         const verb = positionals[0];
-        const usage = "usage: mneme dream apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
-          + "       dry-run by default (shows what would change); --apply commits the write.";
+        const usage = COMMAND_USAGE.dream!;
         if (verb !== "apply" && verb !== "revert") { err(usage); return 1; }
         const run = values.run?.trim();
         const scope = values.scope?.trim();
@@ -960,7 +1040,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         }
       }
       default:
-        err(`unknown command: ${command ?? "(none)"}. Commands: context, search, explain, get, stats, trace, snapshot, purge-telemetry, reindex, scan, scope, init, install-hook, uninstall-hook, add, update, import-claude, dream.`);
+        err(`unknown command: ${command ?? "(none)"}. Commands: ${Object.keys(COMMAND_USAGE).join(", ")}.`);
         return 1;
     }
   } catch (e) {

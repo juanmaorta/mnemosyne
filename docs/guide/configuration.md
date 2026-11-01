@@ -102,15 +102,24 @@ qualifies, search prints the best candidate and its cosine and exits with status
 
 ### Lexical rescue floor
 
-Off by default. When set, a note whose raw keyword (BM25) score reaches this floor is eligible
-even below the cosine floor — a strong match on a rare term is evidence the cosine can miss. The
-ranking order is unchanged. The right value depends on your store (its size, the length of its
-notes), so there is no default: calibrate it on your own store (see
+When set, a note whose raw keyword (BM25) score reaches this floor is eligible even below the
+cosine floor — a strong match on a rare term is evidence the cosine can miss. The ranking order is
+unchanged.
+
+For `nomic-embed-text-v2-moe` on the embedder tier, `mneme init` writes `"lexicalFloor": 12` to
+the store's `.config.json` unless you pass `--lexical-floor`, set `MNEMOSYNE_LEXICAL_FLOOR`, or
+the config already has a value (re-running `init` never replaces it). That model's cosine bands
+overlap, and without the rescue search loses notes that share a literal term with the query; 12 is
+the calibrated starting point. For any other model, and for tier 0, `init` writes nothing and the
+rescue stays off.
+
+The right value still depends on your store (its size, the length of its notes): calibrate it on
+your own store (see
 [Benchmarks and calibration](../dev/benchmarks.md#calibrating-the-floors-for-your-store)), then
 save it:
 
 ```sh
-mneme init --write --lexical-floor 12      # 12 is one store's calibrated value, not a default
+mneme init --write --lexical-floor 10.5    # your store's calibrated value
 ```
 
 Raw BM25 drifts as the store grows, so recalibrate after big changes. Tier 0 ignores it (BM25
@@ -244,7 +253,7 @@ and a command-line flag overrides both.
 | `OLLAMA_EMBEDDING_DIM` | — | Vector width for a model Mnemosyne does not know (required for those). |
 | `MNEMOSYNE_EMBEDDER` | the store's `.config.json` | `none` runs tier 0: no embedder; `search`/`context` rank by BM25 (works without Ollama). |
 | `MNEMOSYNE_MIN_COS` | the store's `.config.json`, else `0.70` for `nomic-embed-text`, `0.35` for `nomic-embed-text-v2-moe`, off for other models | Cosine floor for search. Overridden by `--min-cos`. |
-| `MNEMOSYNE_LEXICAL_FLOOR` | the store's `.config.json`, else off | Keyword-rescue floor for `search`/`explain`. Overridden by `--lexical-floor`. |
+| `MNEMOSYNE_LEXICAL_FLOOR` | the store's `.config.json` (`init` writes `12` for `nomic-embed-text-v2-moe`), else off | Keyword-rescue floor for `search`/`explain`. Overridden by `--lexical-floor`. |
 | `MNEMOSYNE_CONTEXT_BUDGET` | `1000` | Token budget for the injected digest. Overridden by `--budget`. |
 | `MNEMOSYNE_CONTEXT_MAX_ENTRIES` | `25` | Maximum number of lines in the digest. |
 | `MNEMOSYNE_TELEMETRY` | on | `0` records nothing; overrides `enabled` in `.telemetry.json`. |

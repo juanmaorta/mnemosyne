@@ -79,14 +79,16 @@ the first run after that upgrade asked for the same explicit rebuild.
 
 ## Lexical rescue
 
-**`--lexical-floor` is opt-in and off by default (MNE-98).** A note whose raw BM25 score
+**Search applies no lexical floor of its own (MNE-98); `mneme init` writes `12` into a
+`nomic-embed-text-v2-moe` store's config (MNE-97).** A note whose raw BM25 score
 (`-bm25()`, IDF-weighted, higher = better) reaches the lexical floor is eligible even below the
 cosine floor; the order is unchanged, so a rescued note still competes for the k slots. It exists
 because with `nomic-embed-text-v2-moe` the cosine bands of true positives and off-topic queries
 overlap, while raw BM25 separated them in the probe — a strong rare-term match is the evidence
 cosine is missing.
 
-The scale depends on the store (size, note length), so there is no default: calibrate it per store
+The scale depends on the store (size, note length), so the value `init` writes for v2-moe (`12`,
+only when nothing else is set, never over an existing value) is a starting point: calibrate it per store
 with `calibrate-floor` ([benchmarks.md](benchmarks.md#calibrating-the-floors-for-your-store)),
 which sweeps the cosine floor × lexical floor grid on the reviewed golden and reports recall per
 query style (natural paraphrase vs. keyword). On the author's store (MNE-98), `0.35` plus a

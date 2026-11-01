@@ -5,6 +5,10 @@ The CLI is `mneme`; `mem` is an alias. Every command reads and writes the store 
 flags, environment variables and the store's `.config.json` combine is in
 [Configuration](../guide/configuration.md).
 
+`mneme --help` lists the commands; `mneme <command> --help` (or `-h`) prints that command's usage
+and touches nothing on disk. A path option (`--root`, `--cwd`, `--file`, `--source`, `--config`)
+refuses a value that starts with `-`; write such a path as `./-name`.
+
 - **Setup:** [`init`](#init) · [`install-hook` / `uninstall-hook`](#install-hook--uninstall-hook)
 - **Reading:** [`search`](#search) · [`get`](#get) · [`context`](#context)
 - **Writing:** [`add`](#add) · [`update`](#update) · [`import-claude`](#import-claude)
@@ -81,7 +85,9 @@ What `init --write` does:
   `mneme context --root '<absolute store root>'` (the root is always baked in, so the hook reads
   this store whatever the environment at session time);
 - writes `<root>/.scopemap` with a catch-all `~ = personal`, only if there is none;
-- writes `<root>/.config.json` with the search tier and model (and the floors, if given).
+- writes `<root>/.config.json` with the search tier and model (and the floors, if given). For
+  `nomic-embed-text-v2-moe` on the embedder tier it also writes `"lexicalFloor": 12` when no
+  lexical floor is given or already configured.
 
 | Flag | Meaning |
 |---|---|
