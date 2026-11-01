@@ -91,7 +91,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   "compliance-lint": "usage: mneme compliance-lint --config <path> [--scope <s>]... [--root <path>]",
   scope: "usage: mneme scope [<path>] [--root r]",
   init: "usage: mneme init [--write] [--root r] [--model <name>] [--embedder ollama|none] [--min-cos <n>] [--lexical-floor <n>] [--no-hook]",
-  "install-hook": "usage: mneme install-hook [--write] [--harness claude-code|codex]",
+  "install-hook": "usage: mneme install-hook [--write] [--harness claude-code|codex] [--root r]",
   "uninstall-hook": "usage: mneme uninstall-hook [--write] [--harness claude-code|codex]",
   add: `usage: mneme add "<content>" | --file <path> --type ${ADD_TYPES_HELP} [--scope s] [--description d] [--importance n] [--slug s]\n`
     + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme add --type t [flags] -- \"- uno\"",
@@ -539,7 +539,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "install-hook": {
-        const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" }, harness: { type: "string" } }, allowPositionals: true });
+        const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" }, harness: { type: "string" }, root: { type: "string" } }, allowPositionals: true });
         const harness = values.harness?.trim() || "claude-code";
         if (harness !== "claude-code" && harness !== "codex") {
           err(`unknown harness: ${harness}. Supported: claude-code, codex.`);
@@ -560,7 +560,9 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           out(`Add this to ${settingsPath}:\n\n${snippet}${trustNote}`);
           return 0;
         }
-        const hookResult = installSessionStartHook(settingsPath, { codex });
+        // --root bakes the store in (and rewrites an older one), as init does for
+        // Claude Code; without it an existing hook is left pointing where it was.
+        const hookResult = installSessionStartHook(settingsPath, { codex, ...(values.root !== undefined ? { root: resolve(values.root) } : {}) });
         if (hookResult === "parse-error") {
           err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${snippet}`);
           return 1;

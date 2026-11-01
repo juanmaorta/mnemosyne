@@ -125,6 +125,10 @@ mneme install-hook --harness codex --write
 mneme uninstall-hook --harness codex --write
 ```
 
+`--root <dir>` bakes that store into the hook command (and rewrites a `--root` an older hook
+had), as `init` does for Claude Code; without it, an existing hook is left as it is. The
+installer passes it for Codex.
+
 `uninstall-hook` removes only Mnemosyne's hooks and leaves everything else in the file alone. A
 settings file that cannot be parsed is never modified. Harness differences (Codex's JSON output,
 `/hooks` trust, sandbox) are in [Wiring it into an agent](../integrations/agents.md).

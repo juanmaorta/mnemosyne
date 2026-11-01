@@ -725,7 +725,7 @@ wire_agents() {
   if [ "$WIRE_CLAUDE" = 1 ] && [ "$DO_CLAUDE_MD" = 1 ]; then write_block "$CLAUDE_MD" "$ACTION"; fi
   if [ "$WIRE_CODEX" = 1 ]; then
     [ "$ACTION" = install ] && backup_once "$CODEX_HOOKS"
-    mneme_run install-hook --harness codex --write || warn "could not write the Codex hook; see 'mneme install-hook --harness codex'"
+    mneme_run install-hook --harness codex --write --root "$STORE_ROOT" || warn "could not write the Codex hook; see 'mneme install-hook --harness codex'"
     write_block "$(codex_md)" "$ACTION"
   fi
   if [ "$WIRE_OPENCODE" = 1 ] && [ "$(opencode_mode)" = own ]; then write_block "$OPENCODE_MD" "$ACTION"; fi
