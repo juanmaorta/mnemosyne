@@ -505,6 +505,16 @@ describe("install.sh agents (MNE-113)", () => {
     expect(existsSync(join(home, ".codex"))).toBe(false);
   });
 
+  test("codex_hook_reads_the_store_this_install_uses", async () => {
+    const home = freshHome();
+    const custom = join(home, "custom-store");
+    mkdirSync(join(home, ".codex"));
+    writeFileSync(codexHooks(home), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context --emit codex-session-start --root '/old-memory'" }] }] } }));
+    expect((await installWith(home, ["codex"], ["--root", custom])).code).toBe(0);
+    expect(read(codexHooks(home))).toContain(`--root '${custom}'`);
+    expect(read(codexHooks(home))).not.toContain("/old-memory");
+  });
+
   test("opencode_alone_gets_its_own_AGENTS_md", async () => {
     const home = freshHome();
     const r = await installWith(home, ["opencode"]);
