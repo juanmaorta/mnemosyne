@@ -163,7 +163,7 @@ Design notes, what exists in detail, and how it compares to Anthropic's Dreams A
 | engram | A single memory (one file). |
 | scope | A partition of the store; one folder. |
 | digest | The short, budgeted list of memories injected at session start (`mneme context`). |
-| tier 0 | Search without an embedder: keyword (BM25) only, fully offline. |
+| tier 0 | Search without an embedder: keyword (BM25) only, nothing else to install. |
 | cosine floor | The minimum similarity a search candidate needs in the embedder tier. |
 | lethe | The decay → archive subsystem (archival is on the roadmap). |
 | dreaming | Offline consolidation of facts into notes (in development). |

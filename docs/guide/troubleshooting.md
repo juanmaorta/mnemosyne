@@ -70,7 +70,7 @@ A store configured for the embedder tier does **not** fall back to keyword searc
   in `~/memory/.config.json`).
 - Check the endpoint: `OLLAMA_HOST` (default `http://localhost:11434`).
 
-If you would rather not depend on Ollama, switch the store to tier 0 (keyword search, offline):
+If you would rather not depend on Ollama, switch the store to tier 0 (keyword search, no Ollama needed):
 
 ```sh
 mneme init --write --embedder none
