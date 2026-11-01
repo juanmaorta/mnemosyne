@@ -42,7 +42,7 @@ remember versus to forget. That duality is the whole system.
 | **Node.js ≥ 20** and npm | Required. Mnemosyne is a Node.js program (it is not published to npm; npm only fetches its dependencies). |
 | **git** | Required to download and update the code. |
 | C/C++ build tools | Only if no prebuilt SQLite binary matches your machine: Xcode Command Line Tools on macOS, `build-essential` + `python3` on Linux. |
-| **Claude Code** | Recommended: it is the agent the installer wires in. Mnemosyne installs without it. |
+| An agent | **Claude Code**, the **Codex CLI** or **OpenCode**: the installer wires in each one it finds. Mnemosyne installs without any. |
 | [Ollama](https://ollama.com) | **Optional.** With it you get semantic search; without it Mnemosyne runs in **tier 0** (keyword search, fully offline). |
 
 macOS and Linux. Details, and what each search tier gives you:
@@ -90,14 +90,16 @@ the Ollama you point it at (your own machine by default).
 
 ## What changes on your machine
 
-The installer lists all of this and asks before doing any of it:
+The installer lists all of this and asks before doing any of it (agents only where found):
 
 | Where | What |
 |---|---|
 | `~/.mnemosyne` | The code, cloned and built there (or your own clone, used in place). |
 | `~/.local/bin/mneme`, `mem` | Two small wrapper commands (`mem` is an alias). |
 | `~/.claude/settings.json` | A `SessionStart` hook that runs `mneme context`. Other settings are untouched; the original is saved once as `settings.json.before-mnemosyne`. |
-| `~/.claude/CLAUDE.md` | A marked block telling Claude to use `mneme` for memory. Skipped if the file already mentions `mneme`; opt out with `--no-claude-md`. |
+| `~/.claude/CLAUDE.md` | A marked block telling the agent to use `mneme` for memory. Skipped if the file already mentions `mneme`; opt out with `--no-claude-md`. |
+| `~/.codex/hooks.json`, `AGENTS.md` | Codex CLI: the same hook and block (`$CODEX_HOME` if set). Trust the hook once with `/hooks`. |
+| `~/.config/opencode/AGENTS.md` | OpenCode: the block (no hook; the agent runs `mneme context` itself). Not created when OpenCode already reads the block from `~/.claude/CLAUDE.md`. |
 | `~/memory/` | Your memories, as plain Markdown. A default `.scopemap` and a `.config.json` (search tier and model) are added if missing. |
 
 It does **not** edit your shell startup files, and it does not install Node.js or Ollama for

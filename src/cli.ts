@@ -90,7 +90,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   scan: 'usage: mneme scan "<text>" | --file <path> | --scope <s> [--scope <s2>] | --all [--root <path>]',
   "compliance-lint": "usage: mneme compliance-lint --config <path> [--scope <s>]... [--root <path>]",
   scope: "usage: mneme scope [<path>] [--root r]",
-  init: "usage: mneme init [--write] [--root r] [--model <name>] [--embedder ollama|none] [--min-cos <n>] [--lexical-floor <n>]",
+  init: "usage: mneme init [--write] [--root r] [--model <name>] [--embedder ollama|none] [--min-cos <n>] [--lexical-floor <n>] [--no-hook]",
   "install-hook": "usage: mneme install-hook [--write] [--harness claude-code|codex]",
   "uninstall-hook": "usage: mneme uninstall-hook [--write] [--harness claude-code|codex]",
   add: `usage: mneme add "<content>" | --file <path> --type ${ADD_TYPES_HELP} [--scope s] [--description d] [--importance n] [--slug s]\n`
@@ -592,7 +592,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         return 0;
       }
       case "init": {
-        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, write: { type: "boolean" }, model: { type: "string" }, embedder: { type: "string" }, "min-cos": { type: "string" }, "lexical-floor": { type: "string" } }, allowPositionals: true });
+        const { values } = parseArgs({ args: rest, options: { root: { type: "string" }, write: { type: "boolean" }, model: { type: "string" }, embedder: { type: "string" }, "min-cos": { type: "string" }, "lexical-floor": { type: "string" }, "no-hook": { type: "boolean" } }, allowPositionals: true });
+        // MNE-113: the installer sets up the store for a Codex- or OpenCode-only
+        // user too, without touching Claude Code's settings.
+        const withHook = !values["no-hook"];
         // Absolute, and independent of the invoking environment: the hook runs in
         // future sessions with a different cwd and without this process's env, so
         // a relative or MNEMOSYNE_ROOT-derived path would target the wrong store.
@@ -654,7 +657,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         if (!values.write) {
           out([
             "mneme init (dry run — pass --write to apply):",
-            `  hook:     SessionStart -> "${hookCommand}" in ${settingsPath}`,
+            withHook ? `  hook:     SessionStart -> "${hookCommand}" in ${settingsPath}` : `  hook:     none (--no-hook)`,
             `  scopemap: ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}')`,
             `  tier:     ${tierLine}`,
             `  config:   ${paths.config}`,
@@ -662,7 +665,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           ].join("\n"));
           return 0;
         }
-        const hookResult = installSessionStartHook(settingsPath, { root });
+        const hookResult = withHook ? installSessionStartHook(settingsPath, { root }) : "skipped";
         if (hookResult === "parse-error") {
           err(`Could not parse ${settingsPath}; not modifying it. Fix or remove it and re-run 'mneme init --write'.`);
           return 1;
@@ -681,7 +684,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           err("note: Ollama is available, but this store stays on tier 0 as configured. Switch with 'mneme init --write --embedder ollama'.");
         }
         out([
-          hookResult === "unchanged" ? `SessionStart hook already in ${settingsPath}.` : `Installed SessionStart hook into ${settingsPath}.`,
+          ...(hookResult === "skipped" ? [] : [hookResult === "unchanged" ? `SessionStart hook already in ${settingsPath}.` : `Installed SessionStart hook into ${settingsPath}.`]),
           wroteScopeMap ? `Wrote ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}').` : `Left existing ${paths.scopeMap} untouched.`,
           tier === "ollama" ? `Tier: embedder (Ollama, model ${model}).` : "Tier 0: no embedder; search/context use BM25 over FTS.",
           configChanged ? `Wrote ${paths.config}.` : `Left ${paths.config} unchanged.`,

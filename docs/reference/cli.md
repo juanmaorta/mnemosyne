@@ -104,6 +104,7 @@ What `init --write` does:
 | `--embedder ollama\|none` | Search tier: semantic (Ollama) or tier 0 (keyword, offline). |
 | `--min-cos <n>` | Cosine floor to save (`-1`…`1`). |
 | `--lexical-floor <n>` | Lexical rescue floor to save. |
+| `--no-hook` | Set up the store only; leave `~/.claude/settings.json` alone (for an install that does not use Claude Code). |
 
 Each value comes from the flag, else the environment variable present now (`OLLAMA_MODEL`,
 `MNEMOSYNE_MIN_COS`, `MNEMOSYNE_LEXICAL_FLOOR`), else what the store's config already says. The
