@@ -213,8 +213,8 @@ that leaves the shared scope out:
 { "owns": ["work-laptop"] }
 ```
 
-(The scheduled dreaming runner is not built yet; until it is, this is a configuration
-convention.)
+(Dreaming is [in development](concepts.md#dreaming) and its scheduled runner is not built yet;
+until it is, this part is a configuration convention. For writes it is enforced today.)
 
 ## Telemetry
 

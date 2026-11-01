@@ -6,9 +6,14 @@ stale — without ever growing what gets loaded into context.
 
 ## What exists today
 
-- A **plan** is produced by the synthesis step and stored as a reviewable dry-run artifact under
-  `<root>/.telemetry/dreams/<scope>/<runId>.json`. Generation is local-first: it talks to Ollama
-  on `localhost` by default.
+- The **synthesis** (`src/dreaming/`) turns a scope's facts into proposed notes; it is
+  local-first (Ollama on `localhost` by default) and is measured by `npm run eval:dream`. A
+  **plan** is the reviewable dry-run artifact it feeds, stored under
+  `<root>/.telemetry/dreams/<scope>/<runId>.json` (`buildPlan` / `persistPlan`).
+- **No command generates a plan yet.** Today plans are only built in tests; the CLI step that
+  runs the synthesis and writes the plan for review is planned (MNE-109). Until it lands,
+  `mneme dream apply` has nothing to apply in normal use — which is why the user docs present
+  dreaming as in development.
 - Applying a plan is a **separate, explicit, manual** command, `mneme dream apply`, with an exact
   undo, `mneme dream revert`. No model is invoked when applying, and nothing runs it on a schedule.
   Its guarantees (derived notes only, stale-plan refusal, idempotence, safe revert, reindex) are
