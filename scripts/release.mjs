@@ -32,7 +32,10 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { argv, exit, stderr, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
 
-const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+// Strict semver 2.0 without build metadata: no leading zeros, no empty
+// pre-release identifiers. Tags carry a leading `v`; package.json never does.
+const IDENT = "(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)";
+const SEMVER = new RegExp(`^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(${IDENT}(?:\\.${IDENT})*))?$`);
 const CHANGELOG = "CHANGELOG.md";
 const CHANGELOG_HEADER = "# Changelog\n\nAll notable changes to Mnemosyne. Versions follow [semver](https://semver.org/).\n";
 const USAGE = "usage: npm run release -- <patch|minor|major|X.Y.Z> [--dry-run]\n"
@@ -40,15 +43,21 @@ const USAGE = "usage: npm run release -- <patch|minor|major|X.Y.Z> [--dry-run]\n
 
 // ------------------------------------------------------------------ semver ---
 
+/** A bare version (no `v`), as package.json holds it. */
 function parse(v) {
   const m = SEMVER.exec(v);
   return m ? { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null } : null;
 }
 
-/** Sign of a − b by semver precedence, or null when either is not a version. */
+/** A version or a `v`-prefixed tag. */
+function parseLoose(v) {
+  return parse(v.startsWith("v") ? v.slice(1) : v);
+}
+
+/** Sign of a − b by semver precedence, or null when either is not a version. Accepts tags. */
 export function compareSemver(a, b) {
-  const x = parse(a);
-  const y = parse(b);
+  const x = parseLoose(a);
+  const y = parseLoose(b);
   if (!x || !y) return null;
   for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i] > y.core[i] ? 1 : -1;
   if (x.pre === y.pre) return 0;
@@ -78,7 +87,8 @@ export function bumpVersion(current, kind) {
   if (kind === "minor") return `${major}.${minor + 1}.0`;
   // A patch of a pre-release finishes it: 1.0.0-rc.1 → 1.0.0.
   if (kind === "patch") return c.pre ? `${major}.${minor}.${patch}` : `${major}.${minor}.${patch + 1}`;
-  if (parse(kind)) return kind.replace(/^v/, "");
+  const explicit = kind.replace(/^v/, "");
+  if (parse(explicit)) return explicit;
   throw new Error(`'${kind}' is not a version or one of patch, minor, major`);
 }
 
@@ -86,7 +96,7 @@ export function bumpVersion(current, kind) {
 export function latestTag(tags) {
   let best = null;
   for (const t of tags) {
-    if (!t.startsWith("v") || !parse(t)) continue;
+    if (!t.startsWith("v") || !parseLoose(t)) continue;
     if (best === null || compareSemver(t, best) > 0) best = t;
   }
   return best;
@@ -144,12 +154,12 @@ export function extractNotes(changelog, version) {
 
 /** What a push to main should do for package.json's `version`, given the repo's tags. */
 export function planPublish({ version, tags }) {
-  const v = parse(version);
-  if (!v) return { action: "error", reason: `package.json version '${version}' is not semver` };
+  const v = typeof version === "string" ? parse(version) : null;
+  if (!v) return { action: "error", reason: `package.json version '${version}' is not semver (X.Y.Z, no leading v or zeros)` };
   const tag = `v${version}`;
   if (tags.includes(tag)) return { action: "skip", tag };
   const latest = latestTag(tags);
-  if (latest && compareSemver(tag, latest) <= 0) {
+  if (latest && compareSemver(tag, latest) !== 1) {
     return { action: "error", reason: `${tag} is not higher than the latest tag ${latest}` };
   }
   return { action: "publish", tag, prerelease: v.pre !== null };
@@ -195,13 +205,17 @@ function prepare(args) {
   const tag = `v${next}`;
   if (tags.includes(tag)) throw new Refusal(`${tag} is already tagged.`);
   const latest = latestTag(tags);
-  if (latest && compareSemver(tag, latest) <= 0) throw new Refusal(`${tag} is not higher than the latest tag ${latest}.`);
-  if (compareSemver(next, current) < 0) throw new Refusal(`${next} is lower than package.json's ${current}.`);
+  if (latest && compareSemver(tag, latest) !== 1) throw new Refusal(`${tag} is not higher than the latest tag ${latest}.`);
+  if (compareSemver(next, current) === -1) throw new Refusal(`${next} is lower than package.json's ${current}.`);
+  const existing = existsSync(CHANGELOG) ? readFileSync(CHANGELOG, "utf8") : null;
+  if (existing !== null && extractNotes(existing, next) !== null) {
+    throw new Refusal(`${CHANGELOG} already has a section for ${tag}: it was prepared before. If its release PR was merged, the workflow publishes it (rerun it from Actions if it failed).`);
+  }
 
   const subjects = latest ? git("log", "--format=%s", `${latest}..HEAD`).split("\n").filter(Boolean) : null;
   const date = new Date().toISOString().slice(0, 10);
   const section = renderSection(next, date, subjects === null ? null : groupCommits(subjects));
-  const changelog = insertSection(existsSync(CHANGELOG) ? readFileSync(CHANGELOG, "utf8") : null, section);
+  const changelog = insertSection(existing, section);
 
   const releaseBranch = `release/${tag}`;
   const title = `🔖 release: ${tag}`;
@@ -226,7 +240,11 @@ function prepare(args) {
   writeFileSync(CHANGELOG, changelog);
   git("add", "--", ...files);
   git("commit", "--quiet", "-m", title);
-  git("push", "--quiet", "-u", "origin", releaseBranch);
+  try {
+    git("push", "--quiet", "-u", "origin", releaseBranch);
+  } catch {
+    throw new Error(`the release commit is on the local branch ${releaseBranch}, but pushing it failed. Retry with \`git push -u origin ${releaseBranch}\` and open the PR, or drop it: \`git switch main && git branch -D ${releaseBranch}\`.`);
+  }
 
   const body = `Release ${tag}. Merging this publishes the \`${tag}\` tag and its GitHub Release `
     + "(`.github/workflows/release.yml`), with the section below as the notes. Edit `CHANGELOG.md` "
@@ -272,7 +290,10 @@ function plan(args) {
     throw new Refusal(`${CHANGELOG} has no section for v${version}; add one (npm run release does) before publishing.`);
   }
   writeFileSync(notesOut, `${notes}\n`);
-  stdout.write(`tag=${decision.tag}\nprerelease=${decision.prerelease}\n`);
+  // Tag the commit that set this version, not the pushed one: when runs are
+  // coalesced, the run that sees the bump can be for a later merge.
+  const target = git("log", "-1", "--format=%H", "-G", '"version"', "--", "package.json") || git("rev-parse", "HEAD");
+  stdout.write(`tag=${decision.tag}\nprerelease=${decision.prerelease}\ntarget=${target}\n`);
   stderr.write(`release: publishing ${decision.tag}.\n`);
   return 0;
 }
