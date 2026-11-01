@@ -375,8 +375,9 @@ check_requirements() {
   fi
   if [ "$CHOOSE_MODEL" = 1 ] && [ "$MODEL_PRESENT" = 0 ] && { [ "$OLLAMA_UP" = 0 ] || [ "$HAS_OLLAMA" = 0 ] || [ "$DO_OLLAMA_PULL" = 0 ]; }; then
     note "Without Ollama serving an embedding model Mnemosyne runs in TIER 0: keyword"
-    note "search (BM25) over your notes, fully offline. What you lose is semantic search:"
-    note "finding a note by meaning when it shares no words with your query."
+    note "search (BM25) over your notes, with nothing else to install. What you lose"
+    note "is semantic search: finding a note by meaning when it shares no words with"
+    note "your query."
     note "To add it later:"
     [ "$HAS_OLLAMA" = 1 ] || note "  - install Ollama: https://ollama.com/download"
     note "  - ollama pull $MODEL"

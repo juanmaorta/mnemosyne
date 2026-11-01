@@ -42,7 +42,7 @@ remember versus to forget. That duality is the whole system.
 | **git** | Required to download and update the code. |
 | C/C++ build tools | Only if no prebuilt SQLite binary matches your machine: Xcode Command Line Tools on macOS, `build-essential` + `python3` on Linux. |
 | An agent | **Claude Code**, the **Codex CLI** or **OpenCode**: the installer wires in each one it finds. Mnemosyne installs without any. |
-| [Ollama](https://ollama.com) | **Optional.** With it you get semantic search; without it Mnemosyne runs in **tier 0** (keyword search, fully offline). |
+| [Ollama](https://ollama.com) | **Optional.** With it you get semantic search, computed on your machine; without it Mnemosyne runs in **tier 0** (keyword search, nothing else to install). Either way, nothing leaves your machine. |
 
 macOS and Linux. Details, and what each search tier gives you:
 [Getting started](docs/guide/getting-started.md#requirements).
