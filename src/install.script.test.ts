@@ -66,6 +66,44 @@ function sessionStartCommands(home: string): string[] {
   return (settings.hooks?.SessionStart ?? []).flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command));
 }
 
+/**
+ * A throwaway "Mnemosyne" repo for the clone and release-channel paths (MNE-111):
+ * this checkout's install.sh and the CLAUDE.md block source, plus a stub
+ * `dist/bin/mneme.js` that only logs its arguments, so `--no-build` installs
+ * work without npm or the network. Each step is one commit, tagged if asked.
+ */
+function git(cwd: string, ...args: string[]): string {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" } });
+  if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+function fixtureCommit(dir: string, step: { tag?: string; version?: string }): void {
+  const version = step.version ?? step.tag?.replace(/^v/, "") ?? "0.0.0-dev";
+  writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name: "mnemosyne", version }, null, 2)}\n`);
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "--allow-empty", "-m", `step ${version}`);
+  if (step.tag) git(dir, "tag", step.tag);
+}
+
+function fixtureRepo(steps: { tag?: string; version?: string }[]): string {
+  const dir = mkdtempSync(join(tmpdir(), "mneme-fixture-repo-"));
+  git(dir, "init", "-q", "-b", "main");
+  writeFileSync(join(dir, "install.sh"), readFileSync(script, "utf8"));
+  mkdirSync(join(dir, "docs", "integrations"), { recursive: true });
+  writeFileSync(join(dir, "docs", "integrations", "memory-instructions.md"), readFileSync(join(repo, "docs", "integrations", "memory-instructions.md"), "utf8"));
+  mkdirSync(join(dir, "dist", "bin"), { recursive: true });
+  writeFileSync(join(dir, "dist", "bin", "mneme.js"), "const { appendFileSync } = require('node:fs');\nappendFileSync(process.env.HOME + '/mneme-calls.log', process.argv.slice(2).join(' ') + '\\n');\n");
+  writeFileSync(join(dir, ".gitignore"), ".mnemosyne-installer\n.update-check.json\n");
+  for (const step of steps) fixtureCommit(dir, step);
+  return dir;
+}
+
+const pipedInstall = (home: string, repoUrl: string, args: string[], extraEnv: Record<string, string> = {}) =>
+  spawnDetached("sh", ["-s", "--", ...args], { ...baseEnv(home), MNEMOSYNE_REPO_URL: repoUrl, ...extraEnv }, readFileSync(script, "utf8"));
+
+const installedVersion = (home: string) => JSON.parse(readFileSync(join(home, ".mnemosyne", "package.json"), "utf8")).version as string;
+
 // Each case spawns the script (and `mneme`) a few times.
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -86,7 +124,8 @@ describe("install.sh --dry-run", () => {
   test("piped_through_sh_plans_a_clone_into_the_install_dir", async () => {
     // `curl … | sh` has no script path: the code must come from a clone.
     const home = freshHome();
-    const r = await spawnDetached("sh", ["-s", "--", "--dry-run"], baseEnv(home), readFileSync(script, "utf8"));
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const r = await spawnDetached("sh", ["-s", "--", "--dry-run"], { ...baseEnv(home), MNEMOSYNE_REPO_URL: repoUrl }, readFileSync(script, "utf8"));
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/git clone/);
     expect(r.stdout).toContain(join(home, ".mnemosyne"));
@@ -273,5 +312,122 @@ describe("install.sh install / update / uninstall", () => {
     expect(v.status, v.stderr).toBe(0);
     expect(existsSync(join(custom, ".index"))).toBe(true);
     expect(existsSync(join(home, "memory"))).toBe(false);
+  });
+});
+
+describe("install.sh release channel (MNE-111)", () => {
+  test("installs_the_newest_semver_tag_ordered_numerically_ignoring_pre_releases_and_other_tags", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.2.0" }, { tag: "v0.10.0" }, { tag: "v0.9.0" }, { tag: "v0.11.0-rc.1" }, { tag: "nightly" }, { version: "0.12.0-dev" }]);
+    const home = freshHome();
+    const r = await pipedInstall(home, repoUrl, ["--dry-run"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toMatch(/git clone --branch v0\.10\.0 /);
+    expect(r.stdout).toMatch(/latest release/);
+    expect(listTree(home)).toEqual([]);
+  });
+
+  test("only_pre_releases_means_the_newest_pre_release", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0-rc.2" }, { tag: "v0.1.0-rc.10" }, { tag: "v0.0.9-beta" }]);
+    const r = await pipedInstall(freshHome(), repoUrl, ["--dry-run"]);
+    expect(r.stdout).toMatch(/git clone --branch v0\.1\.0-rc\.10 /);
+    // Identifier by identifier, as semver says: beta.1 is newer than alpha.9, and a
+    // longer list of equal identifiers is newer than its prefix.
+    const ids = fixtureRepo([{ tag: "v1.0.0-alpha.9" }, { tag: "v1.0.0-beta.1" }, { tag: "v1.0.0-alpha" }, { tag: "v0.9.0-rc.1" }]);
+    expect((await pipedInstall(freshHome(), ids, ["--dry-run"])).stdout).toMatch(/git clone --branch v1\.0\.0-beta\.1 /);
+    const prefix = fixtureRepo([{ tag: "v1.0.0-rc" }, { tag: "v1.0.0-rc.1" }]);
+    expect((await pipedInstall(freshHome(), prefix, ["--dry-run"])).stdout).toMatch(/git clone --branch v1\.0\.0-rc\.1 /);
+  });
+
+  test("no_tags_falls_back_to_main_and_says_so", async () => {
+    const repoUrl = fixtureRepo([{ version: "0.1.0" }]);
+    const r = await pipedInstall(freshHome(), repoUrl, ["--dry-run"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toMatch(/git clone --branch main /);
+    expect(r.stdout).toMatch(/no release tags/i);
+  });
+
+  test("an_explicit_branch_is_the_development_channel", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    git(repoUrl, "branch", "dev");
+    const r = await pipedInstall(freshHome(), repoUrl, ["--dry-run"], { MNEMOSYNE_BRANCH: "dev" });
+    expect(r.stdout).toMatch(/git clone --branch dev /);
+    expect(r.stdout).toMatch(/MNEMOSYNE_BRANCH/);
+  });
+
+  test("an_unreachable_repo_is_reported_in_the_plan_and_stops_a_real_install", async () => {
+    const home = freshHome();
+    const missing = join(home, "no-such-repo");
+    const dry = await pipedInstall(home, missing, ["--dry-run"]);
+    expect(dry.code, dry.out).toBe(0);
+    expect(dry.stdout).toMatch(/could not list the releases/);
+    const real = await pipedInstall(home, missing, ["--yes", "--no-build", "--no-ollama-pull"]);
+    expect(real.code).not.toBe(0);
+    expect(existsSync(join(home, ".mnemosyne"))).toBe(false);
+  });
+
+  test("the_plan_mentions_the_daily_update_check_and_how_to_turn_it_off", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const r = await pipedInstall(freshHome(), repoUrl, ["--dry-run"]);
+    expect(r.stdout).toMatch(/api\.github\.com/);
+    expect(r.stdout).toMatch(/MNEMOSYNE_NO_UPDATE_CHECK=1/);
+  });
+
+  test("update_moves_from_v0_1_0_to_v0_2_0_never_to_unreleased_main_and_is_idempotent", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const home = freshHome();
+    const first = await pipedInstall(home, repoUrl, ["--yes", "--no-build", "--no-ollama-pull"]);
+    expect(first.code, first.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.1.0");
+    expect(existsSync(join(home, ".mnemosyne", ".mnemosyne-installer"))).toBe(true);
+
+    fixtureCommit(repoUrl, { tag: "v0.2.0" });
+    fixtureCommit(repoUrl, { version: "0.3.0-dev" }); // on main, not released
+    const updater = join(home, ".mnemosyne", "install.sh");
+
+    const dry = await spawnDetached("sh", [updater, "update", "--dry-run", "--no-build"], baseEnv(home));
+    expect(dry.code, dry.out).toBe(0);
+    expect(dry.stdout).toMatch(/v0\.1\.0 to v0\.2\.0/);
+    expect(installedVersion(home)).toBe("0.1.0");
+
+    for (let i = 0; i < 2; i++) {
+      const r = await spawnDetached("sh", [updater, "update", "--yes", "--no-build"], baseEnv(home));
+      expect(r.code, r.out).toBe(0);
+      expect(installedVersion(home)).toBe("0.2.0");
+    }
+    expect(git(join(home, ".mnemosyne"), "describe", "--tags")).toBe("v0.2.0");
+    // Post-update: the index is brought up to date right away.
+    expect(readFileSync(join(home, "mneme-calls.log"), "utf8")).toMatch(/^reindex --root /m);
+  });
+
+  test("update_refuses_when_the_install_dir_has_local_changes", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const home = freshHome();
+    expect((await pipedInstall(home, repoUrl, ["--yes", "--no-build", "--no-ollama-pull"])).code).toBe(0);
+    fixtureCommit(repoUrl, { tag: "v0.2.0" });
+    writeFileSync(join(home, ".mnemosyne", "install.sh"), `${readFileSync(join(home, ".mnemosyne", "install.sh"), "utf8")}\n# local edit\n`);
+    const r = await spawnDetached("sh", [join(home, ".mnemosyne", "install.sh"), "update", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/local changes/);
+    expect(installedVersion(home)).toBe("0.1.0");
+  });
+
+  test("an_explicit_branch_update_follows_the_branch_tip", async () => {
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const home = freshHome();
+    expect((await pipedInstall(home, repoUrl, ["--yes", "--no-build", "--no-ollama-pull"])).code).toBe(0);
+    fixtureCommit(repoUrl, { version: "0.2.0-dev" });
+    const r = await spawnDetached("sh", [join(home, ".mnemosyne", "install.sh"), "update", "--yes", "--no-build"], { ...baseEnv(home), MNEMOSYNE_BRANCH: "main" });
+    expect(r.code, r.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.2.0-dev");
+  });
+
+  test("your_own_checkout_is_never_moved", async () => {
+    const head = git(repo, "rev-parse", "HEAD");
+    const home = freshHome();
+    expect((await install(home)).code).toBe(0);
+    const r = await run(home, ["update", "--yes", "--no-build"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toMatch(/not pulled: it is your checkout/);
+    expect(git(repo, "rev-parse", "HEAD")).toBe(head);
   });
 });

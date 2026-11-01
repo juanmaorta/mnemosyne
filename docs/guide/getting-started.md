@@ -155,16 +155,40 @@ imports it and switches it off, so there is one store instead of two.
 
 ## Update
 
-```sh
-sh ~/.mnemosyne/install.sh update
+The installer installs the **latest release** — the highest `vX.Y.Z` tag of the repository — not
+whatever is on `main`. When a newer release is published, the next session tells you, once, in
+the memory digest:
+
+```
+Mnemosyne v0.2.0 is available (you have v0.1.0) — run `mneme upgrade`.
 ```
 
-From your own clone, `git pull` it yourself and run `./install.sh update` there: the installer
-never pulls a clone it did not create.
+To update:
 
-Update is idempotent. It runs `git pull --ff-only` (on the installer's own clone), rebuilds, and
-re-runs `mneme init`, which **keeps** your config, hook and `.scopemap`. The `CLAUDE.md` block is
-refreshed only if a previous install added it (its markers are there). Your data is untouched.
+```sh
+mneme upgrade              # shows the plan and asks; --dry-run to only look, --yes to not ask
+```
+
+`mneme upgrade` runs `~/.mnemosyne/install.sh update`, which you can also run directly. It
+fetches the release tags, moves the installer's clone to the newest one (refusing if you edited
+files in it), rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
+`.scopemap` — and brings the search index up to date with `mneme reindex`. The `CLAUDE.md` block
+is refreshed only if a previous install added it (its markers are there). Your data is untouched.
+Update is idempotent: run it again on the latest release and nothing changes.
+
+`mneme --version` says which version you are on (and, in a git checkout, the exact tag or commit).
+
+**Your own clone** (installed with `./install.sh` from inside it) is never moved: `git pull` it
+yourself, then `npm ci && npm run build`. `mneme upgrade` says so, and the new-version notice
+is off for it.
+
+**Following a branch** instead of releases — the development channel — is
+`MNEMOSYNE_BRANCH=main sh ~/.mnemosyne/install.sh update` (or the same variable on the first
+install). The variable has to be set on every update; without it, update goes back to the latest
+release.
+
+How the new-version check works, what it sends and how to turn it off:
+[Configuration](configuration.md#the-new-version-check).
 
 Update **never changes the embedding model** a store already uses — replacing it would leave an
 index Mnemosyne refuses to use until a full rebuild. Pass `--model <name>` to choose one
@@ -215,8 +239,10 @@ Every command (`install`, the default; `update`; `uninstall`) accepts:
 | `-h`, `--help` | The script's own help. |
 
 The defaults can also come from the environment: `MNEMOSYNE_INSTALL_DIR` (`--dir`),
-`MNEMOSYNE_BIN_DIR` (`--bin-dir`), `MNEMOSYNE_ROOT` (`--root`), and `MNEMOSYNE_REPO_URL` /
-`MNEMOSYNE_BRANCH` for where the code is cloned from (default: this repository, `main`).
+`MNEMOSYNE_BIN_DIR` (`--bin-dir`), `MNEMOSYNE_ROOT` (`--root`), and `MNEMOSYNE_REPO_URL` for
+where the code is cloned from (default: this repository). Which version: the latest release tag,
+or — when `MNEMOSYNE_BRANCH` is set — the tip of that branch. A repository with no release tags
+yet falls back to `main`, and the plan says so.
 
 ## Installing by hand
 

@@ -10,6 +10,10 @@
 # asks. `--dry-run` stops after that. Nothing is published to npm: the code is
 # cloned from git and built locally; `npm` is only used to fetch dependencies.
 #
+# Which code: the newest release — the highest `vX.Y.Z` tag of the repo — unless
+# MNEMOSYNE_BRANCH names a branch to follow instead (the development channel).
+# A repo with no release tags yet falls back to `main`, and says so (MNE-111).
+#
 # POSIX sh on purpose: it has to run under `curl | sh` on macOS and on Linux
 # (where `sh` is dash), before anything else is installed.
 
@@ -17,7 +21,12 @@ set -eu
 
 # ---------------------------------------------------------------- defaults ---
 REPO_URL="${MNEMOSYNE_REPO_URL:-https://github.com/juanmaorta/mnemosyne.git}"
+# Set explicitly, it is the development channel: follow that branch's tip.
+# Unset, the installer follows releases (tags), falling back to this default
+# branch only while the repo has none.
 BRANCH="${MNEMOSYNE_BRANCH:-main}"
+BRANCH_EXPLICIT=0
+[ -n "${MNEMOSYNE_BRANCH:-}" ] && BRANCH_EXPLICIT=1
 INSTALL_DIR="${MNEMOSYNE_INSTALL_DIR:-$HOME/.mnemosyne}"
 BIN_DIR="${MNEMOSYNE_BIN_DIR:-$HOME/.local/bin}"
 STORE_ROOT="${MNEMOSYNE_ROOT:-$HOME/memory}"
@@ -50,7 +59,7 @@ Usage: install.sh [install|update|uninstall] [options]
 
 Commands:
   install     (default) check requirements, get the code, build it, wire it in
-  update      pull the latest code and rebuild; keeps config, hook, .scopemap, data
+  update      move to the latest release and rebuild; keeps config, hook, .scopemap, data
   uninstall   remove what install added; keeps your memories unless --delete-data
 
 Options:
@@ -65,6 +74,10 @@ Options:
   --no-build        use the checkout as already built (development)
   --delete-data     uninstall only: also delete the memory store (--root)
   -h, --help        this help
+
+Environment:
+  MNEMOSYNE_BRANCH=NAME   follow branch NAME instead of the latest release (development)
+  MNEMOSYNE_REPO_URL=URL  where to get the code from (default: the GitHub repo)
 EOF
 }
 
@@ -272,6 +285,85 @@ check_requirements() {
   fi
 }
 
+# ------------------------------------------------------- which version ---
+# What install/update will check out: TARGET_KIND is `tag` (a release),
+# `branch` (MNEMOSYNE_BRANCH, or no release exists yet) or `unreachable` (the
+# repo could not be listed). Resolved BEFORE the plan, so the plan and
+# --dry-run name the exact version, and without writing anything.
+TARGET_KIND=""
+TARGET_REF=""
+TARGET_WHY=""
+
+# stdin: tag names, one per line -> stdout: the newest `vX.Y.Z`, or when there
+# is none, the newest pre-release `vX.Y.Z-…`; nothing at all when neither exists.
+# Compared by semver precedence (numbers as numbers, so v0.10.0 is after v0.9.0;
+# pre-release identifiers left to right, so beta.1 is after alpha.9). Other tags
+# are ignored.
+newest_tag() {
+  awk '
+    function cmpid(x, y,   xn, yn) {
+      xn = (x ~ /^[0-9]+$/); yn = (y ~ /^[0-9]+$/)
+      if (xn && yn) return (x + 0 < y + 0) ? -1 : (x + 0 > y + 0)
+      if (xn != yn) return xn ? -1 : 1
+      return (x "" < y "") ? -1 : (x "" > y "")
+    }
+    function cmpver(a, b,   ia, ib, ca, cb, pa, pb, xa, xb, ya, yb, na, nb, i, c) {
+      ia = index(a, "-"); ib = index(b, "-")
+      ca = ia ? substr(a, 1, ia - 1) : a; pa = ia ? substr(a, ia + 1) : ""
+      cb = ib ? substr(b, 1, ib - 1) : b; pb = ib ? substr(b, ib + 1) : ""
+      split(ca, xa, "."); split(cb, xb, ".")
+      for (i = 1; i <= 3; i++) if (xa[i] + 0 != xb[i] + 0) return (xa[i] + 0 < xb[i] + 0) ? -1 : 1
+      if (pa == "" || pb == "") return (pa == "") - (pb == "")
+      na = split(pa, ya, "."); nb = split(pb, yb, ".")
+      for (i = 1; i <= na && i <= nb; i++) { c = cmpid(ya[i], yb[i]); if (c) return c }
+      return (na < nb) ? -1 : (na > nb)
+    }
+    /^v[0-9]+[.][0-9]+[.][0-9]+$/ { v = substr($0, 2); if (stable == "" || cmpver(v, stable) > 0) stable = v; next }
+    /^v[0-9]+[.][0-9]+[.][0-9]+-[0-9A-Za-z.-]+$/ { v = substr($0, 2); if (pre == "" || cmpver(v, pre) > 0) pre = v }
+    END { if (stable != "") print "v" stable; else if (pre != "") print "v" pre }
+  '
+}
+
+# Tag names of a repo, read-only: `git ls-remote` works the same for https,
+# ssh, a local path or a bundle. $1 = URL or remote name, $2 = repo to run in
+# (for a remote name). Fails when the repo cannot be reached. Never prompts:
+# under `curl | sh` there is nobody to type a password.
+remote_tags() {
+  if [ -n "${2:-}" ]; then
+    _refs="$(GIT_TERMINAL_PROMPT=0 git -C "$2" ls-remote --tags --refs "$1" 2>/dev/null)" || return 1
+  else
+    _refs="$(GIT_TERMINAL_PROMPT=0 git ls-remote --tags --refs "$1" 2>/dev/null)" || return 1
+  fi
+  printf '%s\n' "$_refs" | sed -n 's|^.*[[:space:]]refs/tags/||p'
+}
+
+resolve_target() {
+  [ "$IN_PLACE" = 0 ] || return 0   # your own checkout is never moved
+  [ "$ACTION" != uninstall ] || return 0
+  if [ "$BRANCH_EXPLICIT" = 1 ]; then
+    TARGET_KIND=branch; TARGET_REF="$BRANCH"
+    TARGET_WHY="development channel: following branch '$BRANCH' because MNEMOSYNE_BRANCH is set"
+    return 0
+  fi
+  command -v git >/dev/null 2>&1 || return 0   # reported as [MISSING] already
+  # An existing clone updates from wherever it was cloned from.
+  if [ -d "$INSTALL_DIR/.git" ]; then _from=origin; _in="$INSTALL_DIR"; else _from="$REPO_URL"; _in=""; fi
+  if _tags="$(remote_tags "$_from" "$_in")"; then
+    TARGET_REF="$(printf '%s\n' "$_tags" | newest_tag)"
+    if [ -n "$TARGET_REF" ]; then
+      TARGET_KIND=tag; TARGET_WHY="latest release"
+    else
+      TARGET_KIND=branch; TARGET_REF="$BRANCH"
+      TARGET_WHY="no release tags published yet, so following branch '$BRANCH' until there are"
+    fi
+  else
+    TARGET_KIND=unreachable
+    TARGET_WHY="could not list the releases of $( [ -n "$_in" ] && git -C "$_in" remote get-url origin 2>/dev/null || printf '%s' "$REPO_URL" ) (offline, or no access?)"
+  fi
+}
+
+current_version() { git -C "$INSTALL_DIR" describe --tags --always 2>/dev/null || printf 'unknown'; }
+
 # ------------------------------------------------------------- the plan -----
 plan_install() {
   section "What $ACTION will change"
@@ -280,11 +372,24 @@ plan_install() {
     if [ "$ACTION" = update ]; then
       say "            (not pulled: it is your checkout — run 'git pull' in it yourself)"
     fi
+  elif [ "$TARGET_KIND" = unreachable ]; then
+    say "  code:     UNKNOWN — $TARGET_WHY"
   elif [ "$ACTION" = install ] && [ ! -d "$INSTALL_DIR/.git" ]; then
-    say "  code:     git clone --branch $BRANCH $REPO_URL"
-    say "            into $INSTALL_DIR"
+    say "  code:     git clone --branch $TARGET_REF $REPO_URL"
+    say "            into $INSTALL_DIR  ($TARGET_WHY)"
+  elif [ ! -d "$INSTALL_DIR/.git" ]; then
+    say "  code:     nothing to update: $INSTALL_DIR is not an installation"
   else
-    say "  code:     git pull --ff-only in $INSTALL_DIR"
+    _cur="$(current_version)"
+    if [ "$TARGET_KIND" = tag ] && [ "$_cur" = "$TARGET_REF" ]; then
+      say "  code:     already at $TARGET_REF ($TARGET_WHY) in $INSTALL_DIR"
+    elif [ "$TARGET_KIND" = tag ]; then
+      say "  code:     move $INSTALL_DIR from $_cur to $TARGET_REF ($TARGET_WHY)"
+    else
+      say "  code:     move $INSTALL_DIR from $_cur to the tip of '$TARGET_REF'"
+      say "            ($TARGET_WHY)"
+    fi
+    say "            refused if that folder has local changes"
   fi
   if [ "$DO_BUILD" = 1 ]; then
     say "  build:    npm ci && npm run build inside $INSTALL_DIR (dependencies stay in that folder)"
@@ -297,6 +402,18 @@ plan_install() {
   say "  data:     your memories live in $STORE_ROOT as plain Markdown files."
   say "            Existing notes are never touched. Added if missing: .scopemap (catch-all '~ = personal'),"
   say "            and .config.json (search tier and model, so no environment variables are needed)."
+  if [ "$ACTION" = update ]; then
+    say "  index:    mneme reindex --root '$STORE_ROOT' — incremental: picks up what the new version"
+    say "            changes in the index now rather than at the next session"
+  fi
+  if [ "$IN_PLACE" = 1 ]; then
+    say "  updates:  no new-version check (it runs only for the installer's own clone)"
+  else
+    say "  updates:  once a day, 'mneme context' asks GitHub whether a newer release exists (one"
+    say "            HTTPS GET to api.github.com; nothing about you or your memories is sent) and says"
+    say "            so at session start. Turn it off with MNEMOSYNE_NO_UPDATE_CHECK=1, or"
+    say "            \"updateCheck\": false in $STORE_ROOT/.config.json"
+  fi
   if [ "$DO_CLAUDE_MD" = 1 ]; then
     if [ "$ACTION" = update ]; then
       say "  CLAUDE.md: refresh the Mnemosyne block in $CLAUDE_MD, only if a previous install added it"
@@ -436,6 +553,30 @@ write_wrappers() {
   done
 }
 
+# Move the installer's clone to the resolved target. Refuses when the clone has
+# local changes to tracked files: checking out over them would either fail
+# halfway or carry them into a version they were not written for.
+checkout_target() {
+  if [ -n "$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    die "$INSTALL_DIR has local changes (see 'git -C $INSTALL_DIR status'). Commit or discard them and re-run. Nothing was changed."
+  fi
+  case "$TARGET_KIND" in
+    tag)
+      git -C "$INSTALL_DIR" fetch --quiet --tags --force origin || die "git fetch failed in $INSTALL_DIR. Nothing else was changed."
+      git -C "$INSTALL_DIR" -c advice.detachedHead=false checkout --quiet --detach "refs/tags/$TARGET_REF" \
+        || die "could not check out $TARGET_REF in $INSTALL_DIR. Nothing else was changed."
+      ;;
+    branch)
+      git -C "$INSTALL_DIR" fetch --quiet origin "+refs/heads/$TARGET_REF:refs/remotes/origin/$TARGET_REF" \
+        || die "git fetch of branch '$TARGET_REF' failed in $INSTALL_DIR. Nothing else was changed."
+      git -C "$INSTALL_DIR" -c advice.detachedHead=false checkout --quiet --detach "refs/remotes/origin/$TARGET_REF" \
+        || die "could not check out '$TARGET_REF' in $INSTALL_DIR. Nothing else was changed."
+      ;;
+    *) die "do not know which version to check out. Nothing else was changed." ;;
+  esac
+  say "Now at $(current_version)."
+}
+
 build() {
   [ "$DO_BUILD" = 1 ] || return 0
   section "Building in $INSTALL_DIR"
@@ -462,6 +603,7 @@ run_init() {
 # ---------------------------------------------------------------- actions ---
 do_install_or_update() {
   check_requirements
+  resolve_target
   plan_install
   if [ "$BLOCKING" = 1 ]; then
     die "fix the [MISSING] items above, then re-run. Nothing was changed."
@@ -475,18 +617,21 @@ do_install_or_update() {
     say "Dry run: nothing was changed."
     return 0
   fi
+  if [ "$IN_PLACE" = 0 ] && [ "$TARGET_KIND" = unreachable ]; then
+    die "$TARGET_WHY. Nothing was changed."
+  fi
   confirm "Go ahead?"
 
   if [ "$IN_PLACE" = 0 ]; then
     if [ -d "$INSTALL_DIR/.git" ]; then
       section "Updating the code in $INSTALL_DIR"
-      git -C "$INSTALL_DIR" pull --ff-only || die "git pull failed (local changes in $INSTALL_DIR?). Nothing else was changed."
+      checkout_target
     elif [ "$ACTION" = update ]; then
       die "no installation found in $INSTALL_DIR. Run the installer without 'update' first (or pass --dir)."
     else
       [ -e "$INSTALL_DIR" ] && die "$INSTALL_DIR exists but is not a Mnemosyne clone. Move it away, or pass --dir."
-      section "Downloading the code into $INSTALL_DIR"
-      git clone --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+      section "Downloading $TARGET_REF into $INSTALL_DIR"
+      git -c advice.detachedHead=false clone --branch "$TARGET_REF" "$REPO_URL" "$INSTALL_DIR"
       : > "$INSTALL_DIR/.$OWNER_MARK"
     fi
   fi
@@ -504,12 +649,20 @@ do_install_or_update() {
   [ "$ACTION" = install ] && backup_once "$SETTINGS"
   run_init
   write_claude_md_block "$ACTION"
+  if [ "$ACTION" = update ]; then
+    # No index schema version to migrate: schema additions apply themselves
+    # when the index is opened, and a changed embedder is caught by reindex.
+    # Running it here does both now, instead of in the next session's hook.
+    section "Bringing the index up to date"
+    mneme_run reindex --root "$STORE_ROOT" || warn "reindex failed; the next 'mneme search' or session retries it"
+  fi
 
   section "Done"
+  [ "$IN_PLACE" = 0 ] && say "Mnemosyne $(current_version) is installed in $INSTALL_DIR."
   say "Your memories live in $STORE_ROOT. Open a new Claude Code session and it starts with them."
   say "Try: mneme add \"I prefer short answers\" --type user --slug short-answers"
   say "     mneme search \"answers\""
-  say "Update later with:    $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh update" || printf '%s' "sh $INSTALL_DIR/install.sh update" )"
+  say "Update later with:    $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh update" || printf '%s' "mneme upgrade   (or: sh $INSTALL_DIR/install.sh update)" )"
   say "Uninstall with:       $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh uninstall" || printf '%s' "sh $INSTALL_DIR/install.sh uninstall" )"
 }
 

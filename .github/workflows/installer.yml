@@ -18,6 +18,7 @@ on:
       - src/cli.ts
       - src/config.ts
       - src/hook.ts
+      - src/release.ts
       - src/store.ts
       # Pasted into CLAUDE.md by the installer.
       - docs/integrations/memory-instructions.md
@@ -77,3 +78,38 @@ jobs:
           test ! -e "$HOME/.local/bin/mneme"
           test -d "$HOME/memory"
           if grep -q "mneme context" "$HOME/.claude/settings.json"; then exit 1; fi
+
+      - name: install the latest release tag, then update to a newer tag
+        run: |
+          # MNE-111: the release channel end to end, with a local fixture repo
+          # standing in for GitHub. v0.0.1 and v0.0.2 are this PR's code, so the
+          # run tests the PR's installer and the real build; "main" gets a
+          # commit past the last tag to prove update follows tags, not main.
+          set -o pipefail
+          fixture="$RUNNER_TEMP/fixture-repo"
+          git clone --quiet "$GITHUB_WORKSPACE" "$fixture"
+          git -C "$fixture" checkout --quiet -B main
+          git -C "$fixture" -c user.name=ci -c user.email=ci@example.invalid commit --quiet --allow-empty -m "release 0.0.1"
+          git -C "$fixture" tag v0.0.1
+          export MNEMOSYNE_REPO_URL="$fixture"
+          unset MNEMOSYNE_BRANCH
+          export HOME="$(mktemp -d)"
+          export PATH="$HOME/.local/bin:$PATH"
+          sh -s -- --yes --no-ollama-pull < install.sh | tee "$RUNNER_TEMP/install.log"
+          grep -q "git clone --branch v0.0.1 " "$RUNNER_TEMP/install.log"
+          test "$(git -C "$HOME/.mnemosyne" describe --tags --exact-match)" = v0.0.1
+          mneme --version | grep -q "(v0.0.1)"
+          git -C "$fixture" -c user.name=ci -c user.email=ci@example.invalid commit --quiet --allow-empty -m "release 0.0.2"
+          git -C "$fixture" tag v0.0.2
+          git -C "$fixture" -c user.name=ci -c user.email=ci@example.invalid commit --quiet --allow-empty -m "unreleased"
+          mneme upgrade --dry-run | tee "$RUNNER_TEMP/plan.log"
+          grep -q "from v0.0.1 to v0.0.2" "$RUNNER_TEMP/plan.log"
+          mneme upgrade --yes
+          test "$(git -C "$HOME/.mnemosyne" describe --tags --exact-match)" = v0.0.2
+          mneme --version | grep -q "(v0.0.2)"
+          # Idempotent: a second update stays on the newest release.
+          mneme upgrade --yes
+          test "$(git -C "$HOME/.mnemosyne" describe --tags --exact-match)" = v0.0.2
+          mneme scan "hello"
+          sh "$HOME/.mnemosyne/install.sh" uninstall --yes
+          test ! -e "$HOME/.mnemosyne"
