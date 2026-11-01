@@ -125,6 +125,8 @@ A pull request should say what changes, why, and what you verified — with the 
 (`npm run typecheck` and `npm test`, and what the suite actually printed). "Tests pass" with
 no output behind it is the claim this project trusts least.
 
+Releases are cut by the maintainers with `npm run release`; see [Releasing](docs/dev/releasing.md).
+
 ## Licensing
 
 This project is licensed under **Apache-2.0** (see [`LICENSE`](LICENSE) and
