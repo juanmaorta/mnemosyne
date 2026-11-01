@@ -11,6 +11,8 @@ For working **on** Mnemosyne rather than with it. Start with [`CONTRIBUTING.md`]
   and calibrating the floors for a store.
 - [Dreaming](dreaming.md) — the consolidation pipeline's design, and how it compares to
   Anthropic's Dreams API. Opting into a remote model: [remote opt-in](../dreaming-remote-opt-in.md).
+- [Releasing](releasing.md) — cutting a version: the release PR, the workflow that tags and
+  publishes it, and what to do when it fails.
 - Measured results live in [`docs/benchmarks/`](../benchmarks/).
 
 ## Project status
