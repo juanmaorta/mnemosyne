@@ -19,6 +19,11 @@
 
 set -eu
 
+# Handed over by an older installer (see handoff), this script is a temporary
+# copy: delete it first thing, before anything that could exit. The shell
+# already has it open, so it keeps running.
+if [ -n "${MNEMOSYNE_HANDOFF_FILE:-}" ] && [ "$MNEMOSYNE_HANDOFF_FILE" = "$0" ]; then rm -f "$0"; fi
+
 # ---------------------------------------------------------------- defaults ---
 REPO_URL="${MNEMOSYNE_REPO_URL:-https://github.com/juanmaorta/mnemosyne.git}"
 # Set explicitly, it is the development channel: follow that branch's tip.
@@ -175,6 +180,9 @@ case "$0" in
     fi
     ;;
 esac
+# Handed over: work on exactly the clone the previous installer chose, which
+# may have come from its own path rather than from --dir.
+[ -n "${MNEMOSYNE_HANDOFF_DIR:-}" ] && INSTALL_DIR="$MNEMOSYNE_HANDOFF_DIR"
 MNEME_JS="$INSTALL_DIR/dist/bin/mneme.js"
 
 # The installer picks the model only when nobody has yet: an explicit --model,
@@ -970,7 +978,10 @@ do_uninstall() {
 # find the target, fetch it (git's object store and FETCH_HEAD only; the files
 # are not touched) and, if its install.sh differs from this one, run that one
 # with the same arguments. Anything that fails here just leaves this installer
-# in charge, which reports the problem as before.
+# in charge, which reports the problem as before. A --dry-run hands over too,
+# so the preview is the plan that will really run: the new installer changes
+# nothing either, and the only write is the fetched release in git's object
+# cache.
 handoff() {
   [ -z "${MNEMOSYNE_HANDOFF:-}" ] || return 0          # already the target's installer
   [ "$IN_PLACE" = 0 ] && [ -d "$INSTALL_DIR/.git" ] || return 0
@@ -991,14 +1002,12 @@ handoff() {
   fi
   # This installer may have found its clone from its own path (a --dir
   # install); the copy runs from a temp file, so it is told where it is.
-  MNEMOSYNE_HANDOFF="$TARGET_REF"; MNEMOSYNE_HANDOFF_FILE="$_next"; MNEMOSYNE_INSTALL_DIR="$INSTALL_DIR"
-  export MNEMOSYNE_HANDOFF MNEMOSYNE_HANDOFF_FILE MNEMOSYNE_INSTALL_DIR
+  MNEMOSYNE_HANDOFF="$TARGET_REF"; MNEMOSYNE_HANDOFF_FILE="$_next"; MNEMOSYNE_HANDOFF_DIR="$INSTALL_DIR"
+  export MNEMOSYNE_HANDOFF MNEMOSYNE_HANDOFF_FILE MNEMOSYNE_HANDOFF_DIR
   eval "set -- $ORIG_ARGS"
   exec sh "$_next" "$@"
 }
 
-# The handed-over copy is a temporary file: gone once this shell has it open.
-if [ -n "${MNEMOSYNE_HANDOFF_FILE:-}" ] && [ "$MNEMOSYNE_HANDOFF_FILE" = "$0" ]; then rm -f "$0"; fi
 handoff
 
 say "Mnemosyne — $ACTION$( [ "$DRY_RUN" = 1 ] && printf ' (dry run: nothing will be changed)' )"

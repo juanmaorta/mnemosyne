@@ -193,7 +193,9 @@ mneme upgrade              # shows the plan and asks; --dry-run to only look, --
 **installer of the new release**: it reads that version's `install.sh` without touching your
 files and runs it with the same options, so the plan you see and every step after it come
 from the version you are moving to — an installer fix reaches you in the upgrade that ships
-it. That installer moves the clone to the new release (refusing if you edited files in it),
+it. `--dry-run` does the same, so the preview is the plan that will really run: it changes
+none of your files, and the only thing it writes is the downloaded release, in git's own cache
+inside `~/.mnemosyne/.git`. That installer moves the clone to the new release (refusing if you edited files in it),
 rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
 `.scopemap` — and brings the search index up to date with `mneme reindex`. It refreshes the
 agents a previous install wired (their hooks, and the blocks where their markers are) and adds

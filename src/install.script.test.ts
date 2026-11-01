@@ -785,6 +785,30 @@ describe("install.sh upgrade hands over to the target's installer (MNE-114)", ()
     expect(r.out).toContain(`HANDOFF-MARK upgrade --dry-run --no-build --root ${root}`);
   });
 
+  test("the_temporary_copy_is_removed_even_when_the_new_installer_stops_early", async () => {
+    // Review: it used to be deleted only after argument parsing, so a release
+    // that no longer knows an option left it in TMPDIR.
+    const { home, repo, installer } = await installedAt010();
+    const src = readFileSync(join(repo, "install.sh"), "utf8").replace("--no-build) DO_BUILD=0 ;;", "");
+    writeFileSync(join(repo, "install.sh"), src);
+    fixtureCommit(repo, { tag: "v0.1.1" });
+    const tmp = mkdtempSync(join(tmpdir(), "mneme-tmpdir-"));
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], { ...baseEnv(home), TMPDIR: tmp });
+    expect(r.code).toBe(2);
+    expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  test("a_dir_given_to_the_clones_own_installer_does_not_split_the_two", async () => {
+    // The clone's own install.sh works on its own folder whatever --dir says;
+    // the copy it hands over to must work on that same folder.
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build", "--dir", join(home, "other")], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.1.1");
+    expect(existsSync(join(home, "other"))).toBe(false);
+  });
+
   test("an_unreachable_repo_keeps_the_running_installer", async () => {
     const { home, installer } = await installedAt010();
     git(join(home, ".mnemosyne"), "remote", "set-url", "origin", join(home, "gone"));
