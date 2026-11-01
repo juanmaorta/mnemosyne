@@ -565,6 +565,10 @@ describe("install.sh agents (MNE-113)", () => {
     expect(r.code, r.out).toBe(0);
     expect(sessionStartCommands(home).some((c) => c.includes("mneme context"))).toBe(true);
     expect(r.out).toMatch(/Claude Code[\s\S]*Codex[\s\S]*OpenCode/);
+    // MNE-102 F9: `npm install -g` fails with EACCES on Node from the nodejs.org
+    // installer (root-owned /usr/local) — the one the Node hint recommends.
+    expect(r.out).not.toMatch(/npm install -g/);
+    expect(r.out).toContain("https://chatgpt.com/codex/install.sh");
   });
 
   test("no_codex_and_no_claude_flags_skip_those_agents", async () => {

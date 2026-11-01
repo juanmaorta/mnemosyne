@@ -343,7 +343,8 @@ check_requirements() {
   if [ "$FOUND_CLAUDE" = 0 ] && [ "$FOUND_CODEX" = 0 ] && [ "$FOUND_OPENCODE" = 0 ]; then
     warn "no agent found (Claude Code, Codex CLI, OpenCode) — Mnemosyne installs anyway and wires Claude Code, the default"
     note "Claude Code:  curl -fsSL https://claude.ai/install.sh | bash"
-    note "Codex CLI:    npm install -g @openai/codex        OpenCode:  https://opencode.ai/docs"
+    note "Codex CLI:    curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+    note "OpenCode:     https://opencode.ai/docs"
     note "Installed one later? Run this installer again and it wires that one in too."
   fi
 
