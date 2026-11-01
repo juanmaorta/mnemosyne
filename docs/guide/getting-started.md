@@ -25,7 +25,7 @@ it — and when they do, nothing has been changed.
 | **npm** | required | Ships with Node.js. Used only to fetch dependencies — Mnemosyne itself is not on npm. | Same as Node.js. |
 | **git** | required (unless you run the installer from your own clone) | Downloads the code and updates it later. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y git` (Fedora: `sudo dnf install -y git`). |
 | C/C++ build tools | warning only | The SQLite modules (`better-sqlite3`, `sqlite-vec`) are native. npm normally downloads a prebuilt binary and compiles only when none matches your machine. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y build-essential python3` (Fedora: `sudo dnf install -y gcc-c++ make python3`). |
-| An agent: **Claude Code** (`claude`), the **Codex CLI** (`codex`), **OpenCode** (`opencode`) | warning only | The installer wires into every one it finds (on the `PATH`, or its config folder). None found: it wires Claude Code and installs anyway. | Claude Code: `curl -fsSL https://claude.ai/install.sh \| bash`. Codex: `npm install -g @openai/codex`. OpenCode: [opencode.ai](https://opencode.ai/docs). |
+| An agent: **Claude Code** (`claude`), the **Codex CLI** (`codex`), **OpenCode** (`opencode`) | warning only | The installer wires into every one it finds (on the `PATH`, or its config folder). None found: it wires Claude Code and installs anyway. | Claude Code: `curl -fsSL https://claude.ai/install.sh \| bash`. Codex: `curl -fsSL https://chatgpt.com/codex/install.sh \| sh`. OpenCode: [opencode.ai](https://opencode.ai/docs). |
 | [Ollama](https://ollama.com) | optional | Semantic search. See the next section. | `ollama serve` (or open the Ollama app) if it is installed but not running. |
 
 Ollama is checked over HTTP (`$OLLAMA_HOST/api/tags`, default `http://localhost:11434`), so the
@@ -188,14 +188,20 @@ To update:
 mneme upgrade              # shows the plan and asks; --dry-run to only look, --yes to not ask
 ```
 
-`mneme upgrade` runs `~/.mnemosyne/install.sh update`, which you can also run directly. It
-fetches the release tags, moves the installer's clone to the newest one (refusing if you edited
-files in it), rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
+`mneme upgrade` runs `~/.mnemosyne/install.sh upgrade`, which you can also run directly
+(`update` is accepted as the same thing). It fetches the release tags and hands over to the
+**installer of the new release**: it reads that version's `install.sh` without touching your
+files and runs it with the same options, so the plan you see and every step after it come
+from the version you are moving to — an installer fix reaches you in the upgrade that ships
+it. `--dry-run` does the same, so the preview is the plan that will really run: it changes
+none of your files, and the only thing it writes is the downloaded release, in git's own cache
+inside `~/.mnemosyne/.git`. That installer moves the clone to the new release (refusing if you edited files in it),
+rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
 `.scopemap` — and brings the search index up to date with `mneme reindex`. It refreshes the
 agents a previous install wired (their hooks, and the blocks where their markers are) and adds
 none: an agent you installed since is wired by running the installer again (`install`, not
-`update`). Your data is untouched.
-Update is idempotent: run it again on the latest release and nothing changes.
+`upgrade`). Your data is untouched.
+Upgrade is idempotent: run it again on the latest release and nothing changes.
 
 `mneme --version` says which version you are on (and, in a git checkout, the exact tag or commit).
 
@@ -204,7 +210,7 @@ yourself, then `npm ci && npm run build`. `mneme upgrade` says so, and the new-v
 is off for it.
 
 **Following a branch** instead of releases — the development channel — is
-`MNEMOSYNE_BRANCH=main sh ~/.mnemosyne/install.sh update` (or the same variable on the first
+`MNEMOSYNE_BRANCH=main sh ~/.mnemosyne/install.sh upgrade` (or the same variable on the first
 install). The variable has to be set on every update; without it, update goes back to the latest
 release.
 
@@ -247,7 +253,7 @@ To delete only some memories — one scope, say — rather than everything, see
 
 ## Installer options
 
-Every command (`install`, the default; `update`; `uninstall`) accepts:
+Every command (`install`, the default; `upgrade`, also accepted as `update`; `uninstall`) accepts:
 
 | Option | Meaning |
 |---|---|

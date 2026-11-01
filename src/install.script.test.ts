@@ -565,6 +565,10 @@ describe("install.sh agents (MNE-113)", () => {
     expect(r.code, r.out).toBe(0);
     expect(sessionStartCommands(home).some((c) => c.includes("mneme context"))).toBe(true);
     expect(r.out).toMatch(/Claude Code[\s\S]*Codex[\s\S]*OpenCode/);
+    // MNE-102 F9: `npm install -g` fails with EACCES on Node from the nodejs.org
+    // installer (root-owned /usr/local) — the one the Node hint recommends.
+    expect(r.out).not.toMatch(/npm install -g/);
+    expect(r.out).toContain("https://chatgpt.com/codex/install.sh");
   });
 
   test("no_codex_and_no_claude_flags_skip_those_agents", async () => {
@@ -719,6 +723,112 @@ describe("install.sh build (MNE-102)", () => {
     const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: fakeNpm(stub) });
     expect(r.code, r.out).toBe(0);
     expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(true);
+  });
+});
+
+describe("install.sh upgrade hands over to the target's installer (MNE-114)", () => {
+  /** Tag a release whose install.sh announces itself, as a newer installer would. */
+  function releaseWithMarkedInstaller(repo: string, tag: string): void {
+    const src = readFileSync(join(repo, "install.sh"), "utf8").replace("set -eu\n", 'set -eu\necho "HANDOFF-MARK $*"\n');
+    writeFileSync(join(repo, "install.sh"), src);
+    fixtureCommit(repo, { tag });
+  }
+
+  async function installedAt010(): Promise<{ home: string; repo: string; installer: string }> {
+    const home = freshHome();
+    const repo = fixtureRepo([{ tag: "v0.1.0" }]);
+    expect((await pipedInstall(home, repo, ["--yes", "--no-build", "--no-ollama-pull"])).code).toBe(0);
+    return { home, repo, installer: join(home, ".mnemosyne", "install.sh") };
+  }
+
+  test("upgrade_runs_the_new_versions_installer_with_the_same_arguments_once", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out.match(/HANDOFF-MARK/g)).toHaveLength(1);
+    expect(r.out).toContain("HANDOFF-MARK upgrade --yes --no-build");
+    expect(installedVersion(home)).toBe("0.1.1");
+  });
+
+  test("a_dry_run_shows_the_new_installers_plan_and_moves_nothing", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("HANDOFF-MARK");
+    expect(installedVersion(home)).toBe("0.1.0");
+    expect(git(join(home, ".mnemosyne"), "status", "--porcelain", "--untracked-files=no")).toBe("");
+  });
+
+  test("an_install_in_a_custom_dir_is_upgraded_in_that_dir", async () => {
+    // The old installer finds its clone from its own path; the copy it hands
+    // over to lives in a temp file and has to be told.
+    const home = freshHome();
+    const repo = fixtureRepo([{ tag: "v0.1.0" }]);
+    const dir = join(home, "elsewhere");
+    expect((await pipedInstall(home, repo, ["--yes", "--no-build", "--no-ollama-pull", "--dir", dir])).code).toBe(0);
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [join(dir, "install.sh"), "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("HANDOFF-MARK");
+    expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version).toBe("0.1.1");
+    expect(existsSync(join(home, ".mnemosyne"))).toBe(false);
+  });
+
+  test("arguments_with_quotes_survive_the_handoff", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const root = join(home, "it's memory");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build", "--root", root], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(`HANDOFF-MARK upgrade --dry-run --no-build --root ${root}`);
+  });
+
+  test("the_temporary_copy_is_removed_even_when_the_new_installer_stops_early", async () => {
+    // Review: it used to be deleted only after argument parsing, so a release
+    // that no longer knows an option left it in TMPDIR.
+    const { home, repo, installer } = await installedAt010();
+    const src = readFileSync(join(repo, "install.sh"), "utf8").replace("--no-build) DO_BUILD=0 ;;", "");
+    writeFileSync(join(repo, "install.sh"), src);
+    fixtureCommit(repo, { tag: "v0.1.1" });
+    const tmp = mkdtempSync(join(tmpdir(), "mneme-tmpdir-"));
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], { ...baseEnv(home), TMPDIR: tmp });
+    expect(r.code).toBe(2);
+    expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  test("a_dir_given_to_the_clones_own_installer_does_not_split_the_two", async () => {
+    // The clone's own install.sh works on its own folder whatever --dir says;
+    // the copy it hands over to must work on that same folder.
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build", "--dir", join(home, "other")], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.1.1");
+    expect(existsSync(join(home, "other"))).toBe(false);
+  });
+
+  test("an_unreachable_repo_keeps_the_running_installer", async () => {
+    const { home, installer } = await installedAt010();
+    git(join(home, ".mnemosyne"), "remote", "set-url", "origin", join(home, "gone"));
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/could not list the releases/);
+    expect(installedVersion(home)).toBe("0.1.0");
+  });
+
+  test("it_is_called_upgrade_and_update_still_works", async () => {
+    const { home, repo, installer } = await installedAt010();
+    fixtureCommit(repo, { tag: "v0.1.1" });
+    const up = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build"], baseEnv(home));
+    expect(up.code, up.out).toBe(0);
+    expect(up.out).toMatch(/Mnemosyne — upgrade/);
+    expect(up.out).toMatch(/What upgrade will change/);
+    expect(up.out).not.toMatch(/update will change/);
+    const old = await spawnDetached("sh", [installer, "update", "--yes", "--no-build"], baseEnv(home));
+    expect(old.code, old.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.1.1");
   });
 });
 
