@@ -28,7 +28,8 @@ Everything is plain files under `~/memory/` (another location with `--root` or
   [Configuration](configuration.md). `.scopemap` and `.owner` are machine-local: do not sync them.
 
 Because the Markdown is the truth and the index is derived, you can sync the scope folders
-between machines (with Syncthing, say) and let each machine build its own index.
+between machines (with Syncthing, say) and let each machine build its own index: the agents on
+all of them then share one memory. See [Several machines](configuration.md#several-machines).
 
 ## Scopes
 
@@ -163,7 +164,7 @@ Design notes, what exists in detail, and how it compares to Anthropic's Dreams A
 | engram | A single memory (one file). |
 | scope | A partition of the store; one folder. |
 | digest | The short, budgeted list of memories injected at session start (`mneme context`). |
-| tier 0 | Search without an embedder: keyword (BM25) only, fully offline. |
+| tier 0 | Search without an embedder: keyword (BM25) only, nothing else to install. |
 | cosine floor | The minimum similarity a search candidate needs in the embedder tier. |
 | lethe | The decay → archive subsystem (archival is on the roadmap). |
 | dreaming | Offline consolidation of facts into notes (in development). |

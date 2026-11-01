@@ -42,8 +42,8 @@ that runs `mneme` uses the same one.
 
 | Tier | Needs | What you get |
 |---|---|---|
-| **Embedder** (semantic) | Ollama running locally, serving an embedding model. The installer uses `nomic-embed-text-v2-moe` (a download of a few hundred MB). | Finds a note by **meaning**, even when it shares no words with your query. |
-| **Tier 0** (keyword) | Nothing. Fully offline. | Keyword search (BM25) over your notes. What you lose is semantic search: finding a note by meaning when it shares no words with your query. |
+| **Embedder** (semantic) | Ollama running locally, serving an embedding model. The installer uses `nomic-embed-text-v2-moe` (a download of about 960 MB). Once it is downloaded, it works offline too. | Finds a note by **meaning**, even when it shares no words with your query. |
+| **Tier 0** (keyword) | Nothing else to install. | Keyword search (BM25) over your notes. What you lose is semantic search: finding a note by meaning when it shares no words with your query. |
 
 How the installer decides, on a fresh install:
 

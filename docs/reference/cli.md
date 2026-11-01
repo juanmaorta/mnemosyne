@@ -102,7 +102,7 @@ What `init --write` does:
 | `--write` | Apply. Without it, `init` only prints what it would do. |
 | `--root <dir>` | The store to initialise. |
 | `--model <name>` | Embedding model to save. Must be a model Mnemosyne knows, or come with `OLLAMA_EMBEDDING_DIM`. |
-| `--embedder ollama\|none` | Search tier: semantic (Ollama) or tier 0 (keyword, offline). |
+| `--embedder ollama\|none` | Search tier: semantic (Ollama) or tier 0 (keyword, no embedder). |
 | `--min-cos <n>` | Cosine floor to save (`-1`…`1`). |
 | `--lexical-floor <n>` | Lexical rescue floor to save. |
 | `--no-hook` | Set up the store only; leave `~/.claude/settings.json` alone (for an install that does not use Claude Code). |
