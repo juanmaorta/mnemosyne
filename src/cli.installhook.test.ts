@@ -106,10 +106,10 @@ describe("uninstall-hook", () => {
     });
   });
 
-  test("drops_an_emptied_SessionStart_key", async () => {
-    seed({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context" }] }] } });
+  test("drops_an_emptied_SessionStart_key_and_a_hooks_key_left_empty", async () => {
+    seed({ model: "opus", hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context" }] }] } });
     await runCli(["uninstall-hook", "--write"], () => {});
-    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({ hooks: {} });
+    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({ model: "opus" });
   });
 
   test("is_a_noop_when_there_is_no_settings_file", async () => {

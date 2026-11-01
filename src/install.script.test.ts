@@ -8,7 +8,7 @@
 // `detached: true` puts the script in a new session with no controlling
 // terminal, so it can never stop to prompt — exactly like `curl … | sh` in CI.
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,7 +240,7 @@ describe("install.sh install / update / uninstall", () => {
     writeFileSync(join(home, "memory", "personal", "note.md"), "my note\n");
     const r = await run(home, ["uninstall", "--yes"]);
     expect(r.code, r.out).toBe(0);
-    expect(JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"))).toEqual({ model: "opus", hooks: {} });
+    expect(JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"))).toEqual({ model: "opus" });
     expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(false);
     expect(existsSync(join(home, ".local", "bin", "mem"))).toBe(false);
     expect(readFileSync(join(home, "memory", "personal", "note.md"), "utf8")).toBe("my note\n");
@@ -312,6 +312,77 @@ describe("install.sh install / update / uninstall", () => {
     expect(v.status, v.stderr).toBe(0);
     expect(existsSync(join(custom, ".index"))).toBe(true);
     expect(existsSync(join(home, "memory"))).toBe(false);
+  });
+
+  // ------------------------------------------- MNE-102 smoke-test findings ---
+
+  test("done_repeats_the_PATH_note_when_the_commands_are_not_on_this_terminals_PATH", async () => {
+    // Ubuntu's ~/.profile adds ~/.local/bin only if it existed at login, so the
+    // "Try: mneme add …" right after a first install failed with "not found".
+    const home = freshHome();
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    const done = r.out.slice(r.out.indexOf("== Done"));
+    expect(done).toMatch(/not on this terminal's PATH/);
+    expect(done).toContain(`export PATH="${join(home, ".local", "bin")}:$PATH"`);
+  });
+
+  test("done_has_no_PATH_note_when_the_commands_are_already_on_it", async () => {
+    const home = freshHome();
+    const r = await install(home, ...[]).then(() => run(home, ["update", "--yes", "--no-build"],
+      { PATH: `${join(home, ".local", "bin")}:${process.env.PATH ?? ""}` }));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out.slice(r.out.indexOf("== Done"))).not.toMatch(/PATH/);
+  });
+
+  test("uninstall_removes_the_hook_even_when_node_is_not_usable_from_PATH", async () => {
+    // A shell without nvm loaded: the wrappers were deleted but the hook stayed,
+    // so every Claude Code session started with "mneme: command not found".
+    const home = freshHome();
+    expect((await install(home)).code).toBe(0);
+    const fake = join(home, "fakebin");
+    mkdirSync(fake);
+    writeFileSync(join(fake, "node"), "#!/bin/sh\necho 'node: not this one' >&2\nexit 127\n");
+    chmodSync(join(fake, "node"), 0o755);
+    const r = await run(home, ["uninstall", "--yes"], { PATH: `${fake}:${process.env.PATH ?? ""}` });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).not.toMatch(/remove the 'mneme context' SessionStart hook from it by hand/);
+    expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(false);
+    // settings.json was created by the install, so it goes with the hook.
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false);
+  });
+
+  test("uninstall_deletes_a_settings_json_it_created_but_keeps_one_the_user_had", async () => {
+    const created = freshHome();
+    expect((await install(created)).code).toBe(0);
+    expect((await run(created, ["uninstall", "--yes"])).code).toBe(0);
+    expect(existsSync(join(created, ".claude", "settings.json"))).toBe(false);
+
+    const had = freshHome();
+    mkdirSync(join(had, ".claude"), { recursive: true });
+    writeFileSync(join(had, ".claude", "settings.json"), "{}\n");
+    expect((await install(had)).code).toBe(0);
+    expect((await run(had, ["uninstall", "--yes"])).code).toBe(0);
+    expect(JSON.parse(readFileSync(join(had, ".claude", "settings.json"), "utf8"))).toEqual({});
+  });
+
+  test("without_git_the_plan_says_the_release_is_resolved_later_instead_of_blanks", async () => {
+    // A PATH that has everything this machine has EXCEPT git.
+    const home = freshHome();
+    const bin = join(home, "nogit");
+    mkdirSync(bin);
+    for (const dir of (process.env.PATH ?? "").split(":")) {
+      if (!dir || !existsSync(dir)) continue;
+      for (const name of readdirSync(dir)) {
+        if (name === "git" || existsSync(join(bin, name))) continue;
+        try { symlinkSync(join(dir, name), join(bin, name)); } catch { /* unreadable entry */ }
+      }
+    }
+    const r = await pipedInstall(home, "https://example.invalid/repo.git", ["install", "--dry-run"], { PATH: bin });
+    expect(r.out).toMatch(/\[MISSING\] git/);
+    expect(r.out).not.toMatch(/--branch  /);
+    expect(r.out).not.toMatch(/\(\)/);
+    expect(r.out).toMatch(/latest release \(resolved once git is installed\)/);
   });
 });
 

@@ -305,10 +305,12 @@ function reconcileSessionStartHook(
 export function installSessionStartHook(
   settingsPath: string,
   opts: { codex?: boolean; root?: string } = {},
-): "installed" | "parse-error" {
+): "installed" | "unchanged" | "parse-error" {
   let current: Record<string, unknown> = {};
+  let raw: string | null = null;
   try {
-    current = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+    raw = readFileSync(settingsPath, "utf8");
+    current = JSON.parse(raw) as Record<string, unknown>;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") return "parse-error";
   }
@@ -317,7 +319,9 @@ export function installSessionStartHook(
     codex: opts.codex ?? false,
     ...(opts.root !== undefined ? { root: opts.root } : {}),
   });
-  writeFileSync(settingsPath, `${JSON.stringify(reconciled, null, 2)}\n`);
+  const next = `${JSON.stringify(reconciled, null, 2)}\n`;
+  if (raw === next) return "unchanged";
+  writeFileSync(settingsPath, next);
   return "installed";
 }
 
@@ -326,7 +330,7 @@ export function installSessionStartHook(
  * settings/hooks file, for the installer's uninstall (MNE-97). The inverse of
  * `installSessionStartHook`: unrelated hooks, keys and matcher groups stay; a
  * group left empty BY THIS removal is dropped, and so is a `SessionStart` key
- * left empty. `dryRun` reports without writing. A missing file is nothing to
+ * left empty, and a `hooks` object left with no keys at all. `dryRun` reports without writing. A missing file is nothing to
  * do; an unparseable one is refused, never rewritten.
  */
 export function uninstallSessionStartHook(
@@ -357,7 +361,9 @@ export function uninstallSessionStartHook(
     const nextHooks: Record<string, unknown> = { ...hooks };
     if (kept.length === 0) delete nextHooks.SessionStart;
     else nextHooks.SessionStart = kept;
-    writeFileSync(settingsPath, `${JSON.stringify({ ...current, hooks: nextHooks }, null, 2)}\n`);
+    const next: Record<string, unknown> = { ...current, hooks: nextHooks };
+    if (Object.keys(nextHooks).length === 0) delete next.hooks;
+    writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
   }
   return { status: "removed", removed };
 }

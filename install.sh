@@ -374,6 +374,10 @@ plan_install() {
     fi
   elif [ "$TARGET_KIND" = unreachable ]; then
     say "  code:     UNKNOWN — $TARGET_WHY"
+  elif [ "$ACTION" = install ] && [ ! -d "$INSTALL_DIR/.git" ] && [ -z "$TARGET_REF" ]; then
+    # No git yet (reported as [MISSING]), so the releases cannot be listed.
+    say "  code:     git clone $REPO_URL"
+    say "            into $INSTALL_DIR — the latest release (resolved once git is installed)"
   elif [ "$ACTION" = install ] && [ ! -d "$INSTALL_DIR/.git" ]; then
     say "  code:     git clone --branch $TARGET_REF $REPO_URL"
     say "            into $INSTALL_DIR  ($TARGET_WHY)"
@@ -484,6 +488,15 @@ backup_once() {
 }
 
 mneme_run() { node "$MNEME_JS" "$@"; }
+
+# The absolute node baked into the installer's own wrapper: the one the native
+# modules were built for, and still there when this shell's PATH has no node
+# (nvm not loaded). Empty when there is no such wrapper or its node is gone.
+wrapper_node() {
+  [ -f "$BIN_DIR/mneme" ] && grep -q "$OWNER_MARK" "$BIN_DIR/mneme" 2>/dev/null || return 0
+  _wn="$(sed -n 's/^exec "\([^"]*\)" .*/\1/p' "$BIN_DIR/mneme")"
+  if [ -n "$_wn" ] && [ -x "$_wn" ]; then printf '%s' "$_wn"; fi
+}
 
 # The block is the agent-agnostic instructions maintained in the repo, so the
 # installer never carries a second copy that could drift from the CLI.
@@ -664,6 +677,19 @@ do_install_or_update() {
   say "     mneme search \"answers\""
   say "Update later with:    $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh update" || printf '%s' "mneme upgrade   (or: sh $INSTALL_DIR/install.sh update)" )"
   say "Uninstall with:       $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh uninstall" || printf '%s' "sh $INSTALL_DIR/install.sh uninstall" )"
+  # Said again at the end: the plan's NOTE has scrolled away by now, and the
+  # "Try:" lines above fail in this very terminal (Ubuntu's ~/.profile adds
+  # ~/.local/bin only if it existed when the shell started).
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *)
+      say ""
+      say "NOTE: $BIN_DIR is not on this terminal's PATH, so 'mneme' is not found here yet."
+      say "      Open a new terminal, or run:   export PATH=\"$BIN_DIR:\$PATH\""
+      say "      If a new terminal does not find it either, add that line to your shell's startup"
+      say "      file (zsh: ~/.zshenv; bash: ~/.bashrc and ~/.profile)."
+      ;;
+  esac
 }
 
 do_uninstall() {
@@ -675,8 +701,17 @@ do_uninstall() {
   fi
 
   section "Uninstalling"
-  if [ -f "$MNEME_JS" ] && command -v node >/dev/null 2>&1; then
-    mneme_run uninstall-hook --write
+  # Removed BEFORE the wrappers, and with the wrapper's own node first: a hook
+  # left behind without its command breaks the start of every session.
+  _unode="$(wrapper_node)"
+  [ -n "$_unode" ] || _unode="$(command -v node 2>/dev/null || true)"
+  if [ -f "$MNEME_JS" ] && [ -n "$_unode" ] && "$_unode" "$MNEME_JS" uninstall-hook --write; then
+    # A settings.json the install created (no original was saved) and that is
+    # now empty goes too; one the user had stays, even if empty.
+    if [ ! -e "$SETTINGS.before-mnemosyne" ] && [ -f "$SETTINGS" ] && [ "$(cat "$SETTINGS")" = "{}" ]; then
+      rm -f "$SETTINGS"
+      say "Deleted $SETTINGS (the install created it, and nothing else is in it)."
+    fi
   elif [ -f "$SETTINGS" ] && grep -q 'mneme context' "$SETTINGS"; then
     warn "cannot run mneme to edit $SETTINGS; remove the 'mneme context' SessionStart hook from it by hand."
   fi
