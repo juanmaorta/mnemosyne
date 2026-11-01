@@ -20,6 +20,10 @@ it, back it up. Change tools whenever you like; what your agents learned comes w
 - **Agent-agnostic.** The data knows nothing about any particular agent. The installer wires
   in each one it finds: Claude Code and the Codex CLI get the memory injected at session start,
   OpenCode gets instructions to load it itself, and any other agent can use the `mneme` CLI.
+- **One memory across your machines.** It is just files: sync the scope folders with the tool
+  you already use (Syncthing, say) and the agents on every machine share the same memory. Each
+  machine builds its own search index, and a scope you do not sync — a client's — never leaves
+  its machine. [How](docs/guide/configuration.md#several-machines).
 - **Separated by design.** Memory is partitioned into *scopes* (personal, work, a client).
   A scope is a folder: deleting it is a real delete.
 
