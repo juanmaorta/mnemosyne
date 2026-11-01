@@ -19,6 +19,11 @@
 
 set -eu
 
+# Handed over by an older installer (see handoff), this script is a temporary
+# copy: delete it first thing, before anything that could exit. The shell
+# already has it open, so it keeps running.
+if [ -n "${MNEMOSYNE_HANDOFF_FILE:-}" ] && [ "$MNEMOSYNE_HANDOFF_FILE" = "$0" ]; then rm -f "$0"; fi
+
 # ---------------------------------------------------------------- defaults ---
 REPO_URL="${MNEMOSYNE_REPO_URL:-https://github.com/juanmaorta/mnemosyne.git}"
 # Set explicitly, it is the development channel: follow that branch's tip.
@@ -66,11 +71,12 @@ usage() {
   cat <<EOF
 Mnemosyne installer
 
-Usage: install.sh [install|update|uninstall] [options]
+Usage: install.sh [install|upgrade|uninstall] [options]
 
 Commands:
   install     (default) check requirements, get the code, build it, wire it in
-  update      move to the latest release and rebuild; keeps config, hook, .scopemap, data
+  upgrade     move to the latest release and rebuild; keeps config, hooks, .scopemap, data
+              (what 'mneme upgrade' runs; 'update' is the same)
   uninstall   remove what install added; keeps your memories unless --delete-data
 
 Options:
@@ -104,9 +110,15 @@ check_dir_arg() { # $1 = option, $2 = value
   esac
 }
 
+# The arguments as given, single-quoted for `eval`: an upgrade hands them,
+# unchanged, to the installer of the version it moves to (see handoff).
+ORIG_ARGS=""
+for _a in "$@"; do ORIG_ARGS="$ORIG_ARGS '$(printf '%s' "$_a" | sed "s/'/'\\\\''/g")'"; done
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    install|update|uninstall) ACTION="$1" ;;
+    install|uninstall) ACTION="$1" ;;
+    upgrade|update) ACTION=upgrade ;;   # `update`: its name before MNE-114
     --dry-run) DRY_RUN=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
     --dir) shift; check_dir_arg --dir "${1:?--dir needs a value}"; INSTALL_DIR="$1" ;;
@@ -168,6 +180,9 @@ case "$0" in
     fi
     ;;
 esac
+# Handed over: work on exactly the clone the previous installer chose, which
+# may have come from its own path rather than from --dir.
+[ -n "${MNEMOSYNE_HANDOFF_DIR:-}" ] && INSTALL_DIR="$MNEMOSYNE_HANDOFF_DIR"
 MNEME_JS="$INSTALL_DIR/dist/bin/mneme.js"
 
 # The installer picks the model only when nobody has yet: an explicit --model,
@@ -238,7 +253,7 @@ detect_agents() {
   { has_hook "$SETTINGS" || has_block "$CLAUDE_MD"; } && WIRED_CLAUDE=1
   { has_hook "$CODEX_HOOKS" || has_block "$CODEX_DIR/AGENTS.md" || has_block "$CODEX_DIR/AGENTS.override.md"; } && WIRED_CODEX=1
   has_block "$OPENCODE_MD" && WIRED_OPENCODE=1
-  if [ "$ACTION" = update ]; then
+  if [ "$ACTION" = upgrade ]; then
     # An update keeps what is wired as it is; adding an agent is an install.
     WIRE_CLAUDE=$WIRED_CLAUDE; WIRE_CODEX=$WIRED_CODEX; WIRE_OPENCODE=$WIRED_OPENCODE
   else
@@ -272,7 +287,7 @@ opencode_mode() {
 check_requirements() {
   section "Requirements"
   # update needs it too: it fetches and checks out the new release.
-  if [ "$IN_PLACE" = 0 ] && { [ "$ACTION" = install ] || [ "$ACTION" = update ]; }; then
+  if [ "$IN_PLACE" = 0 ] && { [ "$ACTION" = install ] || [ "$ACTION" = upgrade ]; }; then
     if command -v git >/dev/null 2>&1; then
       ok "git ($(git --version 2>/dev/null | head -n1)) — to download the code"
     else
@@ -336,7 +351,8 @@ check_requirements() {
   if [ "$FOUND_CLAUDE" = 0 ] && [ "$FOUND_CODEX" = 0 ] && [ "$FOUND_OPENCODE" = 0 ]; then
     warn "no agent found (Claude Code, Codex CLI, OpenCode) — Mnemosyne installs anyway and wires Claude Code, the default"
     note "Claude Code:  curl -fsSL https://claude.ai/install.sh | bash"
-    note "Codex CLI:    npm install -g @openai/codex        OpenCode:  https://opencode.ai/docs"
+    note "Codex CLI:    curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+    note "OpenCode:     https://opencode.ai/docs"
     note "Installed one later? Run this installer again and it wires that one in too."
   fi
 
@@ -453,7 +469,7 @@ plan_install() {
   section "What $ACTION will change"
   if [ "$IN_PLACE" = 1 ]; then
     say "  code:     use this checkout in place: $INSTALL_DIR"
-    if [ "$ACTION" = update ]; then
+    if [ "$ACTION" = upgrade ]; then
       say "            (not pulled: it is your checkout — run 'git pull' in it yourself)"
     fi
   elif [ "$TARGET_KIND" = unreachable ]; then
@@ -468,7 +484,7 @@ plan_install() {
     say "  code:     git clone --branch $TARGET_REF $REPO_URL"
     say "            into $INSTALL_DIR  ($TARGET_WHY)"
   elif [ ! -d "$INSTALL_DIR/.git" ]; then
-    say "  code:     nothing to update: $INSTALL_DIR is not an installation"
+    say "  code:     nothing to upgrade: $INSTALL_DIR is not an installation"
   else
     _cur="$(current_version)"
     if [ "$TARGET_KIND" = tag ] && [ "$_cur" = "$TARGET_REF" ]; then
@@ -491,7 +507,7 @@ plan_install() {
   say "  data:     your memories live in $STORE_ROOT as plain Markdown files."
   say "            Existing notes are never touched. Added if missing: .scopemap (catch-all '~ = personal'),"
   say "            and .config.json (search tier and model, so no environment variables are needed)."
-  if [ "$ACTION" = update ]; then
+  if [ "$ACTION" = upgrade ]; then
     say "  index:    mneme reindex --root '$STORE_ROOT' — incremental: picks up what the new version"
     say "            changes in the index now rather than at the next session"
   fi
@@ -523,7 +539,7 @@ plan_install() {
 # between markers, appended once; skipped where the file already mentions mneme.
 plan_agents() {
   say "  agents:"
-  _verb=add; [ "$ACTION" = update ] && _verb=refresh
+  _verb=add; [ "$ACTION" = upgrade ] && _verb=refresh
   if [ "$WIRE_CLAUDE" = 1 ]; then
     say "    Claude Code: SessionStart hook -> mneme context --root '$STORE_ROOT'"
     say "                 in $SETTINGS (other settings untouched; original saved once as settings.json.before-mnemosyne)"
@@ -554,7 +570,7 @@ plan_agents() {
 
 plan_not_wired() { # $1 = name, $2 = found, $3 = skipped by flag, $4 = that flag
   if [ "$3" = 1 ]; then printf '    %-12s %s\n' "$1:" "skipped ($4)"
-  elif [ "$2" = 1 ] && [ "$ACTION" = update ]; then printf '    %-12s %s\n' "$1:" "found but not wired — run the installer again (install, not update) to add it"
+  elif [ "$2" = 1 ] && [ "$ACTION" = upgrade ]; then printf '    %-12s %s\n' "$1:" "found but not wired — run the installer again (install, not upgrade) to add it"
   elif [ "$2" = 1 ]; then printf '    %-12s %s\n' "$1:" "not wired (you said no)"
   fi
   return 0
@@ -830,7 +846,7 @@ run_init() {
 }
 
 # ---------------------------------------------------------------- actions ---
-do_install_or_update() {
+do_install_or_upgrade() {
   check_requirements
   resolve_target
   [ "$BLOCKING" = 1 ] || ask_choices
@@ -857,8 +873,8 @@ do_install_or_update() {
     if [ -d "$INSTALL_DIR/.git" ]; then
       section "Updating the code in $INSTALL_DIR"
       checkout_target
-    elif [ "$ACTION" = update ]; then
-      die "no installation found in $INSTALL_DIR. Run the installer without 'update' first (or pass --dir)."
+    elif [ "$ACTION" = upgrade ]; then
+      die "no installation found in $INSTALL_DIR. Run the installer without 'upgrade' first (or pass --dir)."
     else
       [ -e "$INSTALL_DIR" ] && die "$INSTALL_DIR exists but is not a Mnemosyne clone. Move it away, or pass --dir."
       section "Downloading $TARGET_REF into $INSTALL_DIR"
@@ -880,7 +896,7 @@ do_install_or_update() {
   [ "$ACTION" = install ] && [ "$WIRE_CLAUDE" = 1 ] && backup_once "$SETTINGS"
   run_init
   wire_agents
-  if [ "$ACTION" = update ]; then
+  if [ "$ACTION" = upgrade ]; then
     # No index schema version to migrate: schema additions apply themselves
     # when the index is opened, and a changed embedder is caught by reindex.
     # Running it here does both now, instead of in the next session's hook.
@@ -906,7 +922,7 @@ do_install_or_update() {
   fi
   say "Try: mneme add \"I prefer short answers\" --type user --slug short-answers"
   say "     mneme search \"answers\""
-  say "Update later with:    $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh update" || printf '%s' "mneme upgrade   (or: sh $INSTALL_DIR/install.sh update)" )"
+  say "Upgrade later with:   $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh upgrade" || printf '%s' "mneme upgrade   (or: sh $INSTALL_DIR/install.sh upgrade)" )"
   say "Uninstall with:       $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh uninstall" || printf '%s' "sh $INSTALL_DIR/install.sh uninstall" )"
   # Said again at the end: the plan's NOTE has scrolled away by now, and the
   # "Try:" lines above fail in this very terminal (Ubuntu's ~/.profile adds
@@ -955,8 +971,47 @@ do_uninstall() {
   fi
 }
 
+# ---------------------------------------------------------------- handoff ---
+# MNE-114: an upgrade is planned and carried out by the installer of the
+# version it moves TO, not by the one already installed — otherwise every
+# installer fix would reach users one release late. Before printing anything:
+# find the target, fetch it (git's object store and FETCH_HEAD only; the files
+# are not touched) and, if its install.sh differs from this one, run that one
+# with the same arguments. Anything that fails here just leaves this installer
+# in charge, which reports the problem as before. A --dry-run hands over too,
+# so the preview is the plan that will really run: the new installer changes
+# nothing either, and the only write is the fetched release in git's object
+# cache.
+handoff() {
+  [ -z "${MNEMOSYNE_HANDOFF:-}" ] || return 0          # already the target's installer
+  [ "$IN_PLACE" = 0 ] && [ -d "$INSTALL_DIR/.git" ] || return 0
+  case "$ACTION" in install|upgrade) ;; *) return 0 ;; esac
+  command -v git >/dev/null 2>&1 || return 0
+  resolve_target
+  case "$TARGET_KIND" in
+    tag) _ref="refs/tags/$TARGET_REF" ;;
+    branch) _ref="refs/heads/$TARGET_REF" ;;
+    *) return 0 ;;
+  esac
+  GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_DIR" fetch --quiet --no-tags origin "$_ref" 2>/dev/null || return 0
+  _next="$(mktemp "${TMPDIR:-/tmp}/mnemosyne-installer.XXXXXX")" || return 0
+  if ! git -C "$INSTALL_DIR" show FETCH_HEAD:install.sh > "$_next" 2>/dev/null || [ ! -s "$_next" ] \
+     || { [ -f "$0" ] && cmp -s "$_next" "$0"; }; then
+    rm -f "$_next"
+    return 0
+  fi
+  # This installer may have found its clone from its own path (a --dir
+  # install); the copy runs from a temp file, so it is told where it is.
+  MNEMOSYNE_HANDOFF="$TARGET_REF"; MNEMOSYNE_HANDOFF_FILE="$_next"; MNEMOSYNE_HANDOFF_DIR="$INSTALL_DIR"
+  export MNEMOSYNE_HANDOFF MNEMOSYNE_HANDOFF_FILE MNEMOSYNE_HANDOFF_DIR
+  eval "set -- $ORIG_ARGS"
+  exec sh "$_next" "$@"
+}
+
+handoff
+
 say "Mnemosyne — $ACTION$( [ "$DRY_RUN" = 1 ] && printf ' (dry run: nothing will be changed)' )"
 case "$ACTION" in
-  install|update) do_install_or_update ;;
+  install|upgrade) do_install_or_upgrade ;;
   uninstall) do_uninstall ;;
 esac
