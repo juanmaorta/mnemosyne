@@ -470,6 +470,25 @@ describe("install.sh build (MNE-102)", () => {
     expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(true);
   });
 
+  test("with_no_prebuilt_binary_it_compiles_with_npms_own_node_gyp", async () => {
+    // Codex review: `npx --no node-gyp` fails on a clean machine (node-gyp is not
+    // a dependency). npm ships one under `$(npm prefix -g)/lib/node_modules/npm`.
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const prefix = mkdtempSync(join(tmpdir(), "mneme-npm-prefix-"));
+    const gypDir = join(prefix, "lib", "node_modules", "npm", "node_modules", "node-gyp", "bin");
+    mkdirSync(gypDir, { recursive: true });
+    writeFileSync(join(gypDir, "node-gyp.js"), 'require("node:fs").appendFileSync(process.env.HOME + "/gyp-calls.log", process.argv.slice(2).join(" ") + "\\n");\nrequire("node:fs").writeFileSync("index.js", "module.exports = class { close() {} };");\n');
+    const broken = `if [ "$1" = prefix ]; then echo '${prefix}'; exit 0; fi; if [ "$1" = ci ]; then mkdir -p node_modules/better-sqlite3 && echo "throw new Error(\\"no binding\\");" > node_modules/better-sqlite3/index.js; fi; exit 0`;
+    const path = fakeNpm(broken);
+    const npxDir = path.slice(0, path.indexOf(":"));
+    writeFileSync(join(npxDir, "npx"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(npxDir, "npx"), 0o755);
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: path });
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(home, "gyp-calls.log"), "utf8")).toMatch(/rebuild --release/);
+  });
+
   test("a_native_module_that_loads_lets_the_install_finish", async () => {
     const home = freshHome();
     const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
