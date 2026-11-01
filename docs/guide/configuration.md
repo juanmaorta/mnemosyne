@@ -188,6 +188,24 @@ warning goes quiet:
 ~/Projects/acme = acme
 ```
 
+## Several machines
+
+The store is plain files, so syncing it is the whole feature: put the **scope folders** (say
+`~/memory/personal`) in whatever syncs folders between your machines — Syncthing, for one — and
+the agents on all of them read and write the same memory. Mnemosyne does not sync anything
+itself and needs no server or account for this.
+
+- **Sync the scope folders, not the store's root.** The root holds what is per machine:
+  `.index/` (derived; each machine builds its own on the next search), `.telemetry/`, and the
+  machine's own `.scopemap` and `.owner`.
+- **Every machine can write.** List the shared scope in each machine's `.owner` (below). An
+  edit made on two machines at once is not lost: `update` is a compare-and-swap, so the second
+  one is refused and has to re-read ([`update`](../reference/cli.md#update)). The one thing to
+  avoid is creating the same new slug on two machines before they have synced; your sync tool
+  then keeps a conflict copy.
+- **A scope you do not sync stays on its machine** — a client's, for instance. Deleting its
+  folder there deletes it.
+
 ## Which scopes a machine may write (`.owner`)
 
 Declare which scopes this machine may write in `~/memory/.owner` (machine-local, JSON):
@@ -199,22 +217,21 @@ Declare which scopes this machine may write in `~/memory/.owner` (machine-local,
 Absent or malformed means `personal` only (fail-closed). A machine never writes a scope it does
 not own. Reads and `search` are unaffected by ownership; only writes and dreaming are gated.
 
-**One owner per scope on multi-machine setups.** `.owner` is never synced, but the scope folders
-often are (Syncthing). When a scope lives on more than one machine, exactly **one** of them
-should own it. Every write — and dreaming consolidation — runs on the owner: two machines both
-owning `personal` would consolidate the same notes twice and can collide before the sync catches
-up. Because the default is to own `personal`, a second machine needs an **explicit** `.owner`
-that leaves the shared scope out:
+`.owner` is never synced: each machine declares its own. With a scope synced between machines
+([above](#several-machines)), list it on every machine whose agents should be able to save to
+it. A machine that should only read it leaves it out:
 
 ```jsonc
-// On a secondary machine that syncs `personal` but should not own it:
-{ "owns": [] }            // owns nothing: reads and search work, writes and dreaming do not
-// …or list only the scopes this machine owns:
+// A machine that reads the synced `personal` but never writes to it:
+{ "owns": [] }            // reads and search work; writes do not
+// …or that writes only its own scopes:
 { "owns": ["work-laptop"] }
 ```
 
-(Dreaming is [in development](concepts.md#dreaming) and its scheduled runner is not built yet;
-until it is, this part is a configuration convention. For writes it is enforced today.)
+**Dreaming will need one owner per scope.** Consolidation, once it runs on a schedule, must run
+on a single machine per scope: two machines consolidating the same notes would do the work twice
+and collide before the sync catches up. Dreaming is [in development](concepts.md#dreaming), so
+this does not apply yet; when it does, its own setting will say which machine dreams.
 
 ## Telemetry
 
