@@ -66,6 +66,16 @@ describe("mneme init", () => {
     expect(cfg.embedder).toBe("none");
   });
 
+  test("no_hook_writes_the_store_config_but_leaves_claude_settings_alone", async () => {
+    // MNE-113: the installer wires Claude Code only when asked; a Codex- or
+    // OpenCode-only install still needs the store set up.
+    const code = await runCli(["init", "--root", root, "--write", "--no-hook"], () => {});
+    expect(code).toBe(0);
+    expect(existsSync(settingsPath())).toBe(false);
+    expect(existsSync(storePaths(root).scopeMap)).toBe(true);
+    expect(JSON.parse(readFileSync(join(root, ".config.json"), "utf8")).embedder).toBe("none");
+  });
+
   test("is_idempotent", async () => {
     await runCli(["init", "--root", root, "--write"], () => {});
     const firstSettings = readFileSync(settingsPath(), "utf8");

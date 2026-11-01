@@ -104,6 +104,7 @@ What `init --write` does:
 | `--embedder ollama\|none` | Search tier: semantic (Ollama) or tier 0 (keyword, offline). |
 | `--min-cos <n>` | Cosine floor to save (`-1`…`1`). |
 | `--lexical-floor <n>` | Lexical rescue floor to save. |
+| `--no-hook` | Set up the store only; leave `~/.claude/settings.json` alone (for an install that does not use Claude Code). |
 
 Each value comes from the flag, else the environment variable present now (`OLLAMA_MODEL`,
 `MNEMOSYNE_MIN_COS`, `MNEMOSYNE_LEXICAL_FLOOR`), else what the store's config already says. The
@@ -123,6 +124,10 @@ mneme install-hook --harness codex           # the same, for $CODEX_HOME/hooks.j
 mneme install-hook --harness codex --write
 mneme uninstall-hook --harness codex --write
 ```
+
+`--root <dir>` bakes that store into the hook command (and rewrites a `--root` an older hook
+had), as `init` does for Claude Code; without it, an existing hook is left as it is. The
+installer passes it for Codex.
 
 `uninstall-hook` removes only Mnemosyne's hooks and leaves everything else in the file alone. A
 settings file that cannot be parsed is never modified. Harness differences (Codex's JSON output,

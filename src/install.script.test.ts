@@ -41,10 +41,40 @@ function spawnDetached(cmd: string, args: string[], env: Record<string, string>,
   });
 }
 
+/**
+ * This machine's PATH as one directory of symlinks, minus `exclude`. Agents are
+ * always left out (MNE-113: the installer wires whichever of claude, codex and
+ * opencode it finds, so a test decides which ones "exist").
+ */
+function pathExcluding(exclude: string[]): string {
+  const bin = mkdtempSync(join(tmpdir(), "mneme-path-"));
+  const skip = new Set([...exclude, ...AGENTS]);
+  for (const dir of (process.env.PATH ?? "/usr/bin:/bin").split(":")) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (skip.has(name) || existsSync(join(bin, name))) continue;
+      try { symlinkSync(join(dir, name), join(bin, name)); } catch { /* unreadable entry */ }
+    }
+  }
+  return bin;
+}
+const AGENTS = ["claude", "codex", "opencode"];
+const AGENTLESS_PATH = pathExcluding([]);
+
+/** AGENTLESS_PATH plus do-nothing stand-ins for the named agents. */
+function withAgents(...names: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), "mneme-agents-"));
+  for (const n of names) {
+    writeFileSync(join(dir, n), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(dir, n), 0o755);
+  }
+  return `${dir}:${AGENTLESS_PATH}`;
+}
+
 function baseEnv(home: string): Record<string, string> {
   return {
     HOME: home,
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    PATH: AGENTLESS_PATH,
     // Never a real Ollama, whatever this machine runs.
     OLLAMA_HOST: "http://127.0.0.1:1",
   };
@@ -137,7 +167,7 @@ describe("install.sh --dry-run", () => {
     const fakeBin = mkdtempSync(join(tmpdir(), "mneme-fake-bin-"));
     writeFileSync(join(fakeBin, "node"), "#!/bin/sh\necho 18.19.0\n");
     chmodSync(join(fakeBin, "node"), 0o755);
-    const r = await run(home, ["--dry-run"], { PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}` });
+    const r = await run(home, ["--dry-run"], { PATH: `${fakeBin}:${AGENTLESS_PATH}` });
     expect(r.code).not.toBe(0);
     expect(r.out).toMatch(/Node\.js.*18\.19\.0/);
     expect(r.out).toMatch(/>= ?20/);
@@ -154,7 +184,7 @@ describe("install.sh --dry-run", () => {
     writeFileSync(join(fakeBin, "uname"), "#!/bin/sh\necho Darwin\n");
     chmodSync(join(fakeBin, "node"), 0o755);
     chmodSync(join(fakeBin, "uname"), 0o755);
-    const r = await run(home, ["--dry-run"], { PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}` });
+    const r = await run(home, ["--dry-run"], { PATH: `${fakeBin}:${AGENTLESS_PATH}` });
     const fixLine = r.out.split("\n").find((l) => /fix:/.test(l) && /node/i.test(l)) ?? "";
     expect(fixLine).toMatch(/nodejs\.org/);
     expect(fixLine).not.toMatch(/node@/);
@@ -195,7 +225,7 @@ describe("install.sh install / update / uninstall", () => {
     for (const name of ["mneme", "mem"]) {
       const bin = join(home, ".local", "bin", name);
       expect(lstatSync(bin).isFile()).toBe(true);
-      const v = spawnSync(bin, ["scan", "hello"], { encoding: "utf8", env: { HOME: home, PATH: process.env.PATH ?? "" } });
+      const v = spawnSync(bin, ["scan", "hello"], { encoding: "utf8", env: { HOME: home, PATH: AGENTLESS_PATH } });
       expect(v.status, v.stderr).toBe(0);
     }
     const cfg = JSON.parse(readFileSync(join(home, "memory", ".config.json"), "utf8"));
@@ -323,7 +353,7 @@ describe("install.sh install / update / uninstall", () => {
     const home = freshHome();
     const custom = join(home, "custom-store");
     expect((await install(home, "--root", custom)).code).toBe(0);
-    const v = spawnSync(join(home, ".local", "bin", "mneme"), ["reindex"], { encoding: "utf8", env: { HOME: home, PATH: process.env.PATH ?? "", MNEMOSYNE_EMBEDDER: "none" } });
+    const v = spawnSync(join(home, ".local", "bin", "mneme"), ["reindex"], { encoding: "utf8", env: { HOME: home, PATH: AGENTLESS_PATH, MNEMOSYNE_EMBEDDER: "none" } });
     expect(v.status, v.stderr).toBe(0);
     expect(existsSync(join(custom, ".index"))).toBe(true);
     expect(existsSync(join(home, "memory"))).toBe(false);
@@ -345,7 +375,7 @@ describe("install.sh install / update / uninstall", () => {
   test("done_has_no_PATH_note_when_the_commands_are_already_on_it", async () => {
     const home = freshHome();
     const r = await install(home, ...[]).then(() => run(home, ["update", "--yes", "--no-build"],
-      { PATH: `${join(home, ".local", "bin")}:${process.env.PATH ?? ""}` }));
+      { PATH: `${join(home, ".local", "bin")}:${AGENTLESS_PATH}` }));
     expect(r.code, r.out).toBe(0);
     expect(r.out.slice(r.out.indexOf("== Done"))).not.toMatch(/PATH/);
   });
@@ -359,7 +389,7 @@ describe("install.sh install / update / uninstall", () => {
     mkdirSync(fake);
     writeFileSync(join(fake, "node"), "#!/bin/sh\necho 'node: not this one' >&2\nexit 127\n");
     chmodSync(join(fake, "node"), 0o755);
-    const r = await run(home, ["uninstall", "--yes"], { PATH: `${fake}:${process.env.PATH ?? ""}` });
+    const r = await run(home, ["uninstall", "--yes"], { PATH: `${fake}:${AGENTLESS_PATH}` });
     expect(r.code, r.out).toBe(0);
     expect(r.out).not.toMatch(/remove the 'mneme context' SessionStart hook from it by hand/);
     expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(false);
@@ -382,17 +412,8 @@ describe("install.sh install / update / uninstall", () => {
   });
 
   /** A PATH that has everything this machine has EXCEPT git. */
-  function pathWithoutGit(home: string): string {
-    const bin = join(home, "nogit");
-    mkdirSync(bin);
-    for (const dir of (process.env.PATH ?? "").split(":")) {
-      if (!dir || !existsSync(dir)) continue;
-      for (const name of readdirSync(dir)) {
-        if (name === "git" || existsSync(join(bin, name))) continue;
-        try { symlinkSync(join(dir, name), join(bin, name)); } catch { /* unreadable entry */ }
-      }
-    }
-    return bin;
+  function pathWithoutGit(_home: string): string {
+    return pathExcluding(["git"]);
   }
 
   test("an_empty_settings_json_the_user_had_survives_an_uninstall_that_removed_no_hook", async () => {
@@ -426,6 +447,208 @@ describe("install.sh install / update / uninstall", () => {
   });
 });
 
+describe("install.sh agents (MNE-113)", () => {
+  const BEGIN = "<!-- mnemosyne:begin";
+  const read = (p: string) => readFileSync(p, "utf8");
+  const codexHooks = (home: string) => join(home, ".codex", "hooks.json");
+  const codexMd = (home: string) => join(home, ".codex", "AGENTS.md");
+  const opencodeMd = (home: string) => join(home, ".config", "opencode", "AGENTS.md");
+  const claudeMd = (home: string) => join(home, ".claude", "CLAUDE.md");
+  const settings = (home: string) => join(home, ".claude", "settings.json");
+  const installWith = (home: string, agents: string[], more: string[] = [], env: Record<string, string> = {}) =>
+    run(home, ["install", "--yes", "--no-build", "--no-ollama-pull", ...more], { PATH: withAgents(...agents), ...env });
+
+  /** The installer's questions answered as if typed, one line each. */
+  function tty(...answers: string[]): string {
+    const f = join(mkdtempSync(join(tmpdir(), "mneme-tty-")), "tty");
+    writeFileSync(f, answers.map((a) => `${a}\n`).join(""));
+    return f;
+  }
+
+  test("the_plan_lists_every_agent_found_and_writes_nothing", async () => {
+    const home = freshHome();
+    const r = await run(home, ["--dry-run"], { PATH: withAgents("claude", "codex", "opencode") });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/Claude Code \(claude\)/);
+    expect(r.out).toMatch(/Codex CLI \(codex\)/);
+    expect(r.out).toMatch(/OpenCode \(opencode\)/);
+    expect(r.out).toContain(codexHooks(home));
+    expect(listTree(home)).toEqual([]);
+  });
+
+  test("codex_alone_gets_its_hook_and_block_and_claude_is_left_alone", async () => {
+    const home = freshHome();
+    const r = await installWith(home, ["codex"]);
+    expect(r.code, r.out).toBe(0);
+    expect(read(codexHooks(home))).toMatch(/mneme context --emit codex-session-start/);
+    expect(read(codexMd(home))).toContain(BEGIN);
+    expect(existsSync(settings(home))).toBe(false);
+    expect(existsSync(claudeMd(home))).toBe(false);
+    expect(r.out).toMatch(/\/hooks/);
+  });
+
+  test("codex_reads_a_non_empty_override_instead_so_the_block_goes_there", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".codex"));
+    writeFileSync(join(home, ".codex", "AGENTS.override.md"), "# my rules\n");
+    expect((await installWith(home, ["codex"])).code).toBe(0);
+    expect(read(join(home, ".codex", "AGENTS.override.md"))).toMatch(/^# my rules\n[\s\S]*<!-- mnemosyne:begin/);
+    expect(existsSync(codexMd(home))).toBe(false);
+  });
+
+  test("codex_follows_CODEX_HOME", async () => {
+    const home = freshHome();
+    const codexHome = join(home, "elsewhere");
+    expect((await installWith(home, ["codex"], [], { CODEX_HOME: codexHome })).code).toBe(0);
+    expect(read(join(codexHome, "hooks.json"))).toMatch(/mneme context/);
+    expect(read(join(codexHome, "AGENTS.md"))).toContain(BEGIN);
+    expect(existsSync(join(home, ".codex"))).toBe(false);
+  });
+
+  test("codex_hook_reads_the_store_this_install_uses", async () => {
+    const home = freshHome();
+    const custom = join(home, "custom-store");
+    mkdirSync(join(home, ".codex"));
+    writeFileSync(codexHooks(home), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context --emit codex-session-start --root '/old-memory'" }] }] } }));
+    expect((await installWith(home, ["codex"], ["--root", custom])).code).toBe(0);
+    expect(read(codexHooks(home))).toContain(`--root '${custom}'`);
+    expect(read(codexHooks(home))).not.toContain("/old-memory");
+  });
+
+  test("opencode_alone_gets_its_own_AGENTS_md", async () => {
+    const home = freshHome();
+    const r = await installWith(home, ["opencode"]);
+    expect(r.code, r.out).toBe(0);
+    expect(read(opencodeMd(home))).toContain(BEGIN);
+    expect(existsSync(settings(home))).toBe(false);
+  });
+
+  test("opencode_with_claude_reads_the_block_from_CLAUDE_md_and_gets_no_AGENTS_md", async () => {
+    // OpenCode falls back to ~/.claude/CLAUDE.md only while it has no global
+    // AGENTS.md: creating one would cut everything else in CLAUDE.md off.
+    const home = freshHome();
+    const r = await installWith(home, ["claude", "opencode"]);
+    expect(r.code, r.out).toBe(0);
+    expect(read(claudeMd(home))).toContain(BEGIN);
+    expect(existsSync(opencodeMd(home))).toBe(false);
+    expect(r.out).toMatch(/OpenCode.*CLAUDE\.md/);
+  });
+
+  test("opencode_with_its_claude_compatibility_off_gets_its_own_AGENTS_md", async () => {
+    const home = freshHome();
+    expect((await installWith(home, ["claude", "opencode"], [], { OPENCODE_DISABLE_CLAUDE_CODE: "1" })).code).toBe(0);
+    expect(read(opencodeMd(home))).toContain(BEGIN);
+  });
+
+  test("an_AGENTS_md_opencode_already_has_gets_the_block", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    writeFileSync(opencodeMd(home), "# mine\n");
+    expect((await installWith(home, ["claude", "opencode"])).code).toBe(0);
+    expect(read(opencodeMd(home))).toMatch(/^# mine\n[\s\S]*<!-- mnemosyne:begin/);
+  });
+
+  test("opencode_is_not_given_an_AGENTS_md_that_would_hide_the_users_CLAUDE_md", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(claudeMd(home), "# my claude rules\n");
+    const r = await installWith(home, ["claude", "opencode"], ["--no-claude"]);
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(opencodeMd(home))).toBe(false);
+    expect(read(claudeMd(home))).toBe("# my claude rules\n");
+    expect(r.out).toMatch(/memory-instructions\.md/);
+  });
+
+  test("with_no_agent_found_it_wires_claude_code_and_names_all_three", async () => {
+    const home = freshHome();
+    const r = await installWith(home, []);
+    expect(r.code, r.out).toBe(0);
+    expect(sessionStartCommands(home).some((c) => c.includes("mneme context"))).toBe(true);
+    expect(r.out).toMatch(/Claude Code[\s\S]*Codex[\s\S]*OpenCode/);
+  });
+
+  test("no_codex_and_no_claude_flags_skip_those_agents", async () => {
+    const home = freshHome();
+    const r = await installWith(home, ["claude", "codex", "opencode"], ["--no-codex", "--no-claude"]);
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(join(home, ".codex"))).toBe(false);
+    expect(existsSync(settings(home))).toBe(false);
+    expect(read(opencodeMd(home))).toContain(BEGIN);
+  });
+
+  test("uninstall_removes_every_agents_wiring_and_keeps_what_the_user_wrote", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    writeFileSync(opencodeMd(home), "# mine\n");
+    expect((await installWith(home, ["claude", "codex", "opencode"])).code).toBe(0);
+    // Uninstall finds the wiring by its markers, whatever is on the PATH now.
+    const r = await run(home, ["uninstall", "--yes"]);
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(codexHooks(home))).toBe(false);
+    expect(existsSync(codexMd(home))).toBe(false);
+    expect(read(opencodeMd(home))).toBe("# mine\n");
+    expect(existsSync(settings(home))).toBe(false);
+  });
+
+  test("update_refreshes_the_agents_already_wired_and_only_mentions_new_ones", async () => {
+    const home = freshHome();
+    expect((await installWith(home, ["codex"])).code).toBe(0);
+    writeFileSync(codexMd(home), read(codexMd(home)).replace("mneme search", "mneme STALE"));
+    const r = await run(home, ["update", "--yes", "--no-build"], { PATH: withAgents("claude", "codex") });
+    expect(r.code, r.out).toBe(0);
+    expect(read(codexMd(home))).not.toMatch(/mneme STALE/);
+    expect(existsSync(settings(home))).toBe(false);
+    expect(r.out).toMatch(/Claude Code.*not wired/);
+  });
+
+  test("asked_with_a_terminal_each_agent_can_be_declined", async () => {
+    const home = freshHome();
+    // codex? no — opencode? yes — Go ahead? yes
+    const r = await run(home, ["install", "--no-build", "--no-ollama-pull"], { PATH: withAgents("codex", "opencode"), MNEMOSYNE_INSTALL_TTY: tty("n", "y", "y") });
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(join(home, ".codex"))).toBe(false);
+    expect(read(opencodeMd(home))).toContain(BEGIN);
+  });
+
+  async function ollamaWithoutTheModel(): Promise<{ url: string; server: Server }> {
+    const server = createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ models: [] })); });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const addr = server.address();
+    return { url: `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`, server };
+  }
+
+  /** A PATH with a stand-in `ollama` that logs its arguments to $HOME/ollama-calls.log. */
+  function withOllama(): string {
+    const p = withAgents("claude");
+    const dir = p.slice(0, p.indexOf(":"));
+    writeFileSync(join(dir, "ollama"), '#!/bin/sh\necho "$*" >> "$HOME/ollama-calls.log"\n');
+    chmodSync(join(dir, "ollama"), 0o755);
+    return p;
+  }
+
+  test("asked_with_a_terminal_the_model_download_can_be_declined", async () => {
+    const home = freshHome();
+    const { url, server } = await ollamaWithoutTheModel();
+    try {
+      // claude? yes — download the model? no — Go ahead? yes
+      const r = await run(home, ["install", "--no-build"], { PATH: withOllama(), OLLAMA_HOST: url, MNEMOSYNE_INSTALL_TTY: tty("y", "n", "y") });
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toMatch(/960 MB/);
+      expect(existsSync(join(home, "ollama-calls.log"))).toBe(false);
+    } finally { server.close(); }
+  });
+
+  test("with_yes_the_model_is_downloaded_without_asking", async () => {
+    const home = freshHome();
+    const { url, server } = await ollamaWithoutTheModel();
+    try {
+      const r = await run(home, ["install", "--yes", "--no-build"], { PATH: withOllama(), OLLAMA_HOST: url });
+      expect(r.code, r.out).toBe(0);
+      expect(read(join(home, "ollama-calls.log"))).toMatch(/pull nomic-embed-text-v2-moe/);
+    } finally { server.close(); }
+  });
+});
+
 describe("install.sh build (MNE-102)", () => {
   // A fake `npm` stands in for `npm ci` / `npm run build`: what is under test is
   // the check that runs after them, not npm.
@@ -433,7 +656,7 @@ describe("install.sh build (MNE-102)", () => {
     const dir = mkdtempSync(join(tmpdir(), "mneme-fake-npm-"));
     writeFileSync(join(dir, "npm"), `#!/bin/sh\n${script}\n`);
     chmodSync(join(dir, "npm"), 0o755);
-    return `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`;
+    return `${dir}:${AGENTLESS_PATH}`;
   }
 
   test("package_json_lets_npm_run_the_better_sqlite3_install_script", () => {

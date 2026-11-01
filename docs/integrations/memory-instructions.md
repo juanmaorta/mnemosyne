@@ -4,8 +4,10 @@ What this is: the text pasted verbatim into `~/.claude/CLAUDE.md` (Claude Code),
 `~/.codex/AGENTS.md` (Codex CLI) and the `AGENTS.md` that OpenCode reads. It is the same block
 for all three: it names no harness and only uses real `mneme` CLI commands.
 
-The installer (`install.sh`) copies the fenced block below into `~/.claude/CLAUDE.md` between
-its own markers, so whatever is inside the ` ````md ` fence is exactly what the agent reads.
+The installer (`install.sh`) copies the fenced block below between its own markers into the
+file each agent it wires reads (`~/.claude/CLAUDE.md`, Codex's `AGENTS.md`,
+`~/.config/opencode/AGENTS.md`), so whatever is inside the ` ````md ` fence is exactly what the
+agent reads.
 How to wire it into each agent: [Wiring it into an agent](agents.md). Moving an existing
 setup off the harness's native memory:
 [Migrating from native memory](../guide/migrating-from-native-memory.md).

@@ -41,10 +41,21 @@ DO_BUILD=1
 DO_CLAUDE_MD=1
 DO_OLLAMA_PULL=1
 DELETE_DATA=0
+# --no-claude / --no-codex / --no-opencode (MNE-113)
+NO_CLAUDE=0
+NO_CODEX=0
+NO_OPENCODE=0
 
 CLAUDE_DIR="$HOME/.claude"
 SETTINGS="$CLAUDE_DIR/settings.json"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEX_HOOKS="$CODEX_DIR/hooks.json"
+OPENCODE_DIR="$HOME/.config/opencode"
+OPENCODE_MD="$OPENCODE_DIR/AGENTS.md"
+# Where the questions are read from. Under `curl | sh` stdin is the script
+# itself, so the terminal is asked directly; the tests point it at a file.
+TTY_IN="${MNEMOSYNE_INSTALL_TTY:-/dev/tty}"
 BLOCK_BEGIN="<!-- mnemosyne:begin — managed by Mnemosyne's install.sh; edits between these markers are replaced on update -->"
 BLOCK_END="<!-- mnemosyne:end -->"
 # Marks files the installer owns, so uninstall never deletes something it did
@@ -64,13 +75,17 @@ Commands:
 
 Options:
   --dry-run         say what would happen and change nothing
-  -y, --yes         do not ask for confirmation (required when there is no terminal)
+  -y, --yes         do not ask: take the defaults (every agent found, download the
+                    model) and go ahead. Required when there is no terminal
   --dir DIR         where the code lives            (default: \$HOME/.mnemosyne)
   --bin-dir DIR     where 'mneme' and 'mem' go       (default: \$HOME/.local/bin)
   --root DIR        where your memories live         (default: \$MNEMOSYNE_ROOT or \$HOME/memory)
   --model NAME      embedding model for Ollama       (default: nomic-embed-text-v2-moe)
   --no-ollama-pull  never download the embedding model
-  --no-claude-md    do not add the memory instructions block to ~/.claude/CLAUDE.md
+  --no-claude       do not wire Claude Code     (hook + ~/.claude/CLAUDE.md block)
+  --no-codex        do not wire the Codex CLI   (hook + \$CODEX_HOME/AGENTS.md block)
+  --no-opencode     do not wire OpenCode        (~/.config/opencode/AGENTS.md block)
+  --no-claude-md    wire Claude Code's hook but not the ~/.claude/CLAUDE.md block
   --no-build        use the checkout as already built (development)
   --delete-data     uninstall only: also delete the memory store (--root)
   -h, --help        this help
@@ -100,6 +115,9 @@ while [ $# -gt 0 ]; do
     --model) shift; MODEL="${1:?--model needs a value}"; MODEL_EXPLICIT=1 ;;
     --no-ollama-pull) DO_OLLAMA_PULL=0 ;;
     --no-claude-md) DO_CLAUDE_MD=0 ;;
+    --no-claude) NO_CLAUDE=1 ;;
+    --no-codex) NO_CODEX=1 ;;
+    --no-opencode) NO_OPENCODE=1 ;;
     --no-build) DO_BUILD=0 ;;
     --delete-data) DELETE_DATA=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -192,6 +210,65 @@ node_fix() {
   fi
 }
 
+# ------------------------------------------------------------------ agents ---
+# MNE-113: which agents are on this machine (FOUND_*), which ones a previous
+# install already wired (WIRED_*, found by what it left behind, so it does not
+# depend on the PATH) and which ones this run wires (WIRE_*).
+FOUND_CLAUDE=0; FOUND_CODEX=0; FOUND_OPENCODE=0
+WIRED_CLAUDE=0; WIRED_CODEX=0; WIRED_OPENCODE=0
+WIRE_CLAUDE=0; WIRE_CODEX=0; WIRE_OPENCODE=0
+
+has_block() { [ -f "$1" ] && grep -qF "$BLOCK_BEGIN" "$1"; }
+has_hook() { [ -f "$1" ] && grep -q 'mneme context' "$1"; }
+
+# Codex reads AGENTS.override.md instead of AGENTS.md when the override has
+# anything in it, so that is where the block has to go.
+codex_md() {
+  if [ -f "$CODEX_DIR/AGENTS.override.md" ] && grep -q '[^[:space:]]' "$CODEX_DIR/AGENTS.override.md"; then
+    printf '%s' "$CODEX_DIR/AGENTS.override.md"
+  else
+    printf '%s' "$CODEX_DIR/AGENTS.md"
+  fi
+}
+
+detect_agents() {
+  { command -v claude >/dev/null 2>&1 || [ -d "$CLAUDE_DIR" ]; } && FOUND_CLAUDE=1
+  { command -v codex >/dev/null 2>&1 || [ -d "$CODEX_DIR" ]; } && FOUND_CODEX=1
+  { command -v opencode >/dev/null 2>&1 || [ -d "$OPENCODE_DIR" ]; } && FOUND_OPENCODE=1
+  { has_hook "$SETTINGS" || has_block "$CLAUDE_MD"; } && WIRED_CLAUDE=1
+  { has_hook "$CODEX_HOOKS" || has_block "$CODEX_DIR/AGENTS.md" || has_block "$CODEX_DIR/AGENTS.override.md"; } && WIRED_CODEX=1
+  has_block "$OPENCODE_MD" && WIRED_OPENCODE=1
+  if [ "$ACTION" = update ]; then
+    # An update keeps what is wired as it is; adding an agent is an install.
+    WIRE_CLAUDE=$WIRED_CLAUDE; WIRE_CODEX=$WIRED_CODEX; WIRE_OPENCODE=$WIRED_OPENCODE
+  else
+    WIRE_CLAUDE=$FOUND_CLAUDE; WIRE_CODEX=$FOUND_CODEX; WIRE_OPENCODE=$FOUND_OPENCODE
+    # Nothing found: Claude Code, as before there was a choice.
+    [ "$FOUND_CLAUDE$FOUND_CODEX$FOUND_OPENCODE" = 000 ] && WIRE_CLAUDE=1
+  fi
+  [ "$NO_CLAUDE" = 1 ] && WIRE_CLAUDE=0
+  [ "$NO_CODEX" = 1 ] && WIRE_CODEX=0
+  [ "$NO_OPENCODE" = 1 ] && WIRE_OPENCODE=0
+  return 0
+}
+
+# How OpenCode gets the block. It reads ~/.config/opencode/AGENTS.md, and only
+# while that file does not exist falls back to ~/.claude/CLAUDE.md — so creating
+# it would silently cut everything else in CLAUDE.md off from OpenCode.
+#   own       the block goes into its AGENTS.md (there already, or created)
+#   fallback  it reads the block from CLAUDE.md; nothing to write
+#   manual    CLAUDE.md is the user's, without the block: leave both alone
+opencode_mode() {
+  if [ -f "$OPENCODE_MD" ]; then printf own; return 0; fi
+  if [ -n "${OPENCODE_DISABLE_CLAUDE_CODE:-}" ] || [ -n "${OPENCODE_DISABLE_CLAUDE_CODE_PROMPT:-}" ]; then printf own; return 0; fi
+  if [ "$WIRE_CLAUDE" = 1 ] && [ "$DO_CLAUDE_MD" = 1 ]; then printf fallback; return 0; fi
+  if [ -f "$CLAUDE_MD" ]; then
+    if grep -q 'mneme' "$CLAUDE_MD"; then printf fallback; else printf manual; fi
+    return 0
+  fi
+  printf own
+}
+
 check_requirements() {
   section "Requirements"
   # update needs it too: it fetches and checks out the new release.
@@ -252,11 +329,15 @@ check_requirements() {
     fi
   fi
 
-  if command -v claude >/dev/null 2>&1; then
-    ok "Claude Code (claude) — the agent Mnemosyne wires into"
-  else
-    warn "Claude Code (claude) not found — Mnemosyne installs anyway, but the session hook only does something once Claude Code is installed"
-    fix "curl -fsSL https://claude.ai/install.sh | bash   (docs: https://docs.claude.com/en/docs/claude-code/setup)"
+  detect_agents
+  [ "$FOUND_CLAUDE" = 1 ] && ok "Claude Code (claude) — Mnemosyne wires into it: a session-start hook and an instructions block"
+  [ "$FOUND_CODEX" = 1 ] && ok "Codex CLI (codex) — Mnemosyne wires into it: a session-start hook and an instructions block"
+  [ "$FOUND_OPENCODE" = 1 ] && ok "OpenCode (opencode) — Mnemosyne wires into it: an instructions block (OpenCode has no session hook)"
+  if [ "$FOUND_CLAUDE" = 0 ] && [ "$FOUND_CODEX" = 0 ] && [ "$FOUND_OPENCODE" = 0 ]; then
+    warn "no agent found (Claude Code, Codex CLI, OpenCode) — Mnemosyne installs anyway and wires Claude Code, the default"
+    note "Claude Code:  curl -fsSL https://claude.ai/install.sh | bash"
+    note "Codex CLI:    npm install -g @openai/codex        OpenCode:  https://opencode.ai/docs"
+    note "Installed one later? Run this installer again and it wires that one in too."
   fi
 
   # Asked over HTTP, not with `ollama list`: that command tries to START the
@@ -406,8 +487,7 @@ plan_install() {
     say "  build:    skipped (--no-build)"
   fi
   say "  commands: $BIN_DIR/mneme and $BIN_DIR/mem (small wrappers that run $MNEME_JS)"
-  say "  hook:     SessionStart -> mneme context --root '$STORE_ROOT'"
-  say "            added to $SETTINGS (other settings untouched; original saved once as settings.json.before-mnemosyne)"
+  plan_agents
   say "  data:     your memories live in $STORE_ROOT as plain Markdown files."
   say "            Existing notes are never touched. Added if missing: .scopemap (catch-all '~ = personal'),"
   say "            and .config.json (search tier and model, so no environment variables are needed)."
@@ -423,16 +503,8 @@ plan_install() {
     say "            so at session start. Turn it off with MNEMOSYNE_NO_UPDATE_CHECK=1, or"
     say "            \"updateCheck\": false in $STORE_ROOT/.config.json"
   fi
-  if [ "$DO_CLAUDE_MD" = 1 ]; then
-    if [ "$ACTION" = update ]; then
-      say "  CLAUDE.md: refresh the Mnemosyne block in $CLAUDE_MD, only if a previous install added it"
-    else
-      say "  CLAUDE.md: append a marked block telling Claude to use 'mneme' for memory to $CLAUDE_MD"
-      say "            (skipped if that file already mentions mneme; removed by uninstall)"
-    fi
-  fi
-  if [ "$CHOOSE_MODEL" = 1 ] && [ "$HAS_OLLAMA" = 1 ] && [ "$OLLAMA_UP" = 1 ] && [ "$MODEL_PRESENT" = 0 ] && [ "$DO_OLLAMA_PULL" = 1 ]; then
-    say "  ollama:   ollama pull $MODEL (download of a few hundred MB)"
+  if will_pull_model; then
+    say "  ollama:   ollama pull $MODEL ($(model_size))"
   fi
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
@@ -446,10 +518,53 @@ plan_install() {
   esac
 }
 
+# One entry per agent: what is wired, what is not and why. The instructions
+# block is the same everywhere (docs/integrations/memory-instructions.md),
+# between markers, appended once; skipped where the file already mentions mneme.
+plan_agents() {
+  say "  agents:"
+  _verb=add; [ "$ACTION" = update ] && _verb=refresh
+  if [ "$WIRE_CLAUDE" = 1 ]; then
+    say "    Claude Code: SessionStart hook -> mneme context --root '$STORE_ROOT'"
+    say "                 in $SETTINGS (other settings untouched; original saved once as settings.json.before-mnemosyne)"
+    [ "$DO_CLAUDE_MD" = 1 ] && say "                 $_verb the instructions block in $CLAUDE_MD"
+  else
+    plan_not_wired "Claude Code" "$FOUND_CLAUDE" "$NO_CLAUDE" --no-claude
+  fi
+  if [ "$WIRE_CODEX" = 1 ]; then
+    say "    Codex CLI:   SessionStart hook in $CODEX_HOOKS — trust it once in Codex with /hooks"
+    say "                 $_verb the instructions block in $(codex_md)"
+  else
+    plan_not_wired "Codex CLI" "$FOUND_CODEX" "$NO_CODEX" --no-codex
+  fi
+  if [ "$WIRE_OPENCODE" = 1 ]; then
+    case "$(opencode_mode)" in
+      own) say "    OpenCode:    $_verb the instructions block in $OPENCODE_MD (no session hook: the agent runs 'mneme context' itself)" ;;
+      fallback) say "    OpenCode:    reads the block from $CLAUDE_MD (its fallback while it has no AGENTS.md of its own); nothing to write" ;;
+      manual)
+        say "    OpenCode:    nothing written. It reads $CLAUDE_MD while $OPENCODE_MD does not exist,"
+        say "                 so creating that file would hide your CLAUDE.md from OpenCode. Paste the block"
+        say "                 from $INSTALL_DIR/docs/integrations/memory-instructions.md where you want it."
+        ;;
+    esac
+  else
+    plan_not_wired "OpenCode" "$FOUND_OPENCODE" "$NO_OPENCODE" --no-opencode
+  fi
+}
+
+plan_not_wired() { # $1 = name, $2 = found, $3 = skipped by flag, $4 = that flag
+  if [ "$3" = 1 ]; then printf '    %-12s %s\n' "$1:" "skipped ($4)"
+  elif [ "$2" = 1 ] && [ "$ACTION" = update ]; then printf '    %-12s %s\n' "$1:" "found but not wired — run the installer again (install, not update) to add it"
+  elif [ "$2" = 1 ]; then printf '    %-12s %s\n' "$1:" "not wired (you said no)"
+  fi
+  return 0
+}
+
 plan_uninstall() {
   section "What uninstall will change"
-  say "  hook:     remove every 'mneme context' SessionStart hook from $SETTINGS"
-  say "  CLAUDE.md: remove the block between the Mnemosyne markers in $CLAUDE_MD (if present)"
+  say "  hooks:    remove every 'mneme context' SessionStart hook from $SETTINGS and $CODEX_HOOKS"
+  say "  blocks:   remove the block between the Mnemosyne markers (where present) from"
+  say "            $CLAUDE_MD, $CODEX_DIR/AGENTS.md (and AGENTS.override.md), $OPENCODE_MD"
   say "  commands: remove $BIN_DIR/mneme and $BIN_DIR/mem (only the installer's wrappers)"
   if [ "$IN_PLACE" = 1 ]; then
     say "  code:     keep $INSTALL_DIR — it is your own checkout"
@@ -469,16 +584,57 @@ plan_uninstall() {
 }
 
 # ---------------------------------------------------------- confirmation ---
+# The terminal, opened once on fd 3 so successive questions read successive
+# answers. Probed in a subshell: a failed `exec` redirection would end this shell.
+TTY_STATE=unknown
+open_tty() {
+  if [ "$TTY_STATE" = unknown ]; then
+    if (exec 3<"$TTY_IN") 2>/dev/null; then exec 3<"$TTY_IN"; TTY_STATE=open; else TTY_STATE=none; fi
+  fi
+  [ "$TTY_STATE" = open ]
+}
+
+prompt() { # the question goes where the answer comes from: a real terminal, or stdout
+  if [ "$TTY_IN" = /dev/tty ]; then printf '%s' "$1" >/dev/tty; else printf '%s' "$1"; fi
+}
+
+# A choice with a default of yes. Asked only when someone can answer: never
+# with --yes, in a dry run, or without a terminal — those take the default.
+ask_yes() {
+  [ "$ASSUME_YES" = 0 ] && [ "$DRY_RUN" = 0 ] && open_tty || return 0
+  prompt "$1 [Y/n] "
+  read -r _answer <&3 || _answer=""
+  case "$_answer" in n|N|no|NO|No) return 1 ;; esac
+  return 0
+}
+
+ask_choices() {
+  [ "$ACTION" = install ] || return 0
+  [ "$ASSUME_YES" = 0 ] && [ "$DRY_RUN" = 0 ] && open_tty || return 0
+  section "Choices (Enter = yes)"
+  if [ "$WIRE_CLAUDE" = 1 ]; then ask_yes "  Wire Mnemosyne into Claude Code?" || WIRE_CLAUDE=0; fi
+  if [ "$WIRE_CODEX" = 1 ]; then ask_yes "  Wire Mnemosyne into the Codex CLI?" || WIRE_CODEX=0; fi
+  if [ "$WIRE_OPENCODE" = 1 ]; then ask_yes "  Wire Mnemosyne into OpenCode?" || WIRE_OPENCODE=0; fi
+  if will_pull_model; then
+    ask_yes "  Download the embedding model $MODEL ($(model_size)) for semantic search? Without it, search is by keywords only." || DO_OLLAMA_PULL=0
+  fi
+  return 0
+}
+
+will_pull_model() {
+  [ "$CHOOSE_MODEL" = 1 ] && [ "$HAS_OLLAMA" = 1 ] && [ "$OLLAMA_UP" = 1 ] && [ "$MODEL_PRESENT" = 0 ] && [ "$DO_OLLAMA_PULL" = 1 ]
+}
+
+model_size() {
+  if [ "$MODEL" = nomic-embed-text-v2-moe ]; then printf 'about 960 MB'; else printf 'size depends on the model'; fi
+}
+
 confirm() {
   [ "$ASSUME_YES" = 1 ] && return 0
-  # Under `curl | sh` stdin is the script itself, so ask the terminal directly.
   # No terminal at all (CI, a pipe with no tty) means nobody can answer: stop.
-  # Probed in a subshell: a failed `exec` redirection would end this shell.
-  if (exec 3</dev/tty) 2>/dev/null; then
-    exec 3</dev/tty
-    printf '\n%s [y/N] ' "$1" >/dev/tty
+  if open_tty; then
+    prompt "$(printf '\n%s [y/N] ' "$1")"
     read -r _answer <&3 || _answer=""
-    exec 3<&-
     case "$_answer" in y|Y|yes|YES) return 0 ;; esac
     say "Nothing changed."
     exit 1
@@ -521,33 +677,59 @@ strip_block() { # file -> stdout without the managed block (and the blank line w
   ' "$1"
 }
 
-write_claude_md_block() { # $1 = install|update
-  [ "$DO_CLAUDE_MD" = 1 ] || return 0
-  if [ -f "$CLAUDE_MD" ] && grep -qF "$BLOCK_BEGIN" "$CLAUDE_MD"; then
-    _tmp="$CLAUDE_MD.mnemosyne-tmp"
-    { strip_block "$CLAUDE_MD"; printf '\n%s\n' "$BLOCK_BEGIN"; memory_block; printf '%s\n' "$BLOCK_END"; } > "$_tmp"
-    if cmp -s "$_tmp" "$CLAUDE_MD"; then rm -f "$_tmp"; else mv "$_tmp" "$CLAUDE_MD"; say "Refreshed the Mnemosyne block in $CLAUDE_MD."; fi
+write_block() { # $1 = file (CLAUDE.md, an AGENTS.md), $2 = install|update
+  if has_block "$1"; then
+    _tmp="$1.mnemosyne-tmp"
+    { strip_block "$1"; printf '\n%s\n' "$BLOCK_BEGIN"; memory_block; printf '%s\n' "$BLOCK_END"; } > "$_tmp"
+    if cmp -s "$_tmp" "$1"; then rm -f "$_tmp"; else mv "$_tmp" "$1"; say "Refreshed the Mnemosyne block in $1."; fi
     return 0
   fi
-  [ "$1" = install ] || return 0
-  if [ -f "$CLAUDE_MD" ] && grep -q 'mneme' "$CLAUDE_MD"; then
-    say "$CLAUDE_MD already mentions mneme; not adding the instructions block."
+  [ "$2" = install ] || return 0
+  if [ -f "$1" ] && grep -q 'mneme' "$1"; then
+    say "$1 already mentions mneme; not adding the instructions block."
     return 0
   fi
-  mkdir -p "$CLAUDE_DIR"
-  backup_once "$CLAUDE_MD"
-  { printf '\n%s\n' "$BLOCK_BEGIN"; memory_block; printf '%s\n' "$BLOCK_END"; } >> "$CLAUDE_MD"
-  say "Added the Mnemosyne block to $CLAUDE_MD."
+  mkdir -p "$(dirname "$1")"
+  backup_once "$1"
+  { printf '\n%s\n' "$BLOCK_BEGIN"; memory_block; printf '%s\n' "$BLOCK_END"; } >> "$1"
+  say "Added the Mnemosyne block to $1."
 }
 
-remove_claude_md_block() {
-  if [ -f "$CLAUDE_MD" ] && grep -qF "$BLOCK_BEGIN" "$CLAUDE_MD"; then
-    _tmp="$CLAUDE_MD.mnemosyne-tmp"
-    strip_block "$CLAUDE_MD" > "$_tmp"
+remove_block() { # $1 = file
+  if has_block "$1"; then
+    _tmp="$1.mnemosyne-tmp"
+    strip_block "$1" > "$_tmp"
     # An empty leftover means the file only ever held our block.
-    if [ -s "$_tmp" ] && grep -q '[^[:space:]]' "$_tmp"; then mv "$_tmp" "$CLAUDE_MD"; else rm -f "$_tmp" "$CLAUDE_MD"; fi
-    say "Removed the Mnemosyne block from $CLAUDE_MD."
+    if [ -s "$_tmp" ] && grep -q '[^[:space:]]' "$_tmp"; then mv "$_tmp" "$1"; else rm -f "$_tmp" "$1"; fi
+    say "Removed the Mnemosyne block from $1."
   fi
+}
+
+# Remove the session hook from a harness's settings file, running mneme with
+# the wrapper's own node first: a hook left behind without its command breaks
+# the start of every session. A file the install created (no original was
+# saved) and that THIS removal left empty goes too; one the user had stays.
+remove_hook() { # $1 = claude-code|codex, $2 = its settings file
+  has_hook "$2" || return 0
+  if [ -f "$MNEME_JS" ] && [ -n "$_unode" ] && "$_unode" "$MNEME_JS" uninstall-hook --harness "$1" --write; then
+    if [ ! -e "$2.before-mnemosyne" ] && [ -f "$2" ] && [ "$(cat "$2")" = "{}" ]; then
+      rm -f "$2"
+      say "Deleted $2 (the install created it, and nothing else is in it)."
+    fi
+  else
+    warn "cannot run mneme to edit $2; remove the 'mneme context' SessionStart hook from it by hand."
+  fi
+}
+
+wire_agents() {
+  if [ "$WIRE_CLAUDE" = 1 ] && [ "$DO_CLAUDE_MD" = 1 ]; then write_block "$CLAUDE_MD" "$ACTION"; fi
+  if [ "$WIRE_CODEX" = 1 ]; then
+    [ "$ACTION" = install ] && backup_once "$CODEX_HOOKS"
+    mneme_run install-hook --harness codex --write --root "$STORE_ROOT" || warn "could not write the Codex hook; see 'mneme install-hook --harness codex'"
+    write_block "$(codex_md)" "$ACTION"
+  fi
+  if [ "$WIRE_OPENCODE" = 1 ] && [ "$(opencode_mode)" = own ]; then write_block "$OPENCODE_MD" "$ACTION"; fi
+  return 0
 }
 
 write_wrappers() {
@@ -638,10 +820,12 @@ sqlite_loads() {
 run_init() {
   # Pass the model only when Ollama can actually serve it; otherwise init keeps
   # whatever this store already has, or picks tier 0 on a fresh one.
+  # Claude Code's hook comes with init; skipped when Claude Code is not wired.
+  _hook=""; [ "$WIRE_CLAUDE" = 1 ] || _hook="--no-hook"
   if [ "$CHOOSE_MODEL" = 1 ] && { [ "$MODEL_PRESENT" = 1 ] || [ "$MODEL_EXPLICIT" = 1 ]; }; then
-    mneme_run init --write --root "$STORE_ROOT" --model "$MODEL"
+    mneme_run init --write --root "$STORE_ROOT" --model "$MODEL" $_hook
   else
-    mneme_run init --write --root "$STORE_ROOT"
+    mneme_run init --write --root "$STORE_ROOT" $_hook
   fi
 }
 
@@ -649,6 +833,7 @@ run_init() {
 do_install_or_update() {
   check_requirements
   resolve_target
+  [ "$BLOCKING" = 1 ] || ask_choices
   plan_install
   if [ "$BLOCKING" = 1 ]; then
     die "fix the [MISSING] items above, then re-run. Nothing was changed."
@@ -656,7 +841,8 @@ do_install_or_update() {
   if [ "$DRY_RUN" = 1 ]; then
     if [ -f "$MNEME_JS" ] && command -v node >/dev/null 2>&1; then
       section "mneme init would do (its own dry run)"
-      if [ "$CHOOSE_MODEL" = 1 ] && { [ "$MODEL_PRESENT" = 1 ] || [ "$MODEL_EXPLICIT" = 1 ]; }; then mneme_run init --root "$STORE_ROOT" --model "$MODEL"; else mneme_run init --root "$STORE_ROOT"; fi
+      _hook=""; [ "$WIRE_CLAUDE" = 1 ] || _hook="--no-hook"
+      if [ "$CHOOSE_MODEL" = 1 ] && { [ "$MODEL_PRESENT" = 1 ] || [ "$MODEL_EXPLICIT" = 1 ]; }; then mneme_run init --root "$STORE_ROOT" --model "$MODEL" $_hook; else mneme_run init --root "$STORE_ROOT" $_hook; fi
     fi
     say ""
     say "Dry run: nothing was changed."
@@ -683,7 +869,7 @@ do_install_or_update() {
   build
   [ -f "$MNEME_JS" ] || die "$MNEME_JS is missing; the build did not produce the CLI."
 
-  if [ "$CHOOSE_MODEL" = 1 ] && [ "$HAS_OLLAMA" = 1 ] && [ "$OLLAMA_UP" = 1 ] && [ "$MODEL_PRESENT" = 0 ] && [ "$DO_OLLAMA_PULL" = 1 ]; then
+  if will_pull_model; then
     section "Downloading the embedding model"
     if ollama pull "$MODEL"; then MODEL_PRESENT=1; else warn "ollama pull failed; continuing in tier 0 (see above to add it later)"; fi
   fi
@@ -691,9 +877,9 @@ do_install_or_update() {
   section "Wiring it in"
   write_wrappers
   say "Wrote $BIN_DIR/mneme and $BIN_DIR/mem."
-  [ "$ACTION" = install ] && backup_once "$SETTINGS"
+  [ "$ACTION" = install ] && [ "$WIRE_CLAUDE" = 1 ] && backup_once "$SETTINGS"
   run_init
-  write_claude_md_block "$ACTION"
+  wire_agents
   if [ "$ACTION" = update ]; then
     # No index schema version to migrate: schema additions apply themselves
     # when the index is opened, and a changed embedder is caught by reindex.
@@ -704,7 +890,20 @@ do_install_or_update() {
 
   section "Done"
   [ "$IN_PLACE" = 0 ] && say "Mnemosyne $(current_version) is installed in $INSTALL_DIR."
-  say "Your memories live in $STORE_ROOT. Open a new Claude Code session and it starts with them."
+  say "Your memories live in $STORE_ROOT."
+  [ "$WIRE_CLAUDE" = 1 ] && say "Claude Code: open a new session and it starts with them."
+  if [ "$WIRE_CODEX" = 1 ]; then
+    say "Codex CLI:   open Codex and trust the hook once with /hooks (until then it does nothing). Its"
+    say "             default sandbox blocks the network and writes outside the project: allow 'mneme'"
+    say "             both, or search (Ollama) and add (writes to $STORE_ROOT) fail quietly."
+  fi
+  if [ "$WIRE_OPENCODE" = 1 ]; then
+    if [ "$(opencode_mode)" = manual ]; then
+      say "OpenCode:    not wired — paste the block from $INSTALL_DIR/docs/integrations/memory-instructions.md"
+    else
+      say "OpenCode:    no session hook — the instructions tell the agent to run 'mneme context' itself."
+    fi
+  fi
   say "Try: mneme add \"I prefer short answers\" --type user --slug short-answers"
   say "     mneme search \"answers\""
   say "Update later with:    $( [ "$IN_PLACE" = 1 ] && printf '%s' "$INSTALL_DIR/install.sh update" || printf '%s' "mneme upgrade   (or: sh $INSTALL_DIR/install.sh update)" )"
@@ -733,23 +932,13 @@ do_uninstall() {
   fi
 
   section "Uninstalling"
-  # Removed BEFORE the wrappers, and with the wrapper's own node first: a hook
-  # left behind without its command breaks the start of every session.
+  # Hooks go BEFORE the wrappers (see remove_hook), for every agent, whatever
+  # is on the PATH now: they are found by what the install left behind.
   _unode="$(wrapper_node)"
   [ -n "$_unode" ] || _unode="$(command -v node 2>/dev/null || true)"
-  _had_hook=0
-  if [ -f "$SETTINGS" ] && grep -q 'mneme context' "$SETTINGS"; then _had_hook=1; fi
-  if [ -f "$MNEME_JS" ] && [ -n "$_unode" ] && "$_unode" "$MNEME_JS" uninstall-hook --write; then
-    # A settings.json the install created (no original was saved) and that
-    # THIS removal left empty goes too; one the user had stays, even if empty.
-    if [ "$_had_hook" = 1 ] && [ ! -e "$SETTINGS.before-mnemosyne" ] && [ -f "$SETTINGS" ] && [ "$(cat "$SETTINGS")" = "{}" ]; then
-      rm -f "$SETTINGS"
-      say "Deleted $SETTINGS (the install created it, and nothing else is in it)."
-    fi
-  elif [ -f "$SETTINGS" ] && grep -q 'mneme context' "$SETTINGS"; then
-    warn "cannot run mneme to edit $SETTINGS; remove the 'mneme context' SessionStart hook from it by hand."
-  fi
-  remove_claude_md_block
+  remove_hook claude-code "$SETTINGS"
+  remove_hook codex "$CODEX_HOOKS"
+  for _f in "$CLAUDE_MD" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/AGENTS.override.md" "$OPENCODE_MD"; do remove_block "$_f"; done
   for _name in mneme mem; do
     if [ -f "$BIN_DIR/$_name" ] && grep -q "$OWNER_MARK" "$BIN_DIR/$_name"; then rm -f "$BIN_DIR/$_name"; fi
   done

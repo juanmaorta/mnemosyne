@@ -25,7 +25,7 @@ it — and when they do, nothing has been changed.
 | **npm** | required | Ships with Node.js. Used only to fetch dependencies — Mnemosyne itself is not on npm. | Same as Node.js. |
 | **git** | required (unless you run the installer from your own clone) | Downloads the code and updates it later. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y git` (Fedora: `sudo dnf install -y git`). |
 | C/C++ build tools | warning only | The SQLite modules (`better-sqlite3`, `sqlite-vec`) are native. npm normally downloads a prebuilt binary and compiles only when none matches your machine. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y build-essential python3` (Fedora: `sudo dnf install -y gcc-c++ make python3`). |
-| **Claude Code** (`claude`) | warning only | The agent Mnemosyne wires into. Mnemosyne installs anyway; the session hook does something only once Claude Code is installed. | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| An agent: **Claude Code** (`claude`), the **Codex CLI** (`codex`), **OpenCode** (`opencode`) | warning only | The installer wires into every one it finds (on the `PATH`, or its config folder). None found: it wires Claude Code and installs anyway. | Claude Code: `curl -fsSL https://claude.ai/install.sh \| bash`. Codex: `npm install -g @openai/codex`. OpenCode: [opencode.ai](https://opencode.ai/docs). |
 | [Ollama](https://ollama.com) | optional | Semantic search. See the next section. | `ollama serve` (or open the Ollama app) if it is installed but not running. |
 
 Ollama is checked over HTTP (`$OLLAMA_HOST/api/tags`, default `http://localhost:11434`), so the
@@ -98,27 +98,40 @@ cd mnemosyne
 
 ### What it changes
 
-Before touching anything, the installer prints this plan and asks `Go ahead? [y/N]`. It asks
-through the terminal, so the prompt works under `curl | sh`; with no terminal at all (CI, a
-pipe) it stops and changes nothing unless you pass `--yes`.
+First it asks a few questions, each defaulting to yes (Enter): whether to wire each agent it
+found, and — only when Ollama is running without the model — whether to download the model
+(about 960 MB). Then it prints this plan and asks `Go ahead? [y/N]`. It asks through the
+terminal, so the prompts work under `curl | sh`; with `--yes` it takes the defaults without
+asking, and with no terminal at all (CI, a pipe) it stops and changes nothing unless you pass
+`--yes`.
 
 - **code** — `git clone` into `~/.mnemosyne` (or your clone, used in place), then
   `npm ci && npm run build` inside it. Dependencies stay in that folder.
 - **commands** — `~/.local/bin/mneme` and `~/.local/bin/mem`: small wrappers that run the built
   CLI with an absolute path to `node` (so the hook works without your shell's `nvm`/`asdf`
   setup) and default to your store.
-- **hook** — a `SessionStart` hook that runs `mneme context --root '<store>'`, added to
-  `~/.claude/settings.json`. Other settings are untouched; the original file is saved once as
-  `settings.json.before-mnemosyne`.
+- **agents** — for each agent it wires:
+  - **Claude Code**: a `SessionStart` hook that runs `mneme context --root '<store>'`, added to
+    `~/.claude/settings.json` (other settings untouched; the original file saved once as
+    `settings.json.before-mnemosyne`), and the instructions block in `~/.claude/CLAUDE.md`.
+  - **Codex CLI**: a `SessionStart` hook in `$CODEX_HOME/hooks.json` (default `~/.codex`), and
+    the block in `$CODEX_HOME/AGENTS.md` — or in `AGENTS.override.md` when that file has
+    content, because Codex then ignores `AGENTS.md`. Codex runs a new hook only once you trust
+    it with `/hooks`, and its default sandbox blocks the network and writes outside the project:
+    allow both for `mneme` ([details](../integrations/agents.md#level-2--automatic-injection-at-session-start)).
+  - **OpenCode**: no hook (OpenCode has none); the block in `~/.config/opencode/AGENTS.md`,
+    which tells the agent to run `mneme context` itself. While that file does not exist,
+    OpenCode reads `~/.claude/CLAUDE.md` instead — so when that one carries the block, nothing
+    is written, and creating the file is avoided whenever it would hide your `CLAUDE.md`.
 - **data** — your memories live in `~/memory` as plain Markdown files. Existing notes are never
   touched. Added if missing: `.scopemap` (with a catch-all `~ = personal`) and `.config.json`
   (search tier and model, so no environment variables are needed).
-- **CLAUDE.md** — a block, between `<!-- mnemosyne:begin … -->` and `<!-- mnemosyne:end -->`
-  markers, telling Claude to use `mneme` for memory, appended to `~/.claude/CLAUDE.md`. It is
-  skipped if that file already mentions `mneme`; `--no-claude-md` opts out. The block's text is
+- **the instructions block** — the same text for every agent, between
+  `<!-- mnemosyne:begin … -->` and `<!-- mnemosyne:end -->` markers, telling the agent to use
+  `mneme` for memory. Skipped in a file that already mentions `mneme`. The text is
   [`docs/integrations/memory-instructions.md`](../integrations/memory-instructions.md).
-- **ollama** — `ollama pull nomic-embed-text-v2-moe`, only if Ollama is running without the
-  model and you did not pass `--no-ollama-pull`.
+- **ollama** — `ollama pull nomic-embed-text-v2-moe` (about 960 MB), only if Ollama is running
+  without the model, you said yes (or passed `--yes`) and did not pass `--no-ollama-pull`.
 
 If `~/.local/bin` is not on your `PATH`, the plan says so and prints the line to add, and the
 end of the install repeats it. **The installer does not edit your shell files**; add it yourself to your shell's startup file (zsh:
@@ -149,8 +162,9 @@ prints the note in full. Then:
 
 - Run `mneme context` in a project directory: that is the digest the hook injects. A store with
   one note prints a digest with one line.
-- Open a **new** Claude Code session. It starts with that digest already in context — ask it
-  what it knows about your answer preferences.
+- Open a **new** Claude Code or Codex session (in Codex, trust the hook first with `/hooks`). It
+  starts with that digest already in context — ask it what it knows about your answer
+  preferences. OpenCode runs `mneme context` itself, as the block tells it.
 - `mneme stats` reports the store and index health.
 
 If something is off, see [Troubleshooting](troubleshooting.md).
@@ -177,8 +191,10 @@ mneme upgrade              # shows the plan and asks; --dry-run to only look, --
 `mneme upgrade` runs `~/.mnemosyne/install.sh update`, which you can also run directly. It
 fetches the release tags, moves the installer's clone to the newest one (refusing if you edited
 files in it), rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
-`.scopemap` — and brings the search index up to date with `mneme reindex`. The `CLAUDE.md` block
-is refreshed only if a previous install added it (its markers are there). Your data is untouched.
+`.scopemap` — and brings the search index up to date with `mneme reindex`. It refreshes the
+agents a previous install wired (their hooks, and the blocks where their markers are) and adds
+none: an agent you installed since is wired by running the installer again (`install`, not
+`update`). Your data is untouched.
 Update is idempotent: run it again on the latest release and nothing changes.
 
 `mneme --version` says which version you are on (and, in a git checkout, the exact tag or commit).
@@ -208,12 +224,14 @@ sh ~/.mnemosyne/install.sh uninstall --delete-data   # ...and deletes ~/memory t
 
 Uninstall removes exactly what install added, and only that:
 
-- **hook** — every `mneme context` SessionStart hook in `~/.claude/settings.json` (via
-  `mneme uninstall-hook --write`, run with the same Node.js the install used, so it works even
-  from a shell where `node` is not on the `PATH`); the rest of the file is left alone. If the
-  install created that file and nothing else is left in it, it is deleted.
-- **CLAUDE.md** — the block between the Mnemosyne markers, leaving the rest of the file
-  byte-identical.
+- **hooks** — every `mneme context` SessionStart hook in `~/.claude/settings.json` and
+  `$CODEX_HOME/hooks.json` (via `mneme uninstall-hook --write`, run with the same Node.js the
+  install used, so it works even from a shell where `node` is not on the `PATH`); the rest of
+  each file is left alone. A file the install created with nothing else left in it is deleted.
+- **blocks** — the block between the Mnemosyne markers in `~/.claude/CLAUDE.md`, Codex's
+  `AGENTS.md` / `AGENTS.override.md` and `~/.config/opencode/AGENTS.md`, leaving the rest of
+  each file byte-identical. Agents are found by these markers, whether or not they are still
+  installed.
 - **commands** — `mneme` and `mem` in `~/.local/bin`, but only the wrappers the installer wrote
   (a `mneme` you linked yourself is never removed).
 - **code** — `~/.mnemosyne`, but only if the installer cloned it. Your own clone is kept.
@@ -234,13 +252,16 @@ Every command (`install`, the default; `update`; `uninstall`) accepts:
 | Option | Meaning |
 |---|---|
 | `--dry-run` | Say what would happen and change nothing. |
-| `-y`, `--yes` | Do not ask for confirmation (required when there is no terminal). Through a pipe: `\| sh -s -- --yes`. |
+| `-y`, `--yes` | Do not ask: take the defaults (wire every agent found, download the model) and go ahead. Required when there is no terminal. Through a pipe: `\| sh -s -- --yes`. |
 | `--dir DIR` | Where the code lives (default `~/.mnemosyne`). |
 | `--bin-dir DIR` | Where `mneme` and `mem` go (default `~/.local/bin`). |
 | `--root DIR` | Where your memories live (default `$MNEMOSYNE_ROOT`, else `~/memory`). The hook and the wrappers both default to that store; `MNEMOSYNE_ROOT` still overrides it at run time. |
 | `--model NAME` | Embedding model for Ollama (default `nomic-embed-text-v2-moe`). |
 | `--no-ollama-pull` | Never download the embedding model. |
-| `--no-claude-md` | Do not add the memory instructions block to `~/.claude/CLAUDE.md`. |
+| `--no-claude` | Do not wire Claude Code (neither its hook nor the `~/.claude/CLAUDE.md` block). |
+| `--no-codex` | Do not wire the Codex CLI. |
+| `--no-opencode` | Do not wire OpenCode. |
+| `--no-claude-md` | Wire Claude Code's hook, but do not add the block to `~/.claude/CLAUDE.md`. |
 | `--no-build` | Use the checkout as already built (development). |
 | `--delete-data` | `uninstall` only: also delete the memory store. |
 | `-h`, `--help` | The script's own help. |

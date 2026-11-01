@@ -149,6 +149,18 @@ describe("install-hook --harness codex", () => {
     expect(parsed.hooks.SessionStart[0]!.hooks[0]!.command).toContain("codex-session-start");
   });
 
+  test("codex_install_hook_root_bakes_it_in_and_replaces_an_old_one", async () => {
+    // MNE-113 (Codex review): the installer passes its store; a hook left by an
+    // install with another --root must follow, or sessions read the old store.
+    mkdirSync(join(fakeHome, ".codex"), { recursive: true });
+    writeFileSync(hooksPath(), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "mneme context --emit codex-session-start --root '/old-memory'" }] }] } }));
+    const code = await runCli(["install-hook", "--harness", "codex", "--write", "--root", "/new-memory"], () => {});
+    expect(code).toBe(0);
+    const cmds = (JSON.parse(readFileSync(hooksPath(), "utf8")) as { hooks: { SessionStart: { hooks: { command: string }[] }[] } })
+      .hooks.SessionStart.flatMap((g) => g.hooks.map((h) => h.command));
+    expect(cmds).toEqual(["mneme context --emit codex-session-start --root '/new-memory'"]);
+  });
+
   test("codex_install_hook_write_honours_CODEX_HOME", async () => {
     const codexHome = temp("mneme-codexhome-");
     process.env.CODEX_HOME = codexHome;

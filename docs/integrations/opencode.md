@@ -7,8 +7,15 @@ does it for it.
 
 ## The block
 
-Paste the agent-agnostic block from
+The installer does this when it finds OpenCode. By hand: paste the agent-agnostic block from
 [`memory-instructions.md`](memory-instructions.md) into the `AGENTS.md` that OpenCode reads.
+
+Which file: OpenCode reads `~/.config/opencode/AGENTS.md`, and **only while that file does not
+exist** falls back to `~/.claude/CLAUDE.md`. So if your `CLAUDE.md` already carries the block
+(Claude Code wired too), OpenCode has it and there is nothing to add — and creating
+`~/.config/opencode/AGENTS.md` would cut the rest of your `CLAUDE.md` off from OpenCode. The
+installer writes there only when the file exists, when nothing would be hidden, or when
+`OPENCODE_DISABLE_CLAUDE_CODE` / `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` is set.
 It is the same block used for Claude Code and the Codex CLI — it names no harness and uses
 only real `mneme` commands — so there is nothing OpenCode-specific to add to it.
 

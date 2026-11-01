@@ -10,9 +10,13 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 // @ts-expect-error -- plain ESM script without type declarations
 import * as release from "../scripts/release.mjs";
+
+// Each prepare case runs a few dozen git processes: under the full parallel
+// suite that takes longer than vitest's 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(repo, "scripts", "release.mjs");
