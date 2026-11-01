@@ -36,7 +36,7 @@ import {
   uninstallSessionStartHook,
   SESSION_START_COMMAND,
 } from "./hook.js";
-import { mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { scanForSecrets, hasRejectFinding } from "./secrets/scanner.js";
 import { rescanStore, formatStoreFinding, formatRescanSummary } from "./secrets/rescan.js";
@@ -560,11 +560,12 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           out(`Add this to ${settingsPath}:\n\n${snippet}${trustNote}`);
           return 0;
         }
-        if (installSessionStartHook(settingsPath, { codex }) === "parse-error") {
+        const hookResult = installSessionStartHook(settingsPath, { codex });
+        if (hookResult === "parse-error") {
           err(`Could not parse ${settingsPath}; not modifying it. Paste manually:\n\n${snippet}`);
           return 1;
         }
-        out(`Installed SessionStart hook into ${settingsPath}.${trustNote}`);
+        out(`${hookResult === "unchanged" ? "SessionStart hook already in" : "Installed SessionStart hook into"} ${settingsPath}.${trustNote}`);
         return 0;
       }
       case "uninstall-hook": {
@@ -661,7 +662,8 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           ].join("\n"));
           return 0;
         }
-        if (installSessionStartHook(settingsPath, { root }) === "parse-error") {
+        const hookResult = installSessionStartHook(settingsPath, { root });
+        if (hookResult === "parse-error") {
           err(`Could not parse ${settingsPath}; not modifying it. Fix or remove it and re-run 'mneme init --write'.`);
           return 1;
         }
@@ -669,7 +671,9 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // Persist the tier so EVERY mneme invocation honours it, not just the
         // hook. `MNEMOSYNE_EMBEDDER` still overrides this at runtime.
         mkdirSync(dirname(paths.config), { recursive: true });
-        writeFileSync(paths.config, `${JSON.stringify(nextConfig, null, 2)}\n`);
+        const configText = `${JSON.stringify(nextConfig, null, 2)}\n`;
+        const configChanged = !existsSync(paths.config) || readFileSync(paths.config, "utf8") !== configText;
+        if (configChanged) writeFileSync(paths.config, configText);
         if (tier === "ollama" && !hasOllama) {
           err(`warning: Ollama is not serving '${model}' right now. Start Ollama and run 'ollama pull ${model}'; until then search fails (or choose tier 0 with 'mneme init --write --embedder none').`);
         }
@@ -677,10 +681,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           err("note: Ollama is available, but this store stays on tier 0 as configured. Switch with 'mneme init --write --embedder ollama'.");
         }
         out([
-          `Installed SessionStart hook into ${settingsPath}.`,
+          hookResult === "unchanged" ? `SessionStart hook already in ${settingsPath}.` : `Installed SessionStart hook into ${settingsPath}.`,
           wroteScopeMap ? `Wrote ${paths.scopeMap} (catch-all '~ = ${DEFAULT_SCOPE}').` : `Left existing ${paths.scopeMap} untouched.`,
           tier === "ollama" ? `Tier: embedder (Ollama, model ${model}).` : "Tier 0: no embedder; search/context use BM25 over FTS.",
-          `Wrote ${paths.config}.`,
+          configChanged ? `Wrote ${paths.config}.` : `Left ${paths.config} unchanged.`,
         ].join("\n"));
         return 0;
       }

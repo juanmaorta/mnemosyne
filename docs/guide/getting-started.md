@@ -120,8 +120,8 @@ pipe) it stops and changes nothing unless you pass `--yes`.
 - **ollama** — `ollama pull nomic-embed-text-v2-moe`, only if Ollama is running without the
   model and you did not pass `--no-ollama-pull`.
 
-If `~/.local/bin` is not on your `PATH`, the plan says so and prints the line to add. **The
-installer does not edit your shell files**; add it yourself to your shell's startup file (zsh:
+If `~/.local/bin` is not on your `PATH`, the plan says so and prints the line to add, and the
+end of the install repeats it. **The installer does not edit your shell files**; add it yourself to your shell's startup file (zsh:
 `~/.zshenv`; bash: `~/.bashrc` and `~/.profile`):
 
 ```sh
@@ -129,6 +129,11 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 This matters: the hook runs `mneme`, so it has to be found from a fresh shell.
+
+On a first install, `mneme` may not be found in the terminal you installed from, even when
+your shell setup is right: on Ubuntu, for example, `~/.profile` adds `~/.local/bin` only if it
+already existed when the shell started. Open a new terminal (or run the `export` line above in
+this one).
 
 ## Verify
 
@@ -204,7 +209,9 @@ sh ~/.mnemosyne/install.sh uninstall --delete-data   # ...and deletes ~/memory t
 Uninstall removes exactly what install added, and only that:
 
 - **hook** — every `mneme context` SessionStart hook in `~/.claude/settings.json` (via
-  `mneme uninstall-hook --write`); the rest of the file is left alone.
+  `mneme uninstall-hook --write`, run with the same Node.js the install used, so it works even
+  from a shell where `node` is not on the `PATH`); the rest of the file is left alone. If the
+  install created that file and nothing else is left in it, it is deleted.
 - **CLAUDE.md** — the block between the Mnemosyne markers, leaving the rest of the file
   byte-identical.
 - **commands** — `mneme` and `mem` in `~/.local/bin`, but only the wrappers the installer wrote
