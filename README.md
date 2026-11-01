@@ -3,24 +3,23 @@
 [![CI](https://github.com/juanmaorta/mnemosyne/actions/workflows/ci.yml/badge.svg)](https://github.com/juanmaorta/mnemosyne/actions/workflows/ci.yml)
 
 > [!WARNING]
-> **Pre-release.** Mnemosyne is used daily by its author but has not had a release yet. The
-> on-disk format is stable (plain Markdown), but commands, flags and defaults can still change
-> between commits. Your notes are always plain files you can read and keep.
+> **Early days (v0.1).** Mnemosyne is used daily by its author, but it is young: commands,
+> flags and defaults can still change between releases. The on-disk format is stable (plain
+> Markdown), so your notes are always plain files you can read and keep.
 
-<!-- PITCH: pending MNE-101 -->
-**Persistent memory for LLM agents, kept as plain Markdown files on your own disk.**
+**Your agent's memory, owned by you — not by your agent's vendor.**
 
-Agents forget everything between sessions. Mnemosyne gives them a memory that lasts: it keeps
-what matters as Markdown files on your disk, brings the relevant part back at the start of
-every session, and lets the agent search and add to it as it works.
+Mnemosyne is a single, local memory store shared by Claude Code, Codex, OpenCode and any agent
+that can run a shell command. It lives in plain Markdown on your disk: read it, edit it, grep
+it, back it up. Change tools whenever you like; what your agents learned comes with you.
 
 - **Recall that behaves like memory.** Memories are ranked by relevance, recency and
   importance, reinforced when recalled and allowed to fade when ignored.
 - **Local-first.** Runs offline. The Markdown files are the source of truth; the search index
   is derived, local and disposable. Browse and edit your memories in any editor, or in Obsidian.
-- **Agent-agnostic.** The data knows nothing about any particular agent. Claude Code and the
-  Codex CLI get automatic injection at session start; anything that can run a shell command can
-  use it.
+- **Agent-agnostic.** The data knows nothing about any particular agent. The installer wires
+  in each one it finds: Claude Code and the Codex CLI get the memory injected at session start,
+  OpenCode gets instructions to load it itself, and any other agent can use the `mneme` CLI.
 - **Separated by design.** Memory is partitioned into *scopes* (personal, work, a client).
   A scope is a folder: deleting it is a real delete.
 
