@@ -60,7 +60,7 @@ mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s]
 mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply]
 
 # Apply (or revert) a reviewed Dreaming plan — creates derived notes, reversibly.
-# Dry run by default; --apply commits.
+# Dry run by default; --apply commits. Preview: no command generates a plan yet.
 mneme dream apply  --run <runId> --scope <scope> [--apply] [--root r]
 mneme dream revert --run <runId> --scope <scope> [--apply] [--root r]
 
@@ -418,6 +418,10 @@ Read-only. Prints the scope a write from that path (default: the current directo
 to — fail-closed, so possibly "unmapped → pass --scope" — and whether this machine owns it.
 
 ## dream
+
+> **Preview.** No `mneme` command generates a plan yet, so there is no `<runId>` to pass today:
+> these commands are the reviewed, reversible half of [Dreaming](../guide/concepts.md#dreaming),
+> which is in development. They are documented because their guarantees are part of the design.
 
 Dreaming's consolidation never writes the store directly. It produces a **plan** — a reviewable
 dry-run artifact under `.telemetry/dreams/<scope>/<runId>.json` — and applying it is this

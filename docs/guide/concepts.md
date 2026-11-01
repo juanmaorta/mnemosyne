@@ -137,11 +137,22 @@ instruction block in `~/.claude/CLAUDE.md`. See [Everyday use](everyday-use.md).
 
 ## Dreaming
 
+> **In development.** Dreaming is not something you can run yet. It is here because it is where
+> the project is going, and feedback on the design is welcome.
+
 *Dreaming* is a consolidation pass that distills raw facts into curated notes and links related
-memories, without growing what gets loaded into context. Today it produces a **plan** you review;
-applying it is a separate, explicit, reversible command (`mneme dream apply` / `revert`, see the
-[CLI reference](../reference/cli.md#dream)). Nothing runs it on a schedule yet, and it never
-writes your store on its own. Design notes, and how it compares to Anthropic's Dreams API:
+memories, without growing what gets loaded into context. It never writes your store on its own:
+it produces a **plan** you review, and applying that plan is a separate, explicit, reversible
+step.
+
+- **Built:** applying a reviewed plan and reverting it, with their guarantees — derived notes
+  only, a plan whose sources changed since is refused, an exact undo that keeps notes you edited
+  by hand (`mneme dream apply` / `revert`, see the [CLI reference](../reference/cli.md#dream)).
+  The synthesis that writes the plan exists too, and is being evaluated against real notes.
+- **Not built yet:** a command that generates a plan — so today there is no plan for
+  `dream apply` to use —, running it on a schedule, and archiving what has faded (*lethe*).
+
+Design notes, what exists in detail, and how it compares to Anthropic's Dreams API:
 [Dreaming](../dev/dreaming.md).
 
 ## Glossary
@@ -155,4 +166,4 @@ writes your store on its own. Design notes, and how it compares to Anthropic's D
 | tier 0 | Search without an embedder: keyword (BM25) only, fully offline. |
 | cosine floor | The minimum similarity a search candidate needs in the embedder tier. |
 | lethe | The decay → archive subsystem (archival is on the roadmap). |
-| dreaming | Offline consolidation of facts into notes. |
+| dreaming | Offline consolidation of facts into notes (in development). |
