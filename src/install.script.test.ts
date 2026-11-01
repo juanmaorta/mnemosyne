@@ -366,9 +366,8 @@ describe("install.sh install / update / uninstall", () => {
     expect(JSON.parse(readFileSync(join(had, ".claude", "settings.json"), "utf8"))).toEqual({});
   });
 
-  test("without_git_the_plan_says_the_release_is_resolved_later_instead_of_blanks", async () => {
-    // A PATH that has everything this machine has EXCEPT git.
-    const home = freshHome();
+  /** A PATH that has everything this machine has EXCEPT git. */
+  function pathWithoutGit(home: string): string {
     const bin = join(home, "nogit");
     mkdirSync(bin);
     for (const dir of (process.env.PATH ?? "").split(":")) {
@@ -378,7 +377,33 @@ describe("install.sh install / update / uninstall", () => {
         try { symlinkSync(join(dir, name), join(bin, name)); } catch { /* unreadable entry */ }
       }
     }
-    const r = await pipedInstall(home, "https://example.invalid/repo.git", ["install", "--dry-run"], { PATH: bin });
+    return bin;
+  }
+
+  test("an_empty_settings_json_the_user_had_survives_an_uninstall_that_removed_no_hook", async () => {
+    // No backup (e.g. an install older than backups, or a deleted one) and no hook to remove:
+    // the "{}" is the user's, not something this uninstall emptied.
+    const home = freshHome();
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), "{}\n");
+    const r = await run(home, ["uninstall", "--yes"]);
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(home, ".claude", "settings.json"), "utf8")).toBe("{}\n");
+  });
+
+  test("without_git_an_update_plan_has_no_blanks_either", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".mnemosyne", ".git"), { recursive: true });
+    const r = await pipedInstall(home, "https://example.invalid/repo.git", ["update", "--dry-run"], { PATH: pathWithoutGit(home) });
+    expect(r.out).toMatch(/\[MISSING\] git/);
+    expect(r.out).not.toMatch(/tip of ''/);
+    expect(r.out).not.toMatch(/\(\)/);
+    expect(r.out).toMatch(/resolved once git is installed/);
+  });
+
+  test("without_git_the_plan_says_the_release_is_resolved_later_instead_of_blanks", async () => {
+    const home = freshHome();
+    const r = await pipedInstall(home, "https://example.invalid/repo.git", ["install", "--dry-run"], { PATH: pathWithoutGit(home) });
     expect(r.out).toMatch(/\[MISSING\] git/);
     expect(r.out).not.toMatch(/--branch  /);
     expect(r.out).not.toMatch(/\(\)/);
