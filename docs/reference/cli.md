@@ -71,7 +71,8 @@ mneme uninstall-hook [--harness codex] [--write]
 # The version, plus the git tag or commit when running from a checkout.
 mneme --version          # or -V
 
-# Update an installer-managed install to the latest release (runs its install.sh update).
+# Upgrade an installer-managed install to the latest release (runs its install.sh upgrade,
+# which hands over to the new release's own installer).
 # From your own clone it only says how to update it yourself, and exits 1.
 mneme upgrade [--yes] [--dry-run]
 ```

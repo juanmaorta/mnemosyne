@@ -328,5 +328,5 @@ export function runUpgrade(args: string[], opts: UpgradeOptions): number {
     ].join("\n"));
     return 1;
   }
-  return (opts.run ?? runShInherit)([join(dir, "install.sh"), "update", ...pass]);
+  return (opts.run ?? runShInherit)([join(dir, "install.sh"), "upgrade", ...pass]);
 }

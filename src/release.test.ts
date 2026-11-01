@@ -295,8 +295,8 @@ describe("runUpgrade", () => {
     expect(runUpgrade(["--yes", "--dry-run"], { installDir: dir, err: () => {}, run })).toBe(7);
     expect(runUpgrade(["-y"], { installDir: dir, err: () => {}, run })).toBe(7);
     expect(ran).toEqual([
-      [join(dir, "install.sh"), "update", "--yes", "--dry-run"],
-      [join(dir, "install.sh"), "update", "--yes"],
+      [join(dir, "install.sh"), "upgrade", "--yes", "--dry-run"],
+      [join(dir, "install.sh"), "upgrade", "--yes"],
     ]);
   });
 
