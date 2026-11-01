@@ -722,6 +722,88 @@ describe("install.sh build (MNE-102)", () => {
   });
 });
 
+describe("install.sh upgrade hands over to the target's installer (MNE-114)", () => {
+  /** Tag a release whose install.sh announces itself, as a newer installer would. */
+  function releaseWithMarkedInstaller(repo: string, tag: string): void {
+    const src = readFileSync(join(repo, "install.sh"), "utf8").replace("set -eu\n", 'set -eu\necho "HANDOFF-MARK $*"\n');
+    writeFileSync(join(repo, "install.sh"), src);
+    fixtureCommit(repo, { tag });
+  }
+
+  async function installedAt010(): Promise<{ home: string; repo: string; installer: string }> {
+    const home = freshHome();
+    const repo = fixtureRepo([{ tag: "v0.1.0" }]);
+    expect((await pipedInstall(home, repo, ["--yes", "--no-build", "--no-ollama-pull"])).code).toBe(0);
+    return { home, repo, installer: join(home, ".mnemosyne", "install.sh") };
+  }
+
+  test("upgrade_runs_the_new_versions_installer_with_the_same_arguments_once", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out.match(/HANDOFF-MARK/g)).toHaveLength(1);
+    expect(r.out).toContain("HANDOFF-MARK upgrade --yes --no-build");
+    expect(installedVersion(home)).toBe("0.1.1");
+  });
+
+  test("a_dry_run_shows_the_new_installers_plan_and_moves_nothing", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("HANDOFF-MARK");
+    expect(installedVersion(home)).toBe("0.1.0");
+    expect(git(join(home, ".mnemosyne"), "status", "--porcelain", "--untracked-files=no")).toBe("");
+  });
+
+  test("an_install_in_a_custom_dir_is_upgraded_in_that_dir", async () => {
+    // The old installer finds its clone from its own path; the copy it hands
+    // over to lives in a temp file and has to be told.
+    const home = freshHome();
+    const repo = fixtureRepo([{ tag: "v0.1.0" }]);
+    const dir = join(home, "elsewhere");
+    expect((await pipedInstall(home, repo, ["--yes", "--no-build", "--no-ollama-pull", "--dir", dir])).code).toBe(0);
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const r = await spawnDetached("sh", [join(dir, "install.sh"), "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("HANDOFF-MARK");
+    expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version).toBe("0.1.1");
+    expect(existsSync(join(home, ".mnemosyne"))).toBe(false);
+  });
+
+  test("arguments_with_quotes_survive_the_handoff", async () => {
+    const { home, repo, installer } = await installedAt010();
+    releaseWithMarkedInstaller(repo, "v0.1.1");
+    const root = join(home, "it's memory");
+    const r = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build", "--root", root], baseEnv(home));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(`HANDOFF-MARK upgrade --dry-run --no-build --root ${root}`);
+  });
+
+  test("an_unreachable_repo_keeps_the_running_installer", async () => {
+    const { home, installer } = await installedAt010();
+    git(join(home, ".mnemosyne"), "remote", "set-url", "origin", join(home, "gone"));
+    const r = await spawnDetached("sh", [installer, "upgrade", "--yes", "--no-build"], baseEnv(home));
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/could not list the releases/);
+    expect(installedVersion(home)).toBe("0.1.0");
+  });
+
+  test("it_is_called_upgrade_and_update_still_works", async () => {
+    const { home, repo, installer } = await installedAt010();
+    fixtureCommit(repo, { tag: "v0.1.1" });
+    const up = await spawnDetached("sh", [installer, "upgrade", "--dry-run", "--no-build"], baseEnv(home));
+    expect(up.code, up.out).toBe(0);
+    expect(up.out).toMatch(/Mnemosyne — upgrade/);
+    expect(up.out).toMatch(/What upgrade will change/);
+    expect(up.out).not.toMatch(/update will change/);
+    const old = await spawnDetached("sh", [installer, "update", "--yes", "--no-build"], baseEnv(home));
+    expect(old.code, old.out).toBe(0);
+    expect(installedVersion(home)).toBe("0.1.1");
+  });
+});
+
 describe("install.sh release channel (MNE-111)", () => {
   test("installs_the_newest_semver_tag_ordered_numerically_ignoring_pre_releases_and_other_tags", async () => {
     const repoUrl = fixtureRepo([{ tag: "v0.2.0" }, { tag: "v0.10.0" }, { tag: "v0.9.0" }, { tag: "v0.11.0-rc.1" }, { tag: "nightly" }, { version: "0.12.0-dev" }]);

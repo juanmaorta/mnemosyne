@@ -188,14 +188,18 @@ To update:
 mneme upgrade              # shows the plan and asks; --dry-run to only look, --yes to not ask
 ```
 
-`mneme upgrade` runs `~/.mnemosyne/install.sh update`, which you can also run directly. It
-fetches the release tags, moves the installer's clone to the newest one (refusing if you edited
-files in it), rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
+`mneme upgrade` runs `~/.mnemosyne/install.sh upgrade`, which you can also run directly
+(`update` is accepted as the same thing). It fetches the release tags and hands over to the
+**installer of the new release**: it reads that version's `install.sh` without touching your
+files and runs it with the same options, so the plan you see and every step after it come
+from the version you are moving to — an installer fix reaches you in the upgrade that ships
+it. That installer moves the clone to the new release (refusing if you edited files in it),
+rebuilds, re-runs `mneme init` — which **keeps** your config, hook and
 `.scopemap` — and brings the search index up to date with `mneme reindex`. It refreshes the
 agents a previous install wired (their hooks, and the blocks where their markers are) and adds
 none: an agent you installed since is wired by running the installer again (`install`, not
-`update`). Your data is untouched.
-Update is idempotent: run it again on the latest release and nothing changes.
+`upgrade`). Your data is untouched.
+Upgrade is idempotent: run it again on the latest release and nothing changes.
 
 `mneme --version` says which version you are on (and, in a git checkout, the exact tag or commit).
 
@@ -204,7 +208,7 @@ yourself, then `npm ci && npm run build`. `mneme upgrade` says so, and the new-v
 is off for it.
 
 **Following a branch** instead of releases — the development channel — is
-`MNEMOSYNE_BRANCH=main sh ~/.mnemosyne/install.sh update` (or the same variable on the first
+`MNEMOSYNE_BRANCH=main sh ~/.mnemosyne/install.sh upgrade` (or the same variable on the first
 install). The variable has to be set on every update; without it, update goes back to the latest
 release.
 
@@ -247,7 +251,7 @@ To delete only some memories — one scope, say — rather than everything, see
 
 ## Installer options
 
-Every command (`install`, the default; `update`; `uninstall`) accepts:
+Every command (`install`, the default; `upgrade`, also accepted as `update`; `uninstall`) accepts:
 
 | Option | Meaning |
 |---|---|
