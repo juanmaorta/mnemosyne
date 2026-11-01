@@ -1,0 +1,63 @@
+name: Release
+
+# MNE-112: publishes the tag and the GitHub Release when a merge to main brings
+# a package.json version that has no tag yet. Every other push is a no-op:
+# `scripts/release.mjs plan` prints an empty tag for an already-tagged version.
+# The version bump itself arrives as a reviewed PR (`npm run release -- minor`),
+# so the tag is always derived from package.json and the two cannot disagree —
+# which is what the update notice in `mneme context` compares.
+#
+# workflow_dispatch reruns the same decision by hand, e.g. after fixing a
+# missing CHANGELOG section: it is idempotent, so it never publishes twice.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two merges in a row must not race to create the same tag. A pending run can be
+# replaced by a newer one; `plan` targets the commit that set the version, so the
+# tag still lands on the release merge.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: tag and GitHub Release
+    # Releases come from main only — workflow_dispatch can be run on any ref.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # All tags, so "is this version tagged / higher than the latest" sees them.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Fails — and publishes nothing — when the version is not semver, is not
+      # higher than the latest tag, or has no CHANGELOG section.
+      - id: plan
+        run: node scripts/release.mjs plan --notes-out "$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+
+      # `gh release create` creates the tag on the commit that set the version
+      # (not necessarily the pushed one, when runs were coalesced). A pre-release
+      # (X.Y.Z-rc.N) is never marked latest, so the update notice, which reads
+      # /releases/latest, does not offer it.
+      - if: steps.plan.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          TARGET: ${{ steps.plan.outputs.target }}
+          PRERELEASE: ${{ steps.plan.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then flag=--prerelease; else flag=--latest; fi
+          gh release create "$TAG" --target "$TARGET" --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" "$flag"
