@@ -106,6 +106,15 @@ describe("install.sh --dry-run", () => {
     expect(listTree(home)).toEqual([]);
   });
 
+  test.each([["--root"], ["--dir"], ["--bin-dir"]])("%s_refuses_a_value_that_looks_like_a_flag", async (option) => {
+    // MNE-106: `--root --help` used to install a store at `./--help`.
+    const home = freshHome();
+    const r = await run(home, ["--dry-run", option, "--help"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain(`${option} expects a directory`);
+    expect(listTree(home)).toEqual([]);
+  });
+
   test("without_ollama_it_explains_tier_0_and_what_is_lost", async () => {
     const home = freshHome();
     const r = await run(home, ["--dry-run"]);
