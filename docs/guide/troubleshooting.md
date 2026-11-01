@@ -70,7 +70,7 @@ A store configured for the embedder tier does **not** fall back to keyword searc
   in `~/memory/.config.json`).
 - Check the endpoint: `OLLAMA_HOST` (default `http://localhost:11434`).
 
-If you would rather not depend on Ollama, switch the store to tier 0 (keyword search, offline):
+If you would rather not depend on Ollama, switch the store to tier 0 (keyword search, no Ollama needed):
 
 ```sh
 mneme init --write --embedder none
@@ -113,8 +113,10 @@ scope exists. Map the directory explicitly, or, if the catch-all is intended, ad
 ## A write is refused: this machine does not own the scope
 
 Writes are allowed only to scopes listed in `~/memory/.owner`; with no `.owner`, only `personal`.
-Add the scope to `owns` — but on a multi-machine setup, make sure only **one** machine owns each
-scope. See [`.owner`](configuration.md#which-scopes-a-machine-may-write-owner).
+Add the scope to `owns` in this machine's `.owner`. A scope synced between machines can be
+owned by each one whose agents should save to it. See
+[`.owner`](configuration.md#which-scopes-a-machine-may-write-owner) and
+[Several machines](configuration.md#several-machines).
 
 ## A write is refused: secret detected
 
