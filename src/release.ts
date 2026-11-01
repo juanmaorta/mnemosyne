@@ -292,7 +292,7 @@ export async function refreshUpdateCheck(opts: RefreshOptions): Promise<void> {
 
 // ----------------------------------------------------------------- upgrade ---
 
-const UPGRADE_USAGE = "usage: mneme upgrade [--yes] [--dry-run]";
+export const UPGRADE_USAGE = "usage: mneme upgrade [--yes] [--dry-run]";
 
 export interface UpgradeOptions {
   installDir?: string;

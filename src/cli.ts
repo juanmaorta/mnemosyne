@@ -66,7 +66,7 @@ import {
 import { BodyInputError, resolveBody } from "./write/body.js";
 import { ImportUsageError, importClaudeMemory, importFailed, formatImportReport } from "./import/claude.js";
 import { LockBusyError } from "./write/lock.js";
-import { runUpgrade, updateNotice, versionLine } from "./release.js";
+import { runUpgrade, UPGRADE_USAGE, updateNotice, versionLine } from "./release.js";
 
 type Out = (s: string) => void;
 
@@ -100,6 +100,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   "import-claude": "usage: mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply] [--root r]",
   dream: "usage: mneme dream apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
     + "       dry-run by default (shows what would change); --apply commits the write.",
+  upgrade: UPGRADE_USAGE,
 };
 
 const GENERAL_USAGE = `usage: mneme <command> [options]   (mneme <command> --help for one command)\ncommands: ${Object.keys(COMMAND_USAGE).join(", ")}`;
