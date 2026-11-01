@@ -192,7 +192,8 @@ node_fix() {
 
 check_requirements() {
   section "Requirements"
-  if [ "$ACTION" = install ] && [ "$IN_PLACE" = 0 ]; then
+  # update needs it too: it fetches and checks out the new release.
+  if [ "$IN_PLACE" = 0 ] && { [ "$ACTION" = install ] || [ "$ACTION" = update ]; }; then
     if command -v git >/dev/null 2>&1; then
       ok "git ($(git --version 2>/dev/null | head -n1)) — to download the code"
     else
@@ -378,6 +379,8 @@ plan_install() {
     # No git yet (reported as [MISSING]), so the releases cannot be listed.
     say "  code:     git clone $REPO_URL"
     say "            into $INSTALL_DIR — the latest release (resolved once git is installed)"
+  elif [ -d "$INSTALL_DIR/.git" ] && [ -z "$TARGET_REF" ]; then
+    say "  code:     move $INSTALL_DIR to the latest release (resolved once git is installed)"
   elif [ "$ACTION" = install ] && [ ! -d "$INSTALL_DIR/.git" ]; then
     say "  code:     git clone --branch $TARGET_REF $REPO_URL"
     say "            into $INSTALL_DIR  ($TARGET_WHY)"
@@ -705,10 +708,12 @@ do_uninstall() {
   # left behind without its command breaks the start of every session.
   _unode="$(wrapper_node)"
   [ -n "$_unode" ] || _unode="$(command -v node 2>/dev/null || true)"
+  _had_hook=0
+  if [ -f "$SETTINGS" ] && grep -q 'mneme context' "$SETTINGS"; then _had_hook=1; fi
   if [ -f "$MNEME_JS" ] && [ -n "$_unode" ] && "$_unode" "$MNEME_JS" uninstall-hook --write; then
-    # A settings.json the install created (no original was saved) and that is
-    # now empty goes too; one the user had stays, even if empty.
-    if [ ! -e "$SETTINGS.before-mnemosyne" ] && [ -f "$SETTINGS" ] && [ "$(cat "$SETTINGS")" = "{}" ]; then
+    # A settings.json the install created (no original was saved) and that
+    # THIS removal left empty goes too; one the user had stays, even if empty.
+    if [ "$_had_hook" = 1 ] && [ ! -e "$SETTINGS.before-mnemosyne" ] && [ -f "$SETTINGS" ] && [ "$(cat "$SETTINGS")" = "{}" ]; then
       rm -f "$SETTINGS"
       say "Deleted $SETTINGS (the install created it, and nothing else is in it)."
     fi
