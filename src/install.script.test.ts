@@ -145,6 +145,21 @@ describe("install.sh --dry-run", () => {
     expect(listTree(home)).toEqual([]);
   });
 
+  test("on_macos_the_node_fix_is_the_nodejs_org_installer_not_a_keg_only_formula", async () => {
+    // MNE-102 F6: `brew install node@22` is keg-only — it does not put `node` on
+    // the PATH — and a clean Mac has no Homebrew at all.
+    const home = freshHome();
+    const fakeBin = mkdtempSync(join(tmpdir(), "mneme-fake-bin-"));
+    writeFileSync(join(fakeBin, "node"), "#!/bin/sh\necho 18.19.0\n");
+    writeFileSync(join(fakeBin, "uname"), "#!/bin/sh\necho Darwin\n");
+    chmodSync(join(fakeBin, "node"), 0o755);
+    chmodSync(join(fakeBin, "uname"), 0o755);
+    const r = await run(home, ["--dry-run"], { PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}` });
+    const fixLine = r.out.split("\n").find((l) => /fix:/.test(l) && /node/i.test(l)) ?? "";
+    expect(fixLine).toMatch(/nodejs\.org/);
+    expect(fixLine).not.toMatch(/node@/);
+  });
+
   test.each([["--root"], ["--dir"], ["--bin-dir"]])("%s_refuses_a_value_that_looks_like_a_flag", async (option) => {
     // MNE-106: `--root --help` used to install a store at `./--help`.
     const home = freshHome();
@@ -408,6 +423,79 @@ describe("install.sh install / update / uninstall", () => {
     expect(r.out).not.toMatch(/--branch  /);
     expect(r.out).not.toMatch(/\(\)/);
     expect(r.out).toMatch(/latest release \(resolved once git is installed\)/);
+  });
+});
+
+describe("install.sh build (MNE-102)", () => {
+  // A fake `npm` stands in for `npm ci` / `npm run build`: what is under test is
+  // the check that runs after them, not npm.
+  function fakeNpm(script: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "mneme-fake-npm-"));
+    writeFileSync(join(dir, "npm"), `#!/bin/sh\n${script}\n`);
+    chmodSync(join(dir, "npm"), 0o755);
+    return `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`;
+  }
+
+  test("package_json_lets_npm_run_the_better_sqlite3_install_script", () => {
+    // F7: npm 12 blocks dependency install scripts unless allowScripts covers
+    // them, and without its script better-sqlite3 has no native binary.
+    const pkg = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
+    expect(pkg.allowScripts?.["better-sqlite3"]).toBe(true);
+  });
+
+  test("a_native_module_that_does_not_load_stops_the_install_with_a_fix", async () => {
+    // npm ci "succeeds" but leaves no better-sqlite3 binary (blocked script).
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: fakeNpm("exit 0") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/better-sqlite3/);
+    expect(r.out).toMatch(/xcode-select --install|build-essential/);
+    expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(false);
+  });
+
+  test("a_missing_native_binary_is_fetched_once_and_the_install_finishes", async () => {
+    // npm 12 skipped the script (no binary); running its install step by hand —
+    // prebuild-install, via npx — supplies it, whatever npm's policy.
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const broken = 'if [ "$1" = ci ]; then mkdir -p node_modules/better-sqlite3 && echo "throw new Error(\\"no binding\\");" > node_modules/better-sqlite3/index.js; fi; exit 0';
+    const path = fakeNpm(broken);
+    const npxDir = path.slice(0, path.indexOf(":"));
+    writeFileSync(join(npxDir, "npx"), '#!/bin/sh\necho "$*" >> "$HOME/npx-calls.log"\necho "module.exports = class { close() {} };" > index.js\n');
+    chmodSync(join(npxDir, "npx"), 0o755);
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: path });
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(home, "npx-calls.log"), "utf8")).toMatch(/prebuild-install/);
+    expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(true);
+  });
+
+  test("with_no_prebuilt_binary_it_compiles_with_npms_own_node_gyp", async () => {
+    // Codex review: `npx --no node-gyp` fails on a clean machine (node-gyp is not
+    // a dependency). npm ships one under `$(npm prefix -g)/lib/node_modules/npm`.
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const prefix = mkdtempSync(join(tmpdir(), "mneme-npm-prefix-"));
+    const gypDir = join(prefix, "lib", "node_modules", "npm", "node_modules", "node-gyp", "bin");
+    mkdirSync(gypDir, { recursive: true });
+    writeFileSync(join(gypDir, "node-gyp.js"), 'require("node:fs").appendFileSync(process.env.HOME + "/gyp-calls.log", process.argv.slice(2).join(" ") + "\\n");\nrequire("node:fs").writeFileSync("index.js", "module.exports = class { close() {} };");\n');
+    const broken = `if [ "$1" = prefix ]; then echo '${prefix}'; exit 0; fi; if [ "$1" = ci ]; then mkdir -p node_modules/better-sqlite3 && echo "throw new Error(\\"no binding\\");" > node_modules/better-sqlite3/index.js; fi; exit 0`;
+    const path = fakeNpm(broken);
+    const npxDir = path.slice(0, path.indexOf(":"));
+    writeFileSync(join(npxDir, "npx"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(npxDir, "npx"), 0o755);
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: path });
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(home, "gyp-calls.log"), "utf8")).toMatch(/rebuild --release/);
+  });
+
+  test("a_native_module_that_loads_lets_the_install_finish", async () => {
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const stub = 'if [ "$1" = ci ]; then mkdir -p node_modules/better-sqlite3 && echo "module.exports = class { prepare() { return { get: () => ({}) }; } close() {} };" > node_modules/better-sqlite3/index.js; fi; exit 0';
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: fakeNpm(stub) });
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(join(home, ".local", "bin", "mneme"))).toBe(true);
   });
 });
 

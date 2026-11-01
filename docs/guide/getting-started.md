@@ -21,7 +21,7 @@ it — and when they do, nothing has been changed.
 
 | Requirement | Status | Why | Fix the installer suggests |
 |---|---|---|---|
-| **Node.js ≥ 20** | required | Mnemosyne is a Node.js program. | macOS: `brew install node@22` (or nodejs.org, or `nvm install 22`). Linux: `nvm install 22`. |
+| **Node.js ≥ 20** | required | Mnemosyne is a Node.js program. | macOS: the LTS installer from [nodejs.org](https://nodejs.org/en/download) (or `brew install node`, or `nvm install --lts`). Linux: `nvm install 22`. |
 | **npm** | required | Ships with Node.js. Used only to fetch dependencies — Mnemosyne itself is not on npm. | Same as Node.js. |
 | **git** | required (unless you run the installer from your own clone) | Downloads the code and updates it later. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y git` (Fedora: `sudo dnf install -y git`). |
 | C/C++ build tools | warning only | The SQLite modules (`better-sqlite3`, `sqlite-vec`) are native. npm normally downloads a prebuilt binary and compiles only when none matches your machine. | macOS: `xcode-select --install`. Linux: `sudo apt-get install -y build-essential python3` (Fedora: `sudo dnf install -y gcc-c++ make python3`). |
