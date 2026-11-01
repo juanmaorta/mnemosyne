@@ -49,5 +49,9 @@
     "@types/node": "^20.14.0",
     "typescript": "^5.5.0",
     "vitest": "^4.1.9"
+  },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "fsevents": false
   }
 }
