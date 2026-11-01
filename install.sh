@@ -184,7 +184,9 @@ ollama_tags() {
 
 node_fix() {
   if [ "$OS" = macos ]; then
-    fix "brew install node@22   (or: https://nodejs.org/en/download — or nvm: 'nvm install 22')"
+    # Not 'brew install node@22': that formula is keg-only (not on the PATH), and
+    # a clean Mac has no Homebrew anyway.
+    fix "the LTS installer from https://nodejs.org/en/download   (or: brew install node — or nvm: 'nvm install --lts')"
   else
     fix "nvm install 22   (nvm: https://github.com/nvm-sh/nvm — or https://nodejs.org/en/download/package-manager)"
   fi
@@ -604,6 +606,33 @@ build() {
     exit 1
   fi
   (cd "$INSTALL_DIR" && npm run build)
+  # npm can finish without better-sqlite3's native binary: npm 12 blocks
+  # dependency install scripts not covered by allowScripts, and an
+  # ignore-scripts config skips them all. Every command would then fail, so
+  # check now and, once, run that install step by hand (npm rebuild is blocked
+  # the same way): download the prebuilt binary, or compile it.
+  if ! sqlite_loads; then
+    say "The SQLite module (better-sqlite3) has no native binary; fetching it..."
+    (cd "$INSTALL_DIR/node_modules/better-sqlite3" 2>/dev/null && { npx --no prebuild-install || node_gyp rebuild --release; }) || true
+    if ! sqlite_loads; then
+      say ""
+      say "The SQLite module (better-sqlite3) still does not load: no prebuilt binary matched"
+      say "this machine and compiling it failed. Install the build tools and re-run:"
+      if [ "$OS" = macos ]; then say "  xcode-select --install"; else say "  sudo apt-get install -y build-essential python3"; fi
+      exit 1
+    fi
+  fi
+}
+
+# npm's own copy of node-gyp (what it would use for the install script); a
+# fresh one through npx only if that is not where npm normally keeps it.
+node_gyp() {
+  _gyp="$(npm prefix -g 2>/dev/null)/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+  if [ -f "$_gyp" ]; then node "$_gyp" "$@"; else npx --yes node-gyp "$@"; fi
+}
+
+sqlite_loads() {
+  (cd "$INSTALL_DIR" && node -e 'new (require("better-sqlite3"))(":memory:").close()') >/dev/null 2>&1
 }
 
 run_init() {
