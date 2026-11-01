@@ -2,7 +2,8 @@
 
 The store knows nothing about any particular agent, and neither does the CLI: everything is
 `mneme <command>` against files on disk. So there are two levels of integration, and the first
-one works in **any** harness today. The installer sets up both for Claude Code.
+one works in **any** harness today. The installer sets up both for Claude Code and the Codex
+CLI, and level 1 for OpenCode — for each one it finds.
 
 - [Level 1 — context file + shell (universal)](#level-1--context-file--shell-universal)
 - [Level 2 — automatic injection at session start](#level-2--automatic-injection-at-session-start)
@@ -53,7 +54,8 @@ mneme install-hook --harness codex           # the same, for $CODEX_HOME/hooks.j
 mneme install-hook --harness codex --write
 ```
 
-For Claude Code, the installer (or `mneme init --write`) already does this.
+The installer already does this for each of the two it finds (for Claude Code, so does
+`mneme init --write`).
 
 The two harnesses differ in one way that matters. Claude Code injects a hook's raw stdout;
 **Codex reads one JSON object and silently drops anything else**, so its hook runs
@@ -67,7 +69,9 @@ at all. Two Codex-specific gotchas:
   leaves the digest showing while `search` (Ollama is reached over the network) and `add` (it
   writes to `~/memory`) quietly fail. Allow both for `mneme` in your sandbox settings.
 
-For Codex, also paste the [instruction block](memory-instructions.md) into `~/.codex/AGENTS.md`.
+For Codex, the installer also puts the [instruction block](memory-instructions.md) into
+`~/.codex/AGENTS.md` — or into `AGENTS.override.md` when that file has content, since Codex
+then reads it instead. By hand: paste it there.
 
 ## Other harnesses
 
