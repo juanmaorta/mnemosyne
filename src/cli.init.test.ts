@@ -80,6 +80,21 @@ describe("mneme init", () => {
     expect(readFileSync(settingsPath(), "utf8")).toBe(firstSettings);
   });
 
+  test("a_second_write_says_nothing_changed_instead_of_installed_and_wrote", async () => {
+    // MNE-102 smoke test: every update printed "Installed SessionStart hook" and
+    // "Wrote .config.json" even when it changed nothing.
+    const first: string[] = [];
+    await runCli(["init", "--root", root, "--write"], (s) => first.push(s));
+    expect(first.join("\n")).toMatch(/Installed SessionStart hook/);
+    expect(first.join("\n")).toMatch(/Wrote .*\.config\.json/);
+    const second: string[] = [];
+    expect(await runCli(["init", "--root", root, "--write"], (s) => second.push(s))).toBe(0);
+    const out = second.join("\n");
+    expect(out).toMatch(/SessionStart hook already in /);
+    expect(out).toMatch(/Left .*\.config\.json unchanged/);
+    expect(out).not.toMatch(/Installed SessionStart hook|Wrote .*\.config\.json/);
+  });
+
   test("persisted_tier0_makes_search_work_without_an_embedder_env", async () => {
     // The whole point of persisting the tier: a later `mneme search` with NO
     // env var still runs in tier 0 because init wrote .config.json at this root.
