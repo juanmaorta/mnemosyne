@@ -48,6 +48,7 @@ jobs:
         run: node scripts/release.mjs plan --notes-out "$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
 
       # MNE-115: never publish a commit that does not build and pass its tests.
+      # Same order as CI: build before the tests (see ci.yml for why).
       # The CI workflow runs on the same push but separately, and `target` can
       # be an earlier commit than the pushed one, so the exact commit about to
       # be tagged is checked here, in this job, before anything is published.
@@ -58,8 +59,8 @@ jobs:
           git checkout --quiet --detach "$TARGET"
           npm ci
           npm run typecheck
-          npm test
           npm run build
+          npm test
           git checkout --quiet -
 
       # `gh release create` creates the tag on the commit that set the version

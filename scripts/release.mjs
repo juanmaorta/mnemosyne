@@ -290,9 +290,14 @@ function plan(args) {
     throw new Refusal(`${CHANGELOG} has no section for v${version}; add one (npm run release does) before publishing.`);
   }
   writeFileSync(notesOut, `${notes}\n`);
-  // Tag the commit that set this version, not the pushed one: when runs are
-  // coalesced, the run that sees the bump can be for a later merge.
-  const target = git("log", "-1", "--format=%H", "-G", '"version"', "--", "package.json") || git("rev-parse", "HEAD");
+  // Tag the release commit, not the pushed one: when runs are coalesced, the
+  // run that sees the release can be for a later merge. The release commit is
+  // the one that wrote this version's CHANGELOG section — `prepare` always
+  // does. Not "the commit that changed package.json's version": a first
+  // release whose version was there from the start would tag that commit,
+  // months old, without any later fix (seen with v0.1.0).
+  const header = `^## v${version.replace(/[.+]/g, "\\$&")}( |$)`;
+  const target = git("log", "-1", "--format=%H", "-G", header, "--", CHANGELOG) || git("rev-parse", "HEAD");
   stdout.write(`tag=${decision.tag}\nprerelease=${decision.prerelease}\ntarget=${target}\n`);
   stderr.write(`release: publishing ${decision.tag}.\n`);
   return 0;
