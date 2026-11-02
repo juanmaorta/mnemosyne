@@ -716,6 +716,22 @@ describe("install.sh build (MNE-102)", () => {
     expect(readFileSync(join(home, "gyp-calls.log"), "utf8")).toMatch(/rebuild --release/);
   });
 
+  test("without_npms_own_node_gyp_it_stops_instead_of_downloading_an_unpinned_one", async () => {
+    // MNE-115: `npx --yes node-gyp` fetched whatever version the registry served.
+    const home = freshHome();
+    const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);
+    const prefix = mkdtempSync(join(tmpdir(), "mneme-npm-prefix-")); // no node-gyp in it
+    const broken = `if [ "$1" = prefix ]; then echo '${prefix}'; exit 0; fi; if [ "$1" = ci ]; then mkdir -p node_modules/better-sqlite3 && echo "throw new Error(\\"no binding\\");" > node_modules/better-sqlite3/index.js; fi; exit 0`;
+    const path = fakeNpm(broken);
+    const npxDir = path.slice(0, path.indexOf(":"));
+    writeFileSync(join(npxDir, "npx"), '#!/bin/sh\necho "$*" >> "$HOME/npx-calls.log"\nexit 1\n');
+    chmodSync(join(npxDir, "npx"), 0o755);
+    const r = await pipedInstall(home, repoUrl, ["--yes", "--no-ollama-pull"], { PATH: path });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/xcode-select --install|build-essential/);
+    expect(readFileSync(join(home, "npx-calls.log"), "utf8")).not.toMatch(/node-gyp/);
+  });
+
   test("a_native_module_that_loads_lets_the_install_finish", async () => {
     const home = freshHome();
     const repoUrl = fixtureRepo([{ tag: "v0.1.0" }]);

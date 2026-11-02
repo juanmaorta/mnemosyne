@@ -823,11 +823,13 @@ build() {
   fi
 }
 
-# npm's own copy of node-gyp (what it would use for the install script); a
-# fresh one through npx only if that is not where npm normally keeps it.
+# npm's own copy of node-gyp — what it would use for the install script. Not
+# found where npm keeps it: give up (the caller says to install the build
+# tools) rather than fetch an unpinned node-gyp from the registry (MNE-115).
 node_gyp() {
   _gyp="$(npm prefix -g 2>/dev/null)/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
-  if [ -f "$_gyp" ]; then node "$_gyp" "$@"; else npx --yes node-gyp "$@"; fi
+  [ -f "$_gyp" ] || return 1
+  node "$_gyp" "$@"
 }
 
 sqlite_loads() {

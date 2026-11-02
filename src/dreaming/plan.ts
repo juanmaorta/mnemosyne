@@ -360,6 +360,17 @@ export function renderPlan(plan: DreamingPlan): string {
   return lines.join("\n");
 }
 
+/**
+ * A run id names files under `.telemetry/dreams/<scope>/` and arrives from the
+ * CLI (`--run`), so it must be a plain file name: no separators, no `.`/`..`
+ * (MNE-115). Generated ids (`dream-<scope>-<timestamp>`) always pass.
+ */
+export function assertSafeRunId(runId: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId)) {
+    throw new Error(`invalid run id '${runId}': letters, digits, '.', '_' and '-' only, starting with a letter or digit`);
+  }
+}
+
 /** `<root>/.telemetry/dreams/<scope>/` — durable, machine-local, out of git. */
 export function dreamsDir(root: string, scope: string): string {
   assertSafeScope(scope);
@@ -375,6 +386,7 @@ export function dreamsDir(root: string, scope: string): string {
 export function persistPlan(root: string, plan: DreamingPlan, clock: Clock = systemClock): string {
   const dir = dreamsDir(root, plan.scope);
   mkdirSync(dir, { recursive: true });
+  assertSafeRunId(plan.runId);
   const path = join(dir, `${plan.runId}.json`);
   writeFileSync(path, `${JSON.stringify(plan, null, 2)}\n`);
   // Durable trace of the run alongside its artifact. Best-effort by contract

@@ -18,7 +18,20 @@ describe("createOllamaClient", () => {
     expect(JSON.parse(init.body as string)).toEqual({ model: "m", input: ["a", "b"] });
   });
 
+  test("embed_never_follows_a_redirect", async () => {
+    // MNE-115: a 3xx from the configured endpoint would re-send every note and
+    // query to another host. The dreaming generator already refuses this.
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ embeddings: [[1, 0, 0]] }), { status: 200 }),
+    );
+    const client = createOllamaClient({ host: "http://h:1", model: "m", dim: 3 }, fetchImpl as unknown as typeof fetch);
+    await client.embed(["a"]);
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.redirect).toBe("error");
+  });
+
   test("embed_throws_actionable_error_when_host_unreachable", async () => {
+
     const fetchImpl = vi.fn(async () => { throw new Error("ECONNREFUSED"); });
     const client = createOllamaClient({ host: "http://h:1", model: "m", dim: 3 }, fetchImpl as unknown as typeof fetch);
 

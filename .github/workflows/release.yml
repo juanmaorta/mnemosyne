@@ -30,15 +30,15 @@ jobs:
     # Releases come from main only — workflow_dispatch can be run on any ref.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # All tags, so "is this version tagged / higher than the latest" sees them.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
 
@@ -46,6 +46,21 @@ jobs:
       # higher than the latest tag, or has no CHANGELOG section.
       - id: plan
         run: node scripts/release.mjs plan --notes-out "$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+
+      # MNE-115: never publish a commit that does not build and pass its tests.
+      # The CI workflow runs on the same push but separately, and `target` can
+      # be an earlier commit than the pushed one, so the exact commit about to
+      # be tagged is checked here, in this job, before anything is published.
+      - if: steps.plan.outputs.tag != ''
+        env:
+          TARGET: ${{ steps.plan.outputs.target }}
+        run: |
+          git checkout --quiet --detach "$TARGET"
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+          git checkout --quiet -
 
       # `gh release create` creates the tag on the commit that set the version
       # (not necessarily the pushed one, when runs were coalesced). A pre-release

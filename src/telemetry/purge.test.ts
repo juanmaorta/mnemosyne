@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { purgeTelemetryScope } from "./purge.js";
@@ -119,5 +119,51 @@ describe("purgeTelemetryScope", () => {
   test("reports zero on a store with no telemetry at all", () => {
     const root = mkdtempSync(join(tmpdir(), "mneme-purge-empty-"));
     expect(purgeTelemetryScope(root, "acme")).toMatchObject({ eventsRemoved: 0, filesRewritten: 0, snapshotsRedacted: 0 });
+  });
+});
+
+// MNE-115 (security audit): dreaming keeps whole plans — proposed note bodies
+// included — and their apply records under .telemetry/dreams/<scope>/. The
+// offboarding runbook relies on this purge, so they have to go with it.
+describe("purgeTelemetryScope — dreaming artifacts", () => {
+  function withDreams(): string {
+    const root = mkdtempSync(join(tmpdir(), "mneme-purge-dreams-"));
+    for (const scope of ["acme", "personal"]) {
+      const dir = join(storePaths(root).telemetryDir, "dreams", scope);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "run1.json"), JSON.stringify({ scope, proposals: [{ body: `SYNTHETIC ${scope} confidential` }] }));
+      writeFileSync(join(dir, "run1.applied.json"), "{}");
+    }
+    return root;
+  }
+  const dreams = (root: string, scope: string) => join(storePaths(root).telemetryDir, "dreams", scope);
+
+  test("a_dry_run_counts_them_and_touches_nothing", () => {
+    const root = withDreams();
+    const r = purgeTelemetryScope(root, "acme", { dryRun: true });
+    expect(r.dreamFilesRemoved).toBe(2);
+    expect(readdirSync(dreams(root, "acme")).sort()).toEqual(["run1.applied.json", "run1.json"]);
+  });
+
+  test("a_deletion_that_fails_is_an_error_not_a_reported_success", () => {
+    // Codex review: a permission error was swallowed and the files counted as
+    // removed, so offboarding could silently leave note bodies behind.
+    const root = withDreams();
+    const parent = dreams(root, "acme"); // its files cannot be unlinked
+    chmodSync(parent, 0o555);
+    try {
+      expect(() => purgeTelemetryScope(root, "acme")).toThrow();
+      expect(readdirSync(dreams(root, "acme"))).toContain("run1.json");
+    } finally {
+      chmodSync(parent, 0o755);
+    }
+  });
+
+  test("apply_deletes_the_scopes_dreams_even_with_no_event_logs_and_keeps_other_scopes", () => {
+    const root = withDreams();
+    const r = purgeTelemetryScope(root, "acme");
+    expect(r.dreamFilesRemoved).toBe(2);
+    expect(() => readdirSync(dreams(root, "acme"))).toThrow();
+    expect(readdirSync(dreams(root, "personal")).sort()).toEqual(["run1.applied.json", "run1.json"]);
   });
 });

@@ -139,6 +139,9 @@ export function createOllamaClient(
         res = await fetchImpl(`${host}/api/embed`, {
           method: "POST",
           headers: { "content-type": "application/json" },
+          // Never follow a redirect (MNE-115): a 3xx would re-send every note
+          // and query to whatever host it names. Same rule as the generator.
+          redirect: "error",
           body: JSON.stringify({
             model,
             input: needsTaskPrefix
