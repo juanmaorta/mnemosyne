@@ -290,6 +290,23 @@ describe("release plan (the workflow's half)", () => {
     expect(r.stdout).toContain(`target=${bump}\n`);
   });
 
+  test("the_first_release_targets_the_release_commit_not_the_one_that_created_package_json", () => {
+    // Seen in the real v0.1.0 run: package.json said 0.1.0 from its first
+    // commit, so "the commit that set the version" was months old and the tag
+    // would have landed on code without any later fix. The release commit is
+    // the one that wrote this version's CHANGELOG section.
+    const f = fixture("0.1.0", ["✨ months of work", "🐛 more work"]);
+    writeFileSync(join(f.dir, "CHANGELOG.md"), "# Changelog\n\n## v0.1.0 — d\n\nFirst public release.\n");
+    git(f.dir, "add", ".");
+    git(f.dir, "commit", "-q", "-m", "🔖 release: v0.1.0");
+    const release = git(f.dir, "rev-parse", "HEAD");
+    git(f.dir, "commit", "-q", "--allow-empty", "-m", "Merge pull request #12");
+    const r = run(f, ["plan", "--notes-out", join(f.dir, "..", "notes.md")]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain("tag=v0.1.0\n");
+    expect(r.stdout).toContain(`target=${release}\n`);
+  });
+
   test("a_version_already_tagged_publishes_nothing", () => {
     const f = fixture("0.1.0", ["✨ later work"], ["v0.1.0"]);
     const r = run(f, ["plan", "--notes-out", join(f.dir, "..", "notes.md")]);
