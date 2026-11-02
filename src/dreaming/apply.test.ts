@@ -65,7 +65,17 @@ describe("loadPlan", () => {
     expect(plan.proposals.map((p) => p.slug)).toEqual(["dream-a"]);
   });
 
+  test("refuses_a_run_id_that_is_not_a_plain_file_name", () => {
+    // MNE-115: `--run` becomes a path component under .telemetry/dreams/<scope>/.
+    const root = store();
+    for (const bad of ["../personal/x", "a/b", "..", ".", ""]) {
+      expect(() => loadPlan(root, "personal", bad), bad).toThrow(/run id/i);
+      expect(() => revertPlan({ root, now: NOW }, "personal", bad), bad).toThrow(/run id/i);
+    }
+  });
+
   test("throws PlanNotFoundError for an unknown run", () => {
+
     const root = store();
     expect(() => loadPlan(root, "personal", "nope")).toThrow(PlanNotFoundError);
   });

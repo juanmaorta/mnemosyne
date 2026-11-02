@@ -102,14 +102,14 @@ export const EngramSchema = z
     const superseded = engram.status === "superseded";
     if (superseded && engram.superseded_by === undefined) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["superseded_by"],
         message: "status 'superseded' requires superseded_by naming the note that replaces it",
       });
     }
     if (!superseded && engram.superseded_by !== undefined) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["status"],
         message: "superseded_by is only meaningful with status 'superseded'",
       });
@@ -118,7 +118,7 @@ export const EngramSchema = z
     // the thing that is excluded: a memory that quietly erases itself.
     if (engram.superseded_by === engram.name) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["superseded_by"],
         message: "a note cannot supersede itself",
       });

@@ -139,6 +139,7 @@ export function createLocalGenerator(
           signal: controller.signal,
         });
       } catch (cause) {
+        clearTimeout(timer);
         if (controller.signal.aborted) {
           throw new Error(`Ollama generate timed out after ${timeoutMs}ms at ${host}.`, { cause });
         }
@@ -146,17 +147,27 @@ export function createLocalGenerator(
           `Cannot reach Ollama at ${host}. Is it running? Set OLLAMA_HOST or run 'ollama serve'.`,
           { cause },
         );
+      }
+
+      // The timer stays armed while the body is read (MNE-115): an endpoint that
+      // sends headers and then stalls would otherwise hang the run forever.
+      let json: { response?: string; prompt_eval_count?: number; eval_count?: number };
+      try {
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(
+            `Ollama generate failed (${res.status}): ${detail}. If the model is missing, run 'ollama pull ${model}'.`,
+          );
+        }
+        json = (await res.json()) as typeof json;
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          throw new Error(`Ollama generate timed out after ${timeoutMs}ms at ${host}.`, { cause });
+        }
+        throw cause;
       } finally {
         clearTimeout(timer);
       }
-
-      if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(
-          `Ollama generate failed (${res.status}): ${detail}. If the model is missing, run 'ollama pull ${model}'.`,
-        );
-      }
-      const json = (await res.json()) as { response?: string; prompt_eval_count?: number; eval_count?: number };
       if (json.response === undefined) {
         throw new Error(`Ollama returned no response: ${JSON.stringify(json)}`);
       }

@@ -145,7 +145,31 @@ describe("createLocalGenerator", () => {
     await expect(gen.generate("hola")).rejects.toThrow(/output.*limit/i);
   });
 
+  test("the_timeout_also_covers_a_response_body_that_never_finishes", async () => {
+    // MNE-115: the timer used to be cleared once the headers arrived.
+    vi.useFakeTimers();
+    try {
+      const slowBody = ((_url: string, init?: RequestInit) =>
+        Promise.resolve({
+          ok: true,
+          json: () => new Promise((_resolve, reject) => {
+            (init!.signal as AbortSignal).addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+        })) as unknown as typeof fetch;
+      const gen = createLocalGenerator({ timeoutMs: 1000 }, slowBody);
+
+      const assertion = expect(gen.generate("x")).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("times out instead of hanging forever", async () => {
+
     vi.useFakeTimers();
     try {
       const hang = ((_url: string, init?: RequestInit) =>

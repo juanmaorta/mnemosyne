@@ -24,6 +24,42 @@ function store(): string {
 }
 
 describe("reindex", () => {
+  // MNE-115 (security audit): a note's scope is its FOLDER. A frontmatter that
+  // says otherwise used to put a client's note into another scope's digest.
+  describe("frontmatter scope must match the folder", () => {
+    function misfiled(): string {
+      const root = store();
+      mkdirSync(join(root, "acme"), { recursive: true });
+      const [f, c] = note("personal", "leak", "SYNTHETIC acme confidential");
+      writeFileSync(join(root, "acme", f), c);
+      return root;
+    }
+
+    test("a_note_whose_frontmatter_names_another_scope_is_not_indexed_and_is_reported", async () => {
+      const root = misfiled();
+      const db = openDb(":memory:");
+      const stats = await reindex({ root, db, embedder: null });
+      expect(stats.indexed).toBe(1); // only personal/fermentor
+      expect(stats.errors).toBe(1);
+      expect(stats.scopeMismatches).toEqual([{ path: join(root, "acme", "leak.md"), declared: "personal", folder: "acme" }]);
+      expect(db.prepare("select count(*) as n from engrams where slug = 'leak'").get()).toEqual({ n: 0 });
+    });
+
+    test("a_misfiled_row_an_older_index_holds_is_removed_even_if_the_file_did_not_change", async () => {
+      const root = store();
+      mkdirSync(join(root, "acme"), { recursive: true });
+      const [f, c] = note("acme", "leak", "SYNTHETIC acme confidential");
+      writeFileSync(join(root, "acme", f), c);
+      const db = openDb(":memory:");
+      await reindex({ root, db, embedder: null });
+      // What an index built before the check could hold: the acme file's row filed under personal.
+      db.prepare("update engrams set scope = 'personal' where slug = 'leak'").run();
+      const stats = await reindex({ root, db, embedder: null });
+      expect(db.prepare("select scope from engrams where slug = 'leak'").all()).toEqual([{ scope: "acme" }]);
+      expect(stats.scopeMismatches).toEqual([]);
+    });
+  });
+
   test("reindex_indexes_new_files", async () => {
     const root = store();
     const db = openDb(":memory:");
@@ -234,12 +270,10 @@ describe("reindex", () => {
   });
 
   test("reindex_scope_change_at_same_path_does_not_orphan_old_row", async () => {
-    // Scope is a directory-mapped field (walk.ts assigns EngramFile.scope from
-    // the folder), but the ENGRAM ROW's scope column comes from frontmatter
-    // (engram.scope), not from the folder. Editing just the frontmatter
-    // `scope:` value while leaving the file in place exercises exactly the
-    // same path-vs-identity bug as the slug case: the OLD (scope, slug) pair
-    // must not survive as an orphan.
+    // Editing just the frontmatter `scope:` while leaving the file in place
+    // exercises the same path-vs-identity bug as the slug case: the OLD
+    // (scope, slug) row must not survive as an orphan. Since MNE-115 the folder
+    // is the scope, so the re-scoped note is reported and left out entirely.
     const root = store();
     const db = openDb(":memory:");
     await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
@@ -251,13 +285,11 @@ describe("reindex", () => {
     utimesSync(path, future, future);
 
     const stats = await reindex({ root, db, embedder: createFakeEmbedder(), scopes: ["personal"] });
-    expect(stats.indexed).toBe(1);
+    expect(stats.indexed).toBe(0);
+    expect(stats.scopeMismatches).toEqual([{ path, declared: "shared", folder: "personal" }]);
 
-    expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 1 });
-    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 1 });
-
-    const row = db.prepare("select scope from engrams").get() as { scope: string };
-    expect(row.scope).toBe("shared");
+    expect(db.prepare("select count(*) as n from engrams").get()).toEqual({ n: 0 });
+    expect(db.prepare("select count(*) as n from vec_engrams").get()).toEqual({ n: 0 });
   });
 });
 
