@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dreamsDir } from "../dreaming/plan.js";
 import { join } from "node:path";
 import { storePaths } from "../store.js";
 import { applyScopePolicy, type TelemetryEvent, type TelemetryInput } from "./events.js";
@@ -14,6 +15,11 @@ export interface PurgeReport {
   /** Day files deleted because nothing survived in them. */
   filesDeleted: number;
   snapshotsRedacted: number;
+  /**
+   * Dreaming plans and apply records deleted (MNE-115): whole proposed note
+   * bodies live there, under .telemetry/dreams/<scope>/.
+   */
+  dreamFilesRemoved: number;
 }
 
 export interface PurgeOptions {
@@ -39,8 +45,23 @@ export function purgeTelemetryScope(root: string, scope: string, opts: PurgeOpti
   const dryRun = opts.dryRun ?? false;
   const report: PurgeReport = {
     scope, dryRun, eventsRemoved: 0, eventsNarrowed: 0, filesRewritten: 0, filesDeleted: 0, snapshotsRedacted: 0,
+    dreamFilesRemoved: 0,
   };
   const dir = storePaths(root).telemetryDir;
+
+  // Dreaming's artifacts first, and whether or not any event log exists: a
+  // plan is the scope's notes rewritten, the most sensitive thing in here.
+  // Only "there is none" is ignored: a deletion that fails must surface, or an
+  // offboarding would report success over note bodies still on disk.
+  const dreams = dreamsDir(root, scope);
+  let dreamFiles = 0;
+  try {
+    dreamFiles = readdirSync(dreams).length;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  if (dreamFiles > 0 && !dryRun) rmSync(dreams, { recursive: true });
+  report.dreamFilesRemoved = dreamFiles;
 
   let dayFiles: string[];
   try {

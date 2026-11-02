@@ -23,7 +23,7 @@ import { findSlugClaims } from "../write/claims.js";
 import { assertOwnsScope, assertNoSecrets, SecretDetectedError } from "../write/validation.js";
 import { emitEvent } from "../telemetry/events.js";
 import { systemClock, type Clock } from "../clock.js";
-import { dreamsDir, computeBudgetVerdict, type DreamingPlan, type PlanProposal, type PlanLink, type Budget, type BudgetVerdict, type SourceRef } from "./plan.js";
+import { assertSafeRunId, dreamsDir, computeBudgetVerdict, type DreamingPlan, type PlanProposal, type PlanLink, type Budget, type BudgetVerdict, type SourceRef } from "./plan.js";
 import { isDerivedSlug, DERIVED_SLUG_PREFIX } from "./derived.js";
 
 /** A derived note's slug must be a plain kebab slug — no separators or traversal,
@@ -104,10 +104,12 @@ export class PlanOverBudgetError extends Error {
 }
 
 function planPath(root: string, scope: string, runId: string): string {
+  assertSafeRunId(runId);
   return join(dreamsDir(root, scope), `${runId}.json`);
 }
 
 function applyRecordPath(root: string, scope: string, runId: string): string {
+  assertSafeRunId(runId);
   return join(dreamsDir(root, scope), `${runId}.applied.json`);
 }
 

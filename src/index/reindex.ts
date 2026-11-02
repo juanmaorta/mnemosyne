@@ -20,6 +20,11 @@ export interface ReindexStats {
   errors: number;
   /** True when the stored embedding model differed and the index was rebuilt. */
   embeddingMismatch: boolean;
+  /**
+   * Notes left out because their frontmatter names a scope other than the
+   * folder they are in (MNE-115). Also counted in `errors`.
+   */
+  scopeMismatches: { path: string; declared: string; folder: string }[];
 }
 
 /**
@@ -146,9 +151,18 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     ).all() as { path: string }[]) missingVectorPaths.add(r.path);
   }
 
-  const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0, embeddingMismatch };
+  const stats: ReindexStats = { indexed: 0, skipped: 0, deleted: 0, errors: 0, embeddingMismatch, scopeMismatches: [] };
   const files = listEngramFiles(root, scopes);
   const seen = new Set(files.map((f) => f.path));
+
+  // A note's scope is its FOLDER — the boundary deleting a scope relies on.
+  // The scope each indexed path was filed under, read in ONE query (per-file
+  // lookups on the unindexed `path` go quadratic): a row filed under another
+  // scope than its folder — what an index built before this check can hold —
+  // is re-read even though its bytes did not change, so it is caught below.
+  const indexedScope = new Map(
+    (db.prepare("select path, scope from engrams").all() as { path: string; scope: string }[]).map((r) => [r.path, r.scope]),
+  );
 
   // Phase 1: walk + parse frontmatter for files that changed. Parse errors are
   // per-file and non-fatal — they must not abort files that parse fine.
@@ -162,7 +176,8 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
     // Likewise, a file indexed in tier 0 has no vector yet: with an embedder
     // now present, re-embed it even though its bytes are unchanged (MNE-19).
     const needsBackfill = missingVectorPaths.has(file.path);
-    if (!rebuild && !needsBackfill && !needsReindex(prev, curr)) {
+    const misfiled = indexedScope.has(file.path) && indexedScope.get(file.path) !== file.scope;
+    if (!rebuild && !needsBackfill && !misfiled && !needsReindex(prev, curr)) {
       stats.skipped++;
       continue;
     }
@@ -173,6 +188,16 @@ export async function reindex(deps: ReindexDeps): Promise<ReindexStats> {
       engram = EngramSchema.parse(data);
     } catch {
       stats.errors++;
+      continue;
+    }
+    // Indexed under the scope it declares, a note in `acme/` saying
+    // `scope: personal` would show in personal's digest. Never reassigned
+    // silently: left out, reported, and — by dropping it from `seen` — any row
+    // an earlier index holds for it is pruned below.
+    if (engram.scope !== file.scope) {
+      stats.errors++;
+      stats.scopeMismatches.push({ path: file.path, declared: engram.scope, folder: file.scope });
+      seen.delete(file.path);
       continue;
     }
     const hash = createHash("sha256").update(raw).digest("hex");

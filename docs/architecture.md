@@ -38,7 +38,8 @@ These are non-negotiable; most of the code exists to keep them true.
 4. **Scope decides everything**: sync, who consolidates, the blast radius of a deletion, and
    retrieval. The working directory is the operational default, mapped through `.scopemap`;
    when it maps to nothing, writes **fail closed** (never a silent `personal`). The `scope`
-   field in the frontmatter is authoritative. Content may only *escalate* to a more
+   field in the frontmatter must name the folder the note is in: the index refuses a note
+   that claims another scope rather than file it there. Content may only *escalate* to a more
    restrictive scope, never de-escalate silently. A machine only limits which scopes physically
    live on it.
 5. **What is regenerated is never merged.** The index, the digest and notes derived from the
@@ -94,7 +95,9 @@ and edited directly; they are not consolidated.
 ```
 
 **Scope = folder** (the operational unit for sync: only the folders a machine needs are
-shared) **+ `scope` in the frontmatter** (authoritative: classification, taint, ranking).
+shared) **+ `scope` in the frontmatter** (classification, taint, ranking), and the two must
+agree: a note whose frontmatter names another scope than its folder is refused at index time
+and reported, so the folder — what deleting a scope removes — stays the boundary.
 `facts/` is append-only: one fact = one immutable file, so syncing it is conflict-free by
 construction.
 

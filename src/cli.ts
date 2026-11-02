@@ -292,6 +292,10 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         // something running on its own is not consent.
         const stats = await reindex({ root, db, embedder: embedder(root), clock: systemClock, forceEmbedder: Boolean(values["force-embedder"]), ...(values.scope ? { scopes: values.scope } : {}) });
         if (stats.embeddingMismatch) err("warning: embedding model changed; index fully rebuilt.");
+        // MNE-115: a scope is its folder; a note claiming another is left out.
+        for (const m of stats.scopeMismatches) {
+          err(`not indexed: ${m.path} says 'scope: ${m.declared}' but is in the folder of scope '${m.folder}'. Move it, or fix its scope.`);
+        }
         out(`indexed ${stats.indexed}, skipped ${stats.skipped}, deleted ${stats.deleted}, errors ${stats.errors}`);
         return 0;
       }
@@ -491,12 +495,13 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         out(`  day files rewritten   ${r.filesRewritten}`);
         out(`  day files deleted     ${r.filesDeleted}`);
         out(`  snapshots redacted    ${r.snapshotsRedacted}`);
+        out(`  dreaming files        ${r.dreamFilesRemoved}   (plans and apply records)`);
         if (r.snapshotsRedacted > 0) {
           out(`\n  note: snapshot aggregates (countsByType, strengthHistogram) have no per-scope`);
           out(`  breakdown, so '${scope}' stays folded into those totals. The scope name and its`);
           out(`  size are gone; delete the snapshots outright if even the totals are unacceptable.`);
         }
-        if (r.dryRun && (r.eventsRemoved > 0 || r.snapshotsRedacted > 0)) {
+        if (r.dryRun && (r.eventsRemoved > 0 || r.snapshotsRedacted > 0 || r.dreamFilesRemoved > 0)) {
           out(`\n  re-run with --apply to write these changes.`);
         }
         return 0;
