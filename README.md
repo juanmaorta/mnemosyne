@@ -46,7 +46,7 @@ remember versus to forget. That duality is the whole system.
 | **git** | Required to download and update the code. |
 | C/C++ build tools | Only if no prebuilt SQLite binary matches your machine: Xcode Command Line Tools on macOS, `build-essential` + `python3` on Linux. |
 | An agent | **Claude Code**, the **Codex CLI** or **OpenCode**: the installer wires in each one it finds. Mnemosyne installs without any. |
-| [Ollama](https://ollama.com) | **Optional.** With it you get semantic search, computed on your machine; without it Mnemosyne runs in **tier 0** (keyword search, nothing else to install). Either way, nothing leaves your machine. |
+| [Ollama](https://ollama.com) | **Optional.** With it you get semantic search, computed on your machine; without it Mnemosyne runs in **tier 0** (keyword search, nothing else to install). Either way, search runs on your machine. |
 
 macOS and Linux. Details, and what each search tier gives you:
 [Getting started](docs/guide/getting-started.md#requirements).
@@ -83,13 +83,15 @@ moves you to a newer one, and uninstall is one command too; see
 
 ## Privacy
 
-Your memories never leave your machine. The **only network request Mnemosyne makes on its own**
+Mnemosyne itself never sends your memories anywhere. The **only network request it makes on its own**
 is a once-a-day check for a newer release: a plain HTTPS `GET` to GitHub's releases API that
 carries nothing about you or your memories. It never delays session start, and when a release
 is out your next session says so in one line. Turn it off with `"updateCheck": false` in
 `~/memory/.config.json` or `MNEMOSYNE_NO_UPDATE_CHECK=1`; details in
 [Configuration](docs/guide/configuration.md#the-new-version-check). Semantic search talks only to
-the Ollama you point it at (your own machine by default).
+the Ollama you point it at (your own machine by default). What your agent's vendor does see is
+the digest the `SessionStart` hook puts into the session context, exactly as it would see a
+`CLAUDE.md`; the hook is yours to remove.
 
 ## What changes on your machine
 
