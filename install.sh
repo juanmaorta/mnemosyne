@@ -669,6 +669,7 @@ NATIVE_OTHER_SCOPES=""
 NATIVE_IMPORTED_BEFORE=0
 NATIVE_IMPORTED=0
 NATIVE_LEFT=0
+NATIVE_MARKER="$STORE_ROOT/.native-imported"
 
 plural() { if [ "$1" = 1 ]; then printf '%s %s' "$1" "$2"; else printf '%s %ss' "$1" "$2"; fi; }
 
@@ -676,11 +677,15 @@ native_notes_in() { # $1 = a memory folder → how many notes the importer would
   find "$1" -maxdepth 1 -type f -name '*.md' ! -name '.*' ! -iname 'MEMORY.md' ! -iname 'INDEX.md' 2>/dev/null | wc -l | tr -d ' '
 }
 
-# The source-id is the project folder's name as a kebab slug: deterministic, so
-# a second run lands on the same slugs and imports nothing twice.
+# The source-id is the project folder's name as a kebab slug plus a checksum of
+# the exact name: deterministic, so a second run lands on the same slugs and
+# imports nothing twice, and distinct folders that slugify alike ('my-app',
+# 'my_app') never share an identity — the import's own slug hashes only the
+# filename, so a shared source-id would turn them into conflicts.
 native_source_id() { # $1 = a memory folder
-  _sid="$(basename "$(dirname "$1")" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')"
-  printf '%s' "${_sid:-project}"
+  _folder="$(basename "$(dirname "$1")")"
+  _sid="$(printf '%s' "$_folder" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')"
+  printf '%s-%s' "${_sid:-project}" "$(printf '%s' "$_folder" | cksum | cut -d' ' -f1)"
 }
 
 scan_native() {
@@ -703,6 +708,10 @@ scan_native() {
     printf '%s' "$_name" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$' || continue
     NATIVE_OTHER_SCOPES="$NATIVE_OTHER_SCOPES${NATIVE_OTHER_SCOPES:+, }$_name"
   done
+  # Imported before: the installer's marker (feedback notes become facts under a
+  # ulid, so the slugs alone would miss a feedback-only import), or notes with the
+  # importer's slug prefix from an import done by hand.
+  [ -f "$NATIVE_MARKER" ] && NATIVE_IMPORTED_BEFORE=1
   for _f in "$STORE_ROOT"/personal/claude-*.md; do
     [ -f "$_f" ] && NATIVE_IMPORTED_BEFORE=1
     break
@@ -732,7 +741,7 @@ plan_native() {
     say "            not imported: this store has scopes besides personal ($NATIVE_OTHER_SCOPES), so each folder"
     say "            needs a scope chosen by hand — see $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
   elif [ "$ACTION" = upgrade ] && [ "$NATIVE_IMPORTED_BEFORE" = 1 ]; then
-    say "            not imported again: notes were imported before (personal/claude-*.md). For new ones,"
+    say "            not imported again: the native memory was imported before. For notes added since,"
     say "            see $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
   elif [ "$IMPORT_NATIVE" = declined ]; then
     say "            not imported (you said no)"
@@ -777,6 +786,8 @@ native_tally() {
     esac
   done < "$NATIVE_TALLY"
   rm -f "$NATIVE_TALLY"
+  [ "$NATIVE_IMPORTED" -gt 0 ] && date '+%Y-%m-%d' > "$NATIVE_MARKER"
+  return 0
 }
 
 will_pull_model() {

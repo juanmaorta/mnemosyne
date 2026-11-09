@@ -1013,14 +1013,16 @@ describe("install.sh native memory (MNE-117)", () => {
     expect(r.code, r.out).toBe(0);
     const notes = importedNotes(home);
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatch(/^claude-users-me-projects-acme-app-riego-[0-9a-f]{12}\.md$/);
+    // source-id = the project folder as a slug plus a checksum of its exact name, so two
+    // folders that slugify alike ('my-app' / 'my_app') never share an identity.
+    expect(notes[0]).toMatch(/^claude-users-me-projects-acme-app-[0-9]+-riego-[0-9a-f]{12}\.md$/);
     expect(readFileSync(join(personal(home), notes[0]!), "utf8")).toContain("regar cada dos dias");
     expect(readdirSync(dir).sort()).toEqual(["MEMORY.md", "riego.md"]);
     expect(r.out).toMatch(/imported 1/i);
     expect(r.out).toContain(GUIDE);
     // The imported notes are retrievable right away, not after the next session's reindex.
     const v = spawnSync(join(home, ".local", "bin", "mneme"), ["search", "regar"], { encoding: "utf8", env: { HOME: home, PATH: AGENTLESS_PATH } });
-    expect(v.stdout, v.stderr).toMatch(/claude-users-me-projects-acme-app-riego/);
+    expect(v.stdout, v.stderr).toMatch(/claude-users-me-projects-acme-app-[0-9]+-riego/);
   });
 
   test("running_install_again_imports_nothing_twice", async () => {
@@ -1073,6 +1075,30 @@ describe("install.sh native memory (MNE-117)", () => {
     expect(importedNotes(home)).toHaveLength(1);
     expect(r.out).toMatch(/blog[\s\S]*failed 1/);
     expect(r.out).toContain(GUIDE);
+  });
+
+  test("two_folders_that_slugify_alike_both_import", async () => {
+    const home = freshHome();
+    seedNative(home, "-home-me-my-app", { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    seedNative(home, "-home-me-my_app", { "riego.md": nativeNote("como regar", "regar cada TRES dias") });
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toHaveLength(2);
+    expect(r.out).not.toMatch(/conflict [1-9]/);
+  });
+
+  test("a_feedback_only_import_counts_as_imported_before_on_upgrade", async () => {
+    const home = freshHome();
+    // feedback notes become facts (personal/facts/<ulid>.md), not personal/claude-*.md
+    seedNative(home, ACME, { "feedback_terse.md": ["---", "type: feedback", "description: prefiere terse", "---", "", "respuestas cortas", ""].join("\n") });
+    expect((await install(home)).code).toBe(0);
+    expect(importedNotes(home)).toEqual([]);
+    expect(readdirSync(join(personal(home), "facts"))).toHaveLength(1);
+    seedNative(home, ACME, { "poda.md": nativeNote("como podar", "podar en marzo") });
+    const r = await run(home, ["upgrade", "--yes", "--no-build"]);
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toEqual([]);
+    expect(r.out).toMatch(/imported before/i);
   });
 
   test("upgrade_imports_only_when_nothing_was_imported_before", async () => {
