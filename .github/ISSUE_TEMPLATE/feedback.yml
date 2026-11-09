@@ -1,0 +1,116 @@
+name: Feedback
+description: You tried Mnemosyne — tell me how it went. Two questions matter most; the rest is optional.
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying it. Two things I most want to know: **did it install first try**, and
+        **did your agent remember something useful the next day**. Everything else here is
+        optional, and a one-line answer is a good answer.
+
+        **Redact your data.** This tool holds your memory store, so a report can easily carry a
+        note's content, a client's name or a secret. Describe what the agent remembered in
+        general terms ("my preference about commit messages"), not with the note itself.
+
+        Something broken? A [bug report](https://github.com/juanmaorta/mnemosyne/issues/new?template=bug_report.yml)
+        is the better home. A question? [Discussions → Q&A](https://github.com/juanmaorta/mnemosyne/discussions/categories/q-a).
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Did it install first try?
+      options:
+        - Yes, the installer did everything
+        - Yes, after I fixed something it told me about (say what below)
+        - No, I had to work around something (say what below)
+        - No, I gave up (say where below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: install-notes
+    attributes:
+      label: What happened installing
+      description: Anything confusing, any error, any step where the installer or the guide left you guessing. Paste commands and messages, not notes.
+      placeholder: |
+        `~/.local/bin` was not on my PATH; the installer said so but I missed it the first time.
+
+  - type: dropdown
+    id: remembered
+    attributes:
+      label: Did your agent remember something useful the next day?
+      options:
+        - Yes, without me asking
+        - Yes, when I asked it
+        - It remembered, but nothing useful
+        - No
+        - Too early to tell
+    validations:
+      required: true
+
+  - type: textarea
+    id: remembered-notes
+    attributes:
+      label: What it remembered, or should have
+      description: In general terms. What kind of thing was it, and how did it show up (the session-start digest, a `mneme search`, the agent asking)?
+      placeholder: |
+        It knew my preference for short answers from the digest. It did not recall a project constraint I had added the day before until I asked it to search.
+
+  - type: textarea
+    id: missing
+    attributes:
+      label: What is missing, or in the way
+      description: The one thing you would add, and the one thing you would remove.
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Codex CLI
+        - OpenCode
+        - Several of these
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (arm64)
+        - WSL
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Search tier
+      description: "`mneme stats` says which. Tier 0 is keyword search without Ollama."
+      options:
+        - Tier 0 (no Ollama)
+        - Ollama with nomic-embed-text-v2-moe (the default)
+        - Ollama with another model (say which below)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`mneme --version`"
+      placeholder: "v0.1.1"
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
