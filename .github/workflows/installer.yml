@@ -1,27 +1,17 @@
 name: Installer
 
 # MNE-97: the installer, on both platforms it promises. Split out of ci.yml so a
-# PR that only touches docs or unrelated code does not pay for a macOS runner:
-# on pull requests it runs only when something the installer depends on
-# changes. On main it always runs, so a breakage that slips past the filter
-# still shows up on the next merge.
+# PR that only touches docs or unrelated code does not pay for a macOS runner.
+# The workflow runs on EVERY pull request so its checks always report (branch
+# protection requires them: a check that never starts blocks the merge), but a
+# first job looks at what the PR changes and the two installer jobs are skipped
+# when nothing the installer depends on did — GitHub counts a skipped required
+# check as passed. On main it always runs, so a breakage that slips past the
+# filter still shows up on the next merge.
 on:
   push:
     branches: [main]
   pull_request:
-    paths:
-      - install.sh
-      - .github/workflows/installer.yml
-      - package.json
-      - package-lock.json
-      - src/bin/**
-      - src/cli.ts
-      - src/config.ts
-      - src/hook.ts
-      - src/release.ts
-      - src/store.ts
-      # Pasted into CLAUDE.md by the installer.
-      - docs/integrations/memory-instructions.md
 
 permissions:
   contents: read
@@ -29,8 +19,36 @@ permissions:
 jobs:
   # Modes that never touch the runner's own HOME — every step points HOME at a
   # fresh temp dir. Linux runs it under dash (Ubuntu's sh), which is what `curl … | sh` gets.
+  # Does this PR touch anything the installer depends on? Pushes to main: always.
+  changes:
+    name: installer paths changed?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      installer: ${{ steps.filter.outputs.installer }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "installer=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed="$(git diff --name-only "$BASE...HEAD")"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -Eq '^(install\.sh|\.github/workflows/installer\.yml|package\.json|package-lock\.json|src/bin/|src/cli\.ts|src/config\.ts|src/hook\.ts|src/release\.ts|src/store\.ts|docs/integrations/memory-instructions\.md)'; then
+            echo "installer=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installer=false" >> "$GITHUB_OUTPUT"
+          fi
+
   installer:
     name: install.sh (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
