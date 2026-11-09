@@ -188,6 +188,14 @@ warning goes quiet:
 ~/Projects/acme = acme
 ```
 
+**Calling the default scope something else.** `personal` is only the name the installer picks;
+nothing requires it. To use another name, say `me`, before you have notes: write the catch-all
+as `~ = me` in `.scopemap` and declare it in `.owner` (`{"owns":["me"]}`; without that file this
+machine owns `personal` and nothing else). With notes already in `personal/`, also rename that
+folder and run `mneme reindex`. The installer and `mneme init` leave an existing `.scopemap`
+and `.owner` alone, and the installer's import of Claude Code's native memory targets whatever
+scope the catch-all names.
+
 ## Several machines
 
 The store is plain files, so syncing it is the whole feature: put the **scope folders** (say

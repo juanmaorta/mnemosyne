@@ -127,8 +127,9 @@ asking, and with no terminal at all (CI, a pipe) it stops and changes nothing un
   touched. Added if missing: `.scopemap` (with a catch-all `~ = personal`) and `.config.json`
   (search tier and model, so no environment variables are needed).
 - **native memory** — if Claude Code's built-in memory has notes
-  (`~/.claude/projects/<project>/memory/*.md`), the plan counts them and, when `personal` is the
-  store's only scope, the installer imports them into it: a dry run per folder first, then the
+  (`~/.claude/projects/<project>/memory/*.md`), the plan counts them and, when the default
+  scope (the catch-all in `.scopemap`, `personal` unless you changed it) is the store's only
+  scope, the installer imports them into it: a dry run per folder first, then the
   import; the originals are never touched, and a folder with a conflict or a failed note is
   left for you to do by hand. With more scopes it does not guess which one a folder belongs
   to: it names [Migrating from native memory](migrating-from-native-memory.md), which does it
@@ -279,7 +280,7 @@ Every command (`install`, the default; `upgrade`, also accepted as `update`; `un
 | `--no-codex` | Do not wire the Codex CLI. |
 | `--no-opencode` | Do not wire OpenCode. |
 | `--no-claude-md` | Wire Claude Code's hook, but do not add the block to `~/.claude/CLAUDE.md`. |
-| `--import-native` | Import Claude Code's native memory into scope `personal` without asking (only when that is the store's only scope). |
+| `--import-native` | Import Claude Code's native memory into the default scope without asking (only when that is the store's only scope). |
 | `--no-import-native` | Never offer that import. |
 | `--no-build` | Use the checkout as already built (development). |
 | `--delete-data` | `uninstall` only: also delete the memory store. |

@@ -1077,6 +1077,19 @@ describe("install.sh native memory (MNE-117)", () => {
     expect(r.out).toContain(GUIDE);
   });
 
+  test("the_import_goes_to_the_catch_all_scope_when_it_is_not_called_personal", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, "memory"), { recursive: true });
+    writeFileSync(join(home, "memory", ".scopemap"), "~ = me\n");
+    writeFileSync(join(home, "memory", ".owner"), JSON.stringify({ owns: ["me"] }));
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/scope 'me'/);
+    expect(importedNotes(home)).toEqual([]);
+    expect(readdirSync(join(home, "memory", "me")).filter((f) => f.startsWith("claude-"))).toHaveLength(1);
+  });
+
   test("two_folders_that_slugify_alike_both_import", async () => {
     const home = freshHome();
     seedNative(home, "-home-me-my-app", { "riego.md": nativeNote("como regar", "regar cada dos dias") });

@@ -51,7 +51,7 @@ NO_CLAUDE=0
 NO_CODEX=0
 NO_OPENCODE=0
 # Claude Code's own memory, `~/.claude/projects/<cwd-slug>/memory/*.md` (MNE-117):
-# offered for import when this store has no scope but `personal`. ask|yes|no.
+# offered for import when this store has no scope but its default one. ask|yes|no.
 IMPORT_NATIVE=ask
 
 CLAUDE_DIR="$HOME/.claude"
@@ -97,8 +97,8 @@ Options:
   --no-opencode     do not wire OpenCode        (~/.config/opencode/AGENTS.md block)
   --no-claude-md    wire Claude Code's hook but not the ~/.claude/CLAUDE.md block
   --import-native   import Claude Code's native memory (~/.claude/projects/*/memory) into
-                    scope 'personal' without asking; --no-import-native never offers it.
-                    Only when 'personal' is the store's only scope; otherwise see
+                    the default scope without asking; --no-import-native never offers it.
+                    Only when that is the store's only scope; otherwise see
                     docs/guide/migrating-from-native-memory.md
   --no-build        use the checkout as already built (development)
   --delete-data     uninstall only: also delete the memory store (--root)
@@ -649,7 +649,7 @@ ask_choices() {
     fi
   fi
   if native_offered && [ "$IMPORT_NATIVE" = ask ]; then
-    ask_yes "  Import $(plural "$NATIVE_NOTES" note) from Claude Code's native memory ($(plural "$NATIVE_DIRS" folder) under $CLAUDE_PROJECTS) into scope 'personal'?" || IMPORT_NATIVE=declined
+    ask_yes "  Import $(plural "$NATIVE_NOTES" note) from Claude Code's native memory ($(plural "$NATIVE_DIRS" folder) under $CLAUDE_PROJECTS) into scope '$NATIVE_SCOPE'?" || IMPORT_NATIVE=declined
   fi
   return 0
 }
@@ -670,6 +670,9 @@ NATIVE_IMPORTED_BEFORE=0
 NATIVE_IMPORTED=0
 NATIVE_LEFT=0
 NATIVE_MARKER="$STORE_ROOT/.native-imported"
+# The destination: the store's default scope — the catch-all of .scopemap
+# (`~ = <scope>`), `personal` until init writes one or when there is none.
+NATIVE_SCOPE=personal
 
 plural() { if [ "$1" = 1 ]; then printf '%s %s' "$1" "$2"; else printf '%s %ss' "$1" "$2"; fi; }
 
@@ -688,8 +691,15 @@ native_source_id() { # $1 = a memory folder
   printf '%s-%s' "${_sid:-project}" "$(printf '%s' "$_folder" | cksum | cut -d' ' -f1)"
 }
 
+default_scope() {
+  [ -f "$STORE_ROOT/.scopemap" ] || { printf 'personal'; return 0; }
+  _ca="$(sed -n 's/^[[:space:]]*~[[:space:]]*=[[:space:]]*\([a-z0-9][a-z0-9-]*\)[[:space:]]*$/\1/p' "$STORE_ROOT/.scopemap" | head -1)"
+  printf '%s' "${_ca:-personal}"
+}
+
 scan_native() {
   [ -d "$CLAUDE_PROJECTS" ] || return 0
+  NATIVE_SCOPE="$(default_scope)"
   for _d in "$CLAUDE_PROJECTS"/*/memory; do
     [ -d "$_d" ] || continue
     _n="$(native_notes_in "$_d")"
@@ -704,7 +714,7 @@ scan_native() {
   for _s in "$STORE_ROOT"/*/; do
     [ -d "$_s" ] || continue
     _name="$(basename "$_s")"
-    case "$_name" in personal|archive) continue ;; esac
+    case "$_name" in "$NATIVE_SCOPE"|archive) continue ;; esac
     printf '%s' "$_name" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$' || continue
     NATIVE_OTHER_SCOPES="$NATIVE_OTHER_SCOPES${NATIVE_OTHER_SCOPES:+, }$_name"
   done
@@ -712,7 +722,7 @@ scan_native() {
   # ulid, so the slugs alone would miss a feedback-only import), or notes with the
   # importer's slug prefix from an import done by hand.
   [ -f "$NATIVE_MARKER" ] && NATIVE_IMPORTED_BEFORE=1
-  for _f in "$STORE_ROOT"/personal/claude-*.md; do
+  for _f in "$STORE_ROOT/$NATIVE_SCOPE"/claude-*.md; do
     [ -f "$_f" ] && NATIVE_IMPORTED_BEFORE=1
     break
   done
@@ -738,7 +748,7 @@ plan_native() {
   if [ "$IMPORT_NATIVE" = no ]; then
     say "            skipped (--no-import-native)"
   elif [ -n "$NATIVE_OTHER_SCOPES" ]; then
-    say "            not imported: this store has scopes besides personal ($NATIVE_OTHER_SCOPES), so each folder"
+    say "            not imported: this store has scopes besides '$NATIVE_SCOPE' ($NATIVE_OTHER_SCOPES), so each folder"
     say "            needs a scope chosen by hand — see $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
   elif [ "$ACTION" = upgrade ] && [ "$NATIVE_IMPORTED_BEFORE" = 1 ]; then
     say "            not imported again: the native memory was imported before. For notes added since,"
@@ -746,7 +756,7 @@ plan_native() {
   elif [ "$IMPORT_NATIVE" = declined ]; then
     say "            not imported (you said no)"
   else
-    say "            → import into scope 'personal' (a dry run per folder first; the originals are never"
+    say "            → import into scope '$NATIVE_SCOPE' (a dry run per folder first; the originals are never"
     say "            touched, and a folder with a conflict or a failed note is left for you to do by hand)"
   fi
 }
@@ -758,13 +768,13 @@ do_native_import() {
     [ -n "$_d" ] || continue
     _sid="$(native_source_id "$_d")"
     _label="$(basename "$(dirname "$_d")")"
-    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope personal --root "$STORE_ROOT" 2>&1)" || {
+    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope "$NATIVE_SCOPE" --root "$STORE_ROOT" 2>&1)" || {
       warn "$_label: $(printf '%s\n' "$_report" | grep '^summary:' || printf '%s' "$_report" | tail -1)"
       note "left alone: resolve it by hand with 'mneme import-claude' — $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
       printf 'left\n' >> "$NATIVE_TALLY"
       continue
     }
-    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope personal --root "$STORE_ROOT" --apply 2>&1)" || {
+    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope "$NATIVE_SCOPE" --root "$STORE_ROOT" --apply 2>&1)" || {
       warn "$_label: $(printf '%s\n' "$_report" | grep '^summary:' || printf '%s' "$_report" | tail -1)"
       printf 'left\n' >> "$NATIVE_TALLY"
       continue
