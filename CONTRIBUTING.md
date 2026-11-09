@@ -125,6 +125,11 @@ A pull request should say what changes, why, and what you verified — with the 
 (`npm run typecheck` and `npm test`, and what the suite actually printed). "Tests pass" with
 no output behind it is the claim this project trusts least.
 
+Pull requests are **squash-merged**: the PR lands on `main` as one commit whose subject is the
+PR title and whose body is the PR description. So the title follows the convention above
+(gitmoji, what changed and why, `(MNE-NN)` when there is an issue) — it is the line the next
+release's CHANGELOG is built from — and the commits inside the PR can be as messy as you need.
+
 Releases are cut by the maintainers with `npm run release`; see [Releasing](docs/dev/releasing.md).
 
 ## Licensing
