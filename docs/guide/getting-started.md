@@ -99,8 +99,8 @@ cd mnemosyne
 ### What it changes
 
 First it asks a few questions, each defaulting to yes (Enter): whether to wire each agent it
-found, and — only when Ollama is running without the model — whether to download the model
-(about 960 MB). Then it prints this plan and asks `Go ahead? [y/N]`. It asks through the
+found, only when Ollama is running without the model, whether to download the model (about
+960 MB), and, when Claude Code's own memory has notes, whether to import them. Then it prints this plan and asks `Go ahead? [y/N]`. It asks through the
 terminal, so the prompts work under `curl | sh`; with `--yes` it takes the defaults without
 asking, and with no terminal at all (CI, a pipe) it stops and changes nothing unless you pass
 `--yes`.
@@ -126,6 +126,14 @@ asking, and with no terminal at all (CI, a pipe) it stops and changes nothing un
 - **data** — your memories live in `~/memory` as plain Markdown files. Existing notes are never
   touched. Added if missing: `.scopemap` (with a catch-all `~ = personal`) and `.config.json`
   (search tier and model, so no environment variables are needed).
+- **native memory** — if Claude Code's built-in memory has notes
+  (`~/.claude/projects/<project>/memory/*.md`), the plan counts them and, when `personal` is the
+  store's only scope, the installer imports them into it: a dry run per folder first, then the
+  import; the originals are never touched, and a folder with a conflict or a failed note is
+  left for you to do by hand. With more scopes it does not guess which one a folder belongs
+  to: it names [Migrating from native memory](migrating-from-native-memory.md), which does it
+  scope by scope. `--no-import-native` never offers it; `--import-native` does it without
+  asking. An upgrade offers it only when nothing was imported before.
 - **the instructions block** — the same text for every agent, between
   `<!-- mnemosyne:begin … -->` and `<!-- mnemosyne:end -->` markers, telling the agent to use
   `mneme` for memory. Skipped in a file that already mentions `mneme`. The text is
@@ -161,7 +169,8 @@ mneme search "answers"
 prints the note in full. Then:
 
 - Run `mneme context` in a project directory: that is the digest the hook injects. A store with
-  one note prints a digest with one line.
+  one note prints a digest with one line; if the installer imported Claude Code's native memory,
+  those notes are in it too.
 - Open a **new** Claude Code or Codex session (in Codex, trust the hook first with `/hooks`). It
   starts with that digest already in context — ask it what it knows about your answer
   preferences. OpenCode runs `mneme context` itself, as the block tells it.
@@ -169,8 +178,10 @@ prints the note in full. Then:
 
 If something is off, see [Troubleshooting](troubleshooting.md).
 
-Already using Claude Code's built-in memory? [Migrating from native memory](migrating-from-native-memory.md)
-imports it and switches it off, so there is one store instead of two.
+Already using Claude Code's built-in memory? The installer offers to import it when `personal`
+is your only scope. [Migrating from native memory](migrating-from-native-memory.md) covers the
+rest: several scopes, conflicts, and switching the native memory off so there is one store
+instead of two.
 
 ## Update
 
@@ -268,6 +279,8 @@ Every command (`install`, the default; `upgrade`, also accepted as `update`; `un
 | `--no-codex` | Do not wire the Codex CLI. |
 | `--no-opencode` | Do not wire OpenCode. |
 | `--no-claude-md` | Wire Claude Code's hook, but do not add the block to `~/.claude/CLAUDE.md`. |
+| `--import-native` | Import Claude Code's native memory into scope `personal` without asking (only when that is the store's only scope). |
+| `--no-import-native` | Never offer that import. |
 | `--no-build` | Use the checkout as already built (development). |
 | `--delete-data` | `uninstall` only: also delete the memory store. |
 | `-h`, `--help` | The script's own help. |

@@ -103,7 +103,7 @@ The installer lists all of this and asks before doing any of it (agents only whe
 | `~/.claude/CLAUDE.md` | A marked block telling the agent to use `mneme` for memory. Skipped if the file already mentions `mneme`; opt out with `--no-claude-md`. |
 | `~/.codex/hooks.json`, `AGENTS.md` | Codex CLI: the same hook and block (`$CODEX_HOME` if set). Trust the hook once with `/hooks`. |
 | `~/.config/opencode/AGENTS.md` | OpenCode: the block (no hook; the agent runs `mneme context` itself). Not created when OpenCode already reads the block from `~/.claude/CLAUDE.md`. |
-| `~/memory/` | Your memories, as plain Markdown. A default `.scopemap` and a `.config.json` (search tier and model) are added if missing. |
+| `~/memory/` | Your memories, as plain Markdown. A default `.scopemap` and a `.config.json` (search tier and model) are added if missing. If Claude Code's built-in memory has notes and `personal` is your only scope, it offers to import them (originals untouched). |
 
 It does **not** edit your shell startup files, and it does not install Node.js or Ollama for
 you. `install.sh uninstall` removes everything above except `~/memory`, which it keeps unless

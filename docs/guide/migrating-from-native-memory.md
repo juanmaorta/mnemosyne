@@ -4,6 +4,14 @@ Claude Code (and Codex CLI) ship their own memory. If you have been using it, yo
 memories spread across per-project folders that Mnemosyne does not read. This page moves them
 into your store and makes Mnemosyne the **only** memory your agent writes to.
 
+**The simple case is handled by the installer.** When `personal` is the only scope in your
+store, `install.sh` finds Claude Code's memory folders, counts the notes and offers to import
+them all into `personal` (dry run per folder, then import; originals untouched). If you said
+yes there, skip to [step 5](#5-turn-the-native-memory-off--first-in-a-test-configuration).
+This page is for everything else: a store with several scopes, where each folder needs a scope
+chosen by hand; a folder the installer left alone because of a conflict or a failed note; and
+Codex's own memory.
+
 Do it in order. Each step ends with a check; if the check fails, stop there.
 
 - [Why switch the native memory off](#why-switch-the-native-memory-off)

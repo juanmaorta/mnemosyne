@@ -964,3 +964,128 @@ describe("install.sh release channel (MNE-111)", () => {
     expect(git(repo, "rev-parse", "HEAD")).toBe(head);
   });
 });
+
+describe("install.sh native memory (MNE-117)", () => {
+  const GUIDE = "migrating-from-native-memory.md";
+  const personal = (home: string) => join(home, "memory", "personal");
+  const importedNotes = (home: string) => (existsSync(personal(home)) ? readdirSync(personal(home)).filter((f) => f.startsWith("claude-")) : []);
+  function nativeNote(description: string, body: string): string {
+    return ["---", "type: reference", `description: ${description}`, "---", "", body, ""].join("\n");
+  }
+  /** Claude Code's own memory for one project: `~/.claude/projects/<cwd-slug>/memory/*.md`. */
+  function seedNative(home: string, project: string, files: Record<string, string>): string {
+    const dir = join(home, ".claude", "projects", project, "memory");
+    mkdirSync(dir, { recursive: true });
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content);
+    return dir;
+  }
+  function tty(...answers: string[]): string {
+    const f = join(mkdtempSync(join(tmpdir(), "mneme-tty-")), "tty");
+    writeFileSync(f, answers.map((a) => `${a}\n`).join(""));
+    return f;
+  }
+  const ACME = "-Users-me-Projects-acme-app";
+
+  test("without_native_memory_nothing_is_planned_or_asked", async () => {
+    const home = freshHome();
+    // Claude Code? yes — Go ahead? yes. A native-memory question here would eat the "y".
+    const r = await run(home, ["install", "--no-build", "--no-ollama-pull"], { PATH: withAgents("claude"), MNEMOSYNE_INSTALL_TTY: tty("y", "y") });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).not.toMatch(/native memory/i);
+    expect(importedNotes(home)).toEqual([]);
+  });
+
+  test("the_plan_counts_the_native_notes_and_a_dry_run_imports_nothing", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias"), "MEMORY.md": "# index\n" });
+    seedNative(home, "-Users-me-Projects-blog", { "tono.md": nativeNote("tono del blog", "cercano y breve") });
+    const r = await run(home, ["--dry-run"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/native memory[\s\S]*2 notes? in 2 /i);
+    expect(r.out).toMatch(/scope 'personal'/);
+    expect(existsSync(join(home, "memory"))).toBe(false);
+  });
+
+  test("with_yes_it_imports_every_native_folder_into_personal_and_leaves_the_originals", async () => {
+    const home = freshHome();
+    const dir = seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias"), "MEMORY.md": "# index\n" });
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    const notes = importedNotes(home);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^claude-users-me-projects-acme-app-riego-[0-9a-f]{12}\.md$/);
+    expect(readFileSync(join(personal(home), notes[0]!), "utf8")).toContain("regar cada dos dias");
+    expect(readdirSync(dir).sort()).toEqual(["MEMORY.md", "riego.md"]);
+    expect(r.out).toMatch(/imported 1/i);
+    expect(r.out).toContain(GUIDE);
+    // The imported notes are retrievable right away, not after the next session's reindex.
+    const v = spawnSync(join(home, ".local", "bin", "mneme"), ["search", "regar"], { encoding: "utf8", env: { HOME: home, PATH: AGENTLESS_PATH } });
+    expect(v.stdout, v.stderr).toMatch(/claude-users-me-projects-acme-app-riego/);
+  });
+
+  test("running_install_again_imports_nothing_twice", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    expect((await install(home)).code).toBe(0);
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toHaveLength(1);
+    expect(r.out).toMatch(/skipped-identical 1/);
+  });
+
+  test("a_store_with_several_scopes_is_not_imported_into_and_the_guide_is_named", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    mkdirSync(join(home, "memory", "acme"), { recursive: true });
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toEqual([]);
+    expect(r.out).toMatch(/not imported[\s\S]*acme/);
+    expect(r.out).toContain(GUIDE);
+  });
+
+  test("no_import_native_skips_it", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    const r = await install(home, "--no-import-native");
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toEqual([]);
+    expect(r.out).toMatch(/skipped \(--no-import-native\)/);
+  });
+
+  test("asked_with_a_terminal_the_import_can_be_declined", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    // Claude Code? yes — import native memory? no — Go ahead? yes
+    const r = await run(home, ["install", "--no-build", "--no-ollama-pull"], { PATH: withAgents("claude"), MNEMOSYNE_INSTALL_TTY: tty("y", "n", "y") });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/Import 1 note/);
+    expect(importedNotes(home)).toEqual([]);
+    expect(r.out).toMatch(/not imported \(you said no\)/);
+  });
+
+  test("a_folder_with_a_conflict_is_left_for_the_guide_and_the_rest_still_import", async () => {
+    const home = freshHome();
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    seedNative(home, "-Users-me-Projects-blog", { "claves.md": nativeNote("claves", "token sk-abcdefghij0123456789") });
+    const r = await install(home);
+    expect(r.code, r.out).toBe(0);
+    expect(importedNotes(home)).toHaveLength(1);
+    expect(r.out).toMatch(/blog[\s\S]*failed 1/);
+    expect(r.out).toContain(GUIDE);
+  });
+
+  test("upgrade_imports_only_when_nothing_was_imported_before", async () => {
+    const home = freshHome();
+    expect((await install(home)).code).toBe(0);                       // nothing native yet
+    seedNative(home, ACME, { "riego.md": nativeNote("como regar", "regar cada dos dias") });
+    const r1 = await run(home, ["upgrade", "--yes", "--no-build"]);
+    expect(r1.code, r1.out).toBe(0);
+    expect(importedNotes(home)).toHaveLength(1);
+    seedNative(home, ACME, { "poda.md": nativeNote("como podar", "podar en marzo") });
+    const r2 = await run(home, ["upgrade", "--yes", "--no-build"]);
+    expect(r2.code, r2.out).toBe(0);
+    expect(importedNotes(home)).toHaveLength(1);
+    expect(r2.out).toMatch(/imported before/i);
+  });
+});

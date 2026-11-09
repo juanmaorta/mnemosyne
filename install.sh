@@ -50,10 +50,14 @@ DELETE_DATA=0
 NO_CLAUDE=0
 NO_CODEX=0
 NO_OPENCODE=0
+# Claude Code's own memory, `~/.claude/projects/<cwd-slug>/memory/*.md` (MNE-117):
+# offered for import when this store has no scope but `personal`. ask|yes|no.
+IMPORT_NATIVE=ask
 
 CLAUDE_DIR="$HOME/.claude"
 SETTINGS="$CLAUDE_DIR/settings.json"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+CLAUDE_PROJECTS="$CLAUDE_DIR/projects"
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 CODEX_HOOKS="$CODEX_DIR/hooks.json"
 OPENCODE_DIR="$HOME/.config/opencode"
@@ -92,6 +96,10 @@ Options:
   --no-codex        do not wire the Codex CLI   (hook + \$CODEX_HOME/AGENTS.md block)
   --no-opencode     do not wire OpenCode        (~/.config/opencode/AGENTS.md block)
   --no-claude-md    wire Claude Code's hook but not the ~/.claude/CLAUDE.md block
+  --import-native   import Claude Code's native memory (~/.claude/projects/*/memory) into
+                    scope 'personal' without asking; --no-import-native never offers it.
+                    Only when 'personal' is the store's only scope; otherwise see
+                    docs/guide/migrating-from-native-memory.md
   --no-build        use the checkout as already built (development)
   --delete-data     uninstall only: also delete the memory store (--root)
   -h, --help        this help
@@ -130,6 +138,8 @@ while [ $# -gt 0 ]; do
     --no-claude) NO_CLAUDE=1 ;;
     --no-codex) NO_CODEX=1 ;;
     --no-opencode) NO_OPENCODE=1 ;;
+    --import-native) IMPORT_NATIVE=yes ;;
+    --no-import-native) IMPORT_NATIVE=no ;;
     --no-build) DO_BUILD=0 ;;
     --delete-data) DELETE_DATA=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -508,6 +518,7 @@ plan_install() {
   say "  data:     your memories live in $STORE_ROOT as plain Markdown files."
   say "            Existing notes are never touched. Added if missing: .scopemap (catch-all '~ = personal'),"
   say "            and .config.json (search tier and model, so no environment variables are needed)."
+  plan_native
   if [ "$ACTION" = upgrade ]; then
     say "  index:    mneme reindex --root '$STORE_ROOT' — incremental: picks up what the new version"
     say "            changes in the index now rather than at the next session"
@@ -626,16 +637,146 @@ ask_yes() {
 }
 
 ask_choices() {
-  [ "$ACTION" = install ] || return 0
   [ "$ASSUME_YES" = 0 ] && [ "$DRY_RUN" = 0 ] && open_tty || return 0
+  [ "$ACTION" = install ] || native_offered || return 0
   section "Choices (Enter = yes)"
-  if [ "$WIRE_CLAUDE" = 1 ]; then ask_yes "  Wire Mnemosyne into Claude Code?" || WIRE_CLAUDE=0; fi
-  if [ "$WIRE_CODEX" = 1 ]; then ask_yes "  Wire Mnemosyne into the Codex CLI?" || WIRE_CODEX=0; fi
-  if [ "$WIRE_OPENCODE" = 1 ]; then ask_yes "  Wire Mnemosyne into OpenCode?" || WIRE_OPENCODE=0; fi
-  if will_pull_model; then
-    ask_yes "  Download the embedding model $MODEL ($(model_size)) for semantic search? Without it, search is by keywords only." || DO_OLLAMA_PULL=0
+  if [ "$ACTION" = install ]; then
+    if [ "$WIRE_CLAUDE" = 1 ]; then ask_yes "  Wire Mnemosyne into Claude Code?" || WIRE_CLAUDE=0; fi
+    if [ "$WIRE_CODEX" = 1 ]; then ask_yes "  Wire Mnemosyne into the Codex CLI?" || WIRE_CODEX=0; fi
+    if [ "$WIRE_OPENCODE" = 1 ]; then ask_yes "  Wire Mnemosyne into OpenCode?" || WIRE_OPENCODE=0; fi
+    if will_pull_model; then
+      ask_yes "  Download the embedding model $MODEL ($(model_size)) for semantic search? Without it, search is by keywords only." || DO_OLLAMA_PULL=0
+    fi
+  fi
+  if native_offered && [ "$IMPORT_NATIVE" = ask ]; then
+    ask_yes "  Import $(plural "$NATIVE_NOTES" note) from Claude Code's native memory ($(plural "$NATIVE_DIRS" folder) under $CLAUDE_PROJECTS) into scope 'personal'?" || IMPORT_NATIVE=declined
   fi
   return 0
+}
+
+# ------------------------------------------------- native memory (MNE-117) ---
+# Claude Code keeps its own memory per project in ~/.claude/projects/<cwd-slug>/memory/.
+# Someone who has used it installs Mnemosyne and gets an empty digest: it looks
+# like nothing works. The installer offers to import it — but only into a store
+# whose only scope is `personal`. With more scopes there is a client somewhere
+# and a folder name cannot be decoded into a project (docs/guide/migrating-
+# from-native-memory.md does it by hand, scope by scope); a note misrouted to
+# `personal` would survive deleting that client's scope. Fail closed.
+NATIVE_DIRS=0
+NATIVE_NOTES=0
+NATIVE_LIST=""
+NATIVE_OTHER_SCOPES=""
+NATIVE_IMPORTED_BEFORE=0
+NATIVE_IMPORTED=0
+NATIVE_LEFT=0
+
+plural() { if [ "$1" = 1 ]; then printf '%s %s' "$1" "$2"; else printf '%s %ss' "$1" "$2"; fi; }
+
+native_notes_in() { # $1 = a memory folder → how many notes the importer would consider
+  find "$1" -maxdepth 1 -type f -name '*.md' ! -name '.*' ! -iname 'MEMORY.md' ! -iname 'INDEX.md' 2>/dev/null | wc -l | tr -d ' '
+}
+
+# The source-id is the project folder's name as a kebab slug: deterministic, so
+# a second run lands on the same slugs and imports nothing twice.
+native_source_id() { # $1 = a memory folder
+  _sid="$(basename "$(dirname "$1")" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')"
+  printf '%s' "${_sid:-project}"
+}
+
+scan_native() {
+  [ -d "$CLAUDE_PROJECTS" ] || return 0
+  for _d in "$CLAUDE_PROJECTS"/*/memory; do
+    [ -d "$_d" ] || continue
+    _n="$(native_notes_in "$_d")"
+    [ "$_n" -gt 0 ] || continue
+    NATIVE_DIRS=$((NATIVE_DIRS + 1))
+    NATIVE_NOTES=$((NATIVE_NOTES + _n))
+    NATIVE_LIST="$NATIVE_LIST$_d
+"
+  done
+  [ "$NATIVE_NOTES" -gt 0 ] || return 0
+  # Scope folders are kebab-case directories in the store root ('archive' is not one).
+  for _s in "$STORE_ROOT"/*/; do
+    [ -d "$_s" ] || continue
+    _name="$(basename "$_s")"
+    case "$_name" in personal|archive) continue ;; esac
+    printf '%s' "$_name" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$' || continue
+    NATIVE_OTHER_SCOPES="$NATIVE_OTHER_SCOPES${NATIVE_OTHER_SCOPES:+, }$_name"
+  done
+  for _f in "$STORE_ROOT"/personal/claude-*.md; do
+    [ -f "$_f" ] && NATIVE_IMPORTED_BEFORE=1
+    break
+  done
+  return 0
+}
+
+# Offered = there is something to import and no reason not to. An upgrade
+# offers it once: when nothing was ever imported (new native notes after that
+# are the guide's job, not a surprise on every upgrade).
+native_offered() {
+  [ "$NATIVE_NOTES" -gt 0 ] || return 1
+  [ "$IMPORT_NATIVE" != no ] || return 1
+  [ -z "$NATIVE_OTHER_SCOPES" ] || return 1
+  if [ "$ACTION" = upgrade ] && [ "$NATIVE_IMPORTED_BEFORE" = 1 ]; then return 1; fi
+  return 0
+}
+
+native_wanted() { native_offered && [ "$IMPORT_NATIVE" != declined ]; }
+
+plan_native() {
+  [ "$NATIVE_NOTES" -gt 0 ] || return 0
+  say "  native:   Claude Code's native memory: $(plural "$NATIVE_NOTES" note) in $(plural "$NATIVE_DIRS" folder) under $CLAUDE_PROJECTS"
+  if [ "$IMPORT_NATIVE" = no ]; then
+    say "            skipped (--no-import-native)"
+  elif [ -n "$NATIVE_OTHER_SCOPES" ]; then
+    say "            not imported: this store has scopes besides personal ($NATIVE_OTHER_SCOPES), so each folder"
+    say "            needs a scope chosen by hand — see $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
+  elif [ "$ACTION" = upgrade ] && [ "$NATIVE_IMPORTED_BEFORE" = 1 ]; then
+    say "            not imported again: notes were imported before (personal/claude-*.md). For new ones,"
+    say "            see $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
+  elif [ "$IMPORT_NATIVE" = declined ]; then
+    say "            not imported (you said no)"
+  else
+    say "            → import into scope 'personal' (a dry run per folder first; the originals are never"
+    say "            touched, and a folder with a conflict or a failed note is left for you to do by hand)"
+  fi
+}
+
+do_native_import() {
+  native_wanted || return 0
+  section "Importing Claude Code's native memory"
+  printf '%s' "$NATIVE_LIST" | while IFS= read -r _d; do
+    [ -n "$_d" ] || continue
+    _sid="$(native_source_id "$_d")"
+    _label="$(basename "$(dirname "$_d")")"
+    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope personal --root "$STORE_ROOT" 2>&1)" || {
+      warn "$_label: $(printf '%s\n' "$_report" | grep '^summary:' || printf '%s' "$_report" | tail -1)"
+      note "left alone: resolve it by hand with 'mneme import-claude' — $INSTALL_DIR/docs/guide/migrating-from-native-memory.md"
+      printf 'left\n' >> "$NATIVE_TALLY"
+      continue
+    }
+    _report="$(mneme_run import-claude --source "$_d" --source-id "$_sid" --scope personal --root "$STORE_ROOT" --apply 2>&1)" || {
+      warn "$_label: $(printf '%s\n' "$_report" | grep '^summary:' || printf '%s' "$_report" | tail -1)"
+      printf 'left\n' >> "$NATIVE_TALLY"
+      continue
+    }
+    _sum="$(printf '%s\n' "$_report" | grep '^summary:')"
+    say "  $_label: ${_sum#summary: }"
+    printf '%s\n' "$(printf '%s' "$_sum" | sed -n 's/^summary: imported \([0-9][0-9]*\),.*/\1/p')" >> "$NATIVE_TALLY"
+  done
+}
+
+# The while loop above runs in a subshell, so the tally comes back through a file.
+native_tally() {
+  [ -f "$NATIVE_TALLY" ] || return 0
+  while IFS= read -r _t; do
+    case "$_t" in
+      left) NATIVE_LEFT=$((NATIVE_LEFT + 1)) ;;
+      '') ;;
+      *) NATIVE_IMPORTED=$((NATIVE_IMPORTED + _t)) ;;
+    esac
+  done < "$NATIVE_TALLY"
+  rm -f "$NATIVE_TALLY"
 }
 
 will_pull_model() {
@@ -852,6 +993,7 @@ run_init() {
 do_install_or_upgrade() {
   check_requirements
   resolve_target
+  scan_native
   [ "$BLOCKING" = 1 ] || ask_choices
   plan_install
   if [ "$BLOCKING" = 1 ]; then
@@ -899,10 +1041,14 @@ do_install_or_upgrade() {
   [ "$ACTION" = install ] && [ "$WIRE_CLAUDE" = 1 ] && backup_once "$SETTINGS"
   run_init
   wire_agents
-  if [ "$ACTION" = upgrade ]; then
+  NATIVE_TALLY="$(mktemp "${TMPDIR:-/tmp}/mnemosyne-native.XXXXXX")"
+  do_native_import
+  native_tally
+  if [ "$ACTION" = upgrade ] || [ "$NATIVE_IMPORTED" -gt 0 ]; then
     # No index schema version to migrate: schema additions apply themselves
     # when the index is opened, and a changed embedder is caught by reindex.
     # Running it here does both now, instead of in the next session's hook.
+    # Imported notes are on disk but not in the index until this runs.
     section "Bringing the index up to date"
     mneme_run reindex --root "$STORE_ROOT" || warn "reindex failed; the next 'mneme search' or session retries it"
   fi
@@ -910,6 +1056,12 @@ do_install_or_upgrade() {
   section "Done"
   [ "$IN_PLACE" = 0 ] && say "Mnemosyne $(current_version) is installed in $INSTALL_DIR."
   say "Your memories live in $STORE_ROOT."
+  if [ "$NATIVE_IMPORTED" -gt 0 ] || [ "$NATIVE_LEFT" -gt 0 ]; then
+    say "Imported $(plural "$NATIVE_IMPORTED" note) from Claude Code's native memory; the originals were not touched."
+    [ "$NATIVE_LEFT" -gt 0 ] && say "$(plural "$NATIVE_LEFT" folder) left for you to import by hand (see above)."
+    say "While the native memory stays on, the agent writes to both stores. To switch it off:"
+    say "  $INSTALL_DIR/docs/guide/migrating-from-native-memory.md#5-turn-the-native-memory-off--first-in-a-test-configuration"
+  fi
   [ "$WIRE_CLAUDE" = 1 ] && say "Claude Code: open a new session and it starts with them."
   if [ "$WIRE_CODEX" = 1 ]; then
     say "Codex CLI:   open Codex and trust the hook once with /hooks (until then it does nothing). Its"
