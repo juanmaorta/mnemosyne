@@ -4,13 +4,22 @@ All notable changes to Mnemosyne. Versions follow [semver](https://semver.org/).
 
 ## v0.1.2 — 2026-11-14
 
+### Changed
+
+- **"Dreaming" is now called consolidation.** The command is `mneme consolidate apply|revert`,
+  and the docs, the CLI output and two doc files (`docs/dev/consolidation.md`,
+  `docs/consolidation-remote-opt-in.md`) use the new name. Anthropic ships an unrelated, hosted
+  Dreams API, and the two read as the same thing. `mneme dream` still works as a hidden alias and
+  will be removed in a later release. On-disk names (`.dreaming.json`, `.telemetry/dreams/`, the
+  `dream-` prefix of derived notes) are unchanged for now. Consolidation is still in development
+  and off by default. (MNE-118)
+
 ### Other
 
-- 📝 «Dreaming» pasa a «consolidation» en la doc y la CLI: `mneme consolidate`, con `dream` como alias oculto (MNE-118)
-- 👷 installer.yml: los checks del instalador informan en todos los PR y se omiten si no cambia nada suyo
-- 📝 contributing: los PR se mergean con squash; el título es la línea del CHANGELOG
-- 📝 plantilla de issue «Feedback»: las dos preguntas que importan y el entorno (MNE-104)
-- 📝 changelog: notas legibles de la v0.1.1 y fuera el bloque Unreleased duplicado
+- A *Feedback* issue template with the two questions that matter and your environment. (MNE-104)
+- CONTRIBUTING: pull requests are squash-merged, and the title is the changelog line.
+- CI: the installer checks report on every pull request and are skipped when nothing of theirs
+  changed.
 
 ## v0.1.1 — 2026-11-09
 
