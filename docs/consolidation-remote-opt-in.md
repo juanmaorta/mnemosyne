@@ -1,9 +1,9 @@
-# Dreaming — relaxing local-first (opt-in) for a larger model
+# Consolidation — relaxing local-first (opt-in) for a larger model
 
 > Status: mechanism implemented; applying plans to a real store is a separate, manual step
-> (see [Dreaming](dev/dreaming.md)).
+> (see [Consolidation](dev/consolidation.md)).
 
-Dreaming is **local-first by default**: synthesis generation talks to Ollama on `localhost`.
+Consolidation is **local-first by default**: synthesis generation talks to Ollama on `localhost`.
 Evaluation showed that a small local model (qwen2.5:7b) does not consolidate dense cases well,
 and a larger local model needs RAM not everyone has. So as not to exclude those users, you can
 **explicitly opt in** to a larger endpoint, in the cloud or on your own infrastructure —
@@ -49,7 +49,7 @@ No file, a malformed file, or an empty `allowScopes` → **everything stays loca
   is **not** used as "local" without opting in: the path without an opt-in is always loopback,
   so that an environment variable cannot become a silent leak that bypassed the scope gate. To
   use an Ollama on your LAN/VPN, declare it here with its `allowScopes`.
-- **Generation only.** Embeddings and retrieval always stay local; this affects only dreaming
+- **Generation only.** Embeddings and retrieval always stay local; this affects only consolidation
   generation.
 
 ## Trade-off

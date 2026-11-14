@@ -75,7 +75,7 @@ describe("MNE-56 — reindex round-trip for dream apply/revert", () => {
   test("apply makes the derived note retrievable through search", async () => {
     const root = storeWithPlan();
 
-    const r = await run(["dream", "apply", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
+    const r = await run(["consolidate", "apply", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
     expect(r.code).toBe(0);
     expect(existsSync(join(root, "personal", "dream-a.md"))).toBe(true);
 
@@ -85,10 +85,10 @@ describe("MNE-56 — reindex round-trip for dream apply/revert", () => {
 
   test("revert removes the note and leaves no stale rows or vectors", async () => {
     const root = storeWithPlan();
-    await run(["dream", "apply", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
+    await run(["consolidate", "apply", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
     expect(await slugsFor(root, TOPIC)).toContain("dream-a");
 
-    const r = await run(["dream", "revert", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
+    const r = await run(["consolidate", "revert", "--run", "run-1", "--scope", "personal", "--root", root, "--apply"]);
     expect(r.code).toBe(0);
     expect(existsSync(join(root, "personal", "dream-a.md"))).toBe(false);
 

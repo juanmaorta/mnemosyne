@@ -43,7 +43,7 @@ otherwise:
 | `<root>/<scope>/**.md` | The memories themselves. Plain Markdown, the source of truth |
 | `<root>/.index/store.db` | Derived SQLite index: description, a ~200-character snippet of each body, an FTS5 copy of the **full body**, embeddings, and hot state (strength, access counts) |
 | `<root>/.telemetry/events-*.jsonl` | Diagnostic event log: slugs and scope names in clear, query text only as a hash, never note content |
-| `<root>/.telemetry/dreams/<scope>/` | Dreaming plans and their apply records: proposed notes **with their bodies**. Dreaming is in development and nothing creates these in normal use yet |
+| `<root>/.telemetry/dreams/<scope>/` | Consolidation plans and their apply records: proposed notes **with their bodies**. Consolidation is in development and nothing creates these in normal use yet |
 | `<root>/<scope>/.mneme-write.lock` | Transient write lock |
 
 Two consequences worth stating plainly, because both surprise people:
@@ -52,7 +52,7 @@ Two consequences worth stating plainly, because both surprise people:
   `.index/` as harmless derived state — syncing it, backing it up, leaving it behind when a
   scope is deleted — is moving note bodies around.
 - **The telemetry folder sits outside the scope folders.** Deleting `<root>/<scope>/` leaves
-  that scope's slugs in the log, and any dreaming plan for it.
+  that scope's slugs in the log, and any consolidation plan for it.
 
 ## What counts as a vulnerability here
 
@@ -72,10 +72,10 @@ Two consequences worth stating plainly, because both surprise people:
   - **The embedder** (`OLLAMA_HOST`, default `http://localhost:11434`), which by necessity
     receives note bodies at index time and query text at search time. Pointing it at a remote
     box is the user's deliberate choice and their data leaving on purpose.
-  - **Dreaming's generator** (in development): the same local Ollama by default. A remote
+  - **Consolidation's generator** (in development): the same local Ollama by default. A remote
     endpoint only by a per-machine opt-in (`<root>/.dreaming.json`) that names which scopes may
     leave; the prompt is scanned for secrets first. See
-    [Dreaming — remote opt-in](docs/dreaming-remote-opt-in.md).
+    [Consolidation — remote opt-in](docs/consolidation-remote-opt-in.md).
   - **The new-version check**: once a day, one HTTPS `GET` of the latest release from
     `api.github.com`. It sends no content and nothing about you or your store. Off with
     `MNEMOSYNE_NO_UPDATE_CHECK=1` or `"updateCheck": false` in `.config.json`.
@@ -114,7 +114,7 @@ Two consequences worth stating plainly, because both surprise people:
 3. `mneme purge-telemetry --scope <scope> --apply` — simulating is the default, `--apply`
    writes. It drops events naming the scope, narrows multi-scope events, deletes a day file
    left empty (an empty file still says *the client was active that day*), deletes the scope's
-   dreaming plans and apply records, and redacts the scope from snapshots. Snapshot aggregates
+   consolidation plans and apply records, and redacts the scope from snapshots. Snapshot aggregates
    have no per-scope breakdown, so the totals stay; if even those are unacceptable, delete the
    snapshots.
 4. Your backups and your sync history. Neither is under this tool's control.
@@ -150,4 +150,4 @@ Markdown, in the index, and in every backup and sync copy you have.
 - Don't sync `.index/` or the write lock files. The index is disposable and rebuildable
   (`mneme reindex`), and it is a copy of your content.
 - Keep the embedder local unless you mean otherwise. `OLLAMA_HOST` is where your note text is
-  sent at index and search time; dreaming sends it nowhere else unless you opt in per scope.
+  sent at index and search time; consolidation sends it nowhere else unless you opt in per scope.

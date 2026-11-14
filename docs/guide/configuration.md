@@ -223,7 +223,7 @@ Declare which scopes this machine may write in `~/memory/.owner` (machine-local,
 ```
 
 Absent or malformed means `personal` only (fail-closed). A machine never writes a scope it does
-not own. Reads and `search` are unaffected by ownership; only writes and dreaming are gated.
+not own. Reads and `search` are unaffected by ownership; only writes and consolidation are gated.
 
 `.owner` is never synced: each machine declares its own. With a scope synced between machines
 ([above](#several-machines)), list it on every machine whose agents should be able to save to
@@ -236,10 +236,10 @@ it. A machine that should only read it leaves it out:
 { "owns": ["work-laptop"] }
 ```
 
-**Dreaming will need one owner per scope.** Consolidation, once it runs on a schedule, must run
+**Consolidation will need one owner per scope.** Once it runs on a schedule, it must run
 on a single machine per scope: two machines consolidating the same notes would do the work twice
-and collide before the sync catches up. Dreaming is [in development](concepts.md#dreaming), so
-this does not apply yet; when it does, its own setting will say which machine dreams.
+and collide before the sync catches up. Consolidation is [in development](concepts.md#consolidation), so
+this does not apply yet; when it does, its own setting will say which machine consolidates.
 
 ## Telemetry
 

@@ -12,7 +12,7 @@ refuses a value that starts with `-`; write such a path as `./-name`.
 - **Setup:** [`init`](#init) · [`install-hook` / `uninstall-hook`](#install-hook--uninstall-hook)
 - **Reading:** [`search`](#search) · [`get`](#get) · [`context`](#context)
 - **Writing:** [`add`](#add) · [`update`](#update) · [`import-claude`](#import-claude)
-- **Maintenance:** [`reindex`](#reindex) · [`scan`](#scan) · [`scope`](#scope) · [`dream apply` / `revert`](#dream)
+- **Maintenance:** [`reindex`](#reindex) · [`scan`](#scan) · [`scope`](#scope) · [`consolidate apply` / `revert`](#consolidate)
 - **Diagnostics:** [`explain`, `stats`, `trace`, `snapshot`, `purge-telemetry`](#diagnostics)
 - [Exit status](#exit-status)
 
@@ -59,10 +59,10 @@ mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s]
 # Import one Claude Code native memory directory into one scope (dry run by default)
 mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply]
 
-# Apply (or revert) a reviewed Dreaming plan — creates derived notes, reversibly.
+# Apply (or revert) a reviewed consolidation plan — creates derived notes, reversibly.
 # Dry run by default; --apply commits. Preview: no command generates a plan yet.
-mneme dream apply  --run <runId> --scope <scope> [--apply] [--root r]
-mneme dream revert --run <runId> --scope <scope> [--apply] [--root r]
+mneme consolidate apply  --run <runId> --scope <scope> [--apply] [--root r]
+mneme consolidate revert --run <runId> --scope <scope> [--apply] [--root r]
 
 # Session-start hook for Claude Code (default) or the Codex CLI. Dry run without --write.
 mneme install-hook   [--harness codex] [--write]
@@ -355,7 +355,7 @@ pinned: true
 
 - It affects **archival only**: a pinned note still decays in the ranking and still reinforces on
   recall — it just never moves to `archive/`.
-- Written **by hand or by the agent, never by dreaming** — through the same `update`
+- Written **by hand or by the agent, never by consolidation** — through the same `update`
   compare-and-swap as everything else.
 - `mneme stats` counts pinned notes, so pins cannot quietly grow until archival is pointless.
 
@@ -417,20 +417,21 @@ mneme scope [<path>]
 Read-only. Prints the scope a write from that path (default: the current directory) would resolve
 to — fail-closed, so possibly "unmapped → pass --scope" — and whether this machine owns it.
 
-## dream
+## consolidate
 
 > **Preview.** No `mneme` command generates a plan yet, so there is no `<runId>` to pass today:
-> these commands are the reviewed, reversible half of [Dreaming](../guide/concepts.md#dreaming),
-> which is in development. They are documented because their guarantees are part of the design.
+> these commands are the reviewed, reversible half of [consolidation](../guide/concepts.md#consolidation),
+> which is in development. They are documented because their guarantees are part of the design. Until v0.1.1 the command
+> was `mneme dream`; that name still works as an alias and will be removed in a later release.
 
-Dreaming's consolidation never writes the store directly. It produces a **plan** — a reviewable
+Consolidation never writes the store directly. It produces a **plan** — a reviewable
 dry-run artifact under `.telemetry/dreams/<scope>/<runId>.json` — and applying it is this
 separate, explicit, manual step. No model is invoked here, and nothing runs it on a schedule.
 
 ```sh
-mneme dream apply  --run <runId> --scope <scope>            # dry run: show what it would create
-mneme dream apply  --run <runId> --scope <scope> --apply    # commit, then reindex
-mneme dream revert --run <runId> --scope <scope> --apply    # undo exactly that run
+mneme consolidate apply  --run <runId> --scope <scope>            # dry run: show what it would create
+mneme consolidate apply  --run <runId> --scope <scope> --apply    # commit, then reindex
+mneme consolidate revert --run <runId> --scope <scope> --apply    # undo exactly that run
 ```
 
 - **Creates derived notes only.** It writes new `dream-…` notes with their `sources` provenance in
@@ -450,7 +451,7 @@ mneme dream revert --run <runId> --scope <scope> --apply    # undo exactly that 
   `mneme reindex --scope <scope>` to catch up); it never reports full success over a pending index.
 
 Applying goes through the same owner and secret gates and the same scope lock as `add`; the
-model's output is treated as untrusted content. Design notes: [Dreaming](../dev/dreaming.md).
+model's output is treated as untrusted content. Design notes: [Consolidation](../dev/consolidation.md).
 
 ## Diagnostics
 

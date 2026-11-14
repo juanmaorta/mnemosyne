@@ -65,7 +65,7 @@ describe("mneme <command> --help (MNE-106)", () => {
   test("every_command_the_dispatcher_knows_has_a_usage", () => {
     // The unknown-command message lists the commands; each must answer --help.
     expect(COMMANDS.length).toBeGreaterThan(15);
-    for (const c of ["context", "search", "add", "update", "init", "import-claude", "dream", "compliance-lint", "upgrade"]) {
+    for (const c of ["context", "search", "add", "update", "init", "import-claude", "consolidate", "compliance-lint", "upgrade"]) {
       expect(COMMANDS).toContain(c);
     }
   });

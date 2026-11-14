@@ -98,10 +98,18 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   update: 'usage: mneme update <slug> ["<body>" | --file <path>] --if-match <revision> [--scope s] [--cwd d] [--description d] [--importance n] [--superseded-by <slug> | --status active|superseded|flagged] [--pinned | --unpinned]\n'
     + "       a body whose first character is '-' (a bulleted list) must use --file, or come after `--`: mneme update --if-match <rev> [flags] -- <slug> \"- uno\"",
   "import-claude": "usage: mneme import-claude --source <dir> --source-id <slug> --scope <scope> [--apply] [--root r]",
-  dream: "usage: mneme dream apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
+  consolidate: "usage: mneme consolidate apply|revert --run <runId> --scope <scope> [--apply] [--root r]\n"
     + "       dry-run by default (shows what would change); --apply commits the write.",
   upgrade: UPGRADE_USAGE,
 };
+
+/**
+ * Old command names that still work but are not listed anywhere. MNE-118: the
+ * command was `mneme dream` in v0.1.1, whose published docs still say so; it was
+ * renamed because Anthropic ships an unrelated, hosted "Dreams" API and the two
+ * read as the same thing. Remove the alias in the next minor release (MNE-119).
+ */
+const COMMAND_ALIASES: Record<string, string> = { dream: "consolidate" };
 
 const GENERAL_USAGE = `usage: mneme <command> [options]   (mneme <command> --help for one command)\ncommands: ${Object.keys(COMMAND_USAGE).join(", ")}`;
 
@@ -249,11 +257,13 @@ function openIndex(root: string) {
 }
 
 export async function runCli(argv: string[], out: Out = console.log, err: Out = console.error): Promise<number> {
-  const [command, ...rest] = argv;
+  const [given, ...rest] = argv;
+  const command = given !== undefined && Object.hasOwn(COMMAND_ALIASES, given) ? COMMAND_ALIASES[given]! : given;
   // MNE-106: help is answered before anything can resolve a store, read a path
   // or create a directory. `--` ends the options, so `-- --help` stays content.
   if (command === "--help" || command === "-h" || command === "help") {
-    const topic = command === "help" ? rest[0] : undefined;
+    const asked = command === "help" ? rest[0] : undefined;
+    const topic = asked !== undefined && Object.hasOwn(COMMAND_ALIASES, asked) ? COMMAND_ALIASES[asked] : asked;
     out(topic !== undefined && Object.hasOwn(COMMAND_USAGE, topic) ? COMMAND_USAGE[topic]! : GENERAL_USAGE);
     return 0;
   }
@@ -495,7 +505,7 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
         out(`  day files rewritten   ${r.filesRewritten}`);
         out(`  day files deleted     ${r.filesDeleted}`);
         out(`  snapshots redacted    ${r.snapshotsRedacted}`);
-        out(`  dreaming files        ${r.dreamFilesRemoved}   (plans and apply records)`);
+        out(`  consolidation files   ${r.dreamFilesRemoved}   (plans and apply records)`);
         if (r.snapshotsRedacted > 0) {
           out(`\n  note: snapshot aggregates (countsByType, strengthHistogram) have no per-scope`);
           out(`  breakdown, so '${scope}' stays folded into those totals. The scope name and its`);
@@ -982,14 +992,14 @@ export async function runCli(argv: string[], out: Out = console.log, err: Out = 
           err((e as Error).message); return 1;
         }
       }
-      case "dream": {
+      case "consolidate": {
         const { values, positionals } = parseArgs({
           args: rest,
           options: { run: { type: "string" }, scope: { type: "string" }, root: { type: "string" }, apply: { type: "boolean" } },
           allowPositionals: true,
         });
         const verb = positionals[0];
-        const usage = COMMAND_USAGE.dream!;
+        const usage = COMMAND_USAGE.consolidate!;
         if (verb !== "apply" && verb !== "revert") { err(usage); return 1; }
         const run = values.run?.trim();
         const scope = values.scope?.trim();

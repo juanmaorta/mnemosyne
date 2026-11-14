@@ -44,7 +44,7 @@ function describe(ev: TelemetryEvent): string {
     case "access.reinforced":
       return `read — strength ${String(ev.strengthBefore)} → ${String(ev.strengthAfter)}, ${String(ev.accessCountAfter)} access${ev.accessCountAfter === 1 ? "" : "es"}`;
     case "dream.run":
-      return `dreaming run ${String(ev.runId)} on ${String(ev.scope)} — ${String(ev.proposals)} proposal(s), ${String(ev.duplicates)} dup, model ${String(ev.model)}${ev.withinBudget === false ? " (OVER BUDGET)" : ""}`;
+      return `consolidation run ${String(ev.runId)} on ${String(ev.scope)} — ${String(ev.proposals)} proposal(s), ${String(ev.duplicates)} dup, model ${String(ev.model)}${ev.withinBudget === false ? " (OVER BUDGET)" : ""}`;
     case "dream.proposal":
       return `proposed derived note ${String(ev.slug)} from [${Array.isArray(ev.sources) ? (ev.sources as unknown[]).join(", ") : ""}]${ev.isDuplicate ? " — duplicate, skipped" : ""}`;
     case "dream.applied":

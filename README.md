@@ -139,7 +139,7 @@ you pass `--delete-data`.
 - [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md).
 - [Architecture](docs/architecture.md) — goal, design principles, data model and roadmap.
 - [Developer docs](docs/dev/README.md) — retrieval internals, benchmarks and calibration,
-  dreaming, project status.
+  consolidation, project status.
 
 ## License
 
