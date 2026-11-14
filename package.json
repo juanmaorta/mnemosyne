@@ -1,6 +1,6 @@
 {
   "name": "mnemosyne",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Persistent, human-like memory for LLM agents. File-based, local-first, agent-agnostic.",
   "license": "Apache-2.0",
   "author": "Juanma Orta",

@@ -2,6 +2,16 @@
 
 All notable changes to Mnemosyne. Versions follow [semver](https://semver.org/).
 
+## v0.1.2 — 2026-11-14
+
+### Other
+
+- 📝 «Dreaming» pasa a «consolidation» en la doc y la CLI: `mneme consolidate`, con `dream` como alias oculto (MNE-118)
+- 👷 installer.yml: los checks del instalador informan en todos los PR y se omiten si no cambia nada suyo
+- 📝 contributing: los PR se mergean con squash; el título es la línea del CHANGELOG
+- 📝 plantilla de issue «Feedback»: las dos preguntas que importan y el entorno (MNE-104)
+- 📝 changelog: notas legibles de la v0.1.1 y fuera el bloque Unreleased duplicado
+
 ## v0.1.1 — 2026-11-09
 
 The first release meant for other people. Mnemosyne has been in daily use by its author
