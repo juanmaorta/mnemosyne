@@ -115,7 +115,7 @@ Commit messages carry a gitmoji prefix and a short summary of *what changed and 
 ```
 ✨ Codex CLI: install-hook --harness codex y el sobre JSON del digest
 🐛 Resolver symlinks al comparar prefijos de .scopemap
-📝 Posicionar dreaming frente a la Dreams API de Anthropic
+📝 contributing: los PR se mergean con squash; el título es la línea del CHANGELOG
 ```
 
 `✨` feature, `🐛` fix, `📝` docs are the ones in use. The existing history is in Spanish because

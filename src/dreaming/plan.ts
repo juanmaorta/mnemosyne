@@ -321,7 +321,7 @@ export function computeBudgetVerdict(proposals: PlanProposal[], links: PlanLink[
 /** Human-readable diff: what this run would create, from what, under what budget. */
 export function renderPlan(plan: DreamingPlan): string {
   const lines: string[] = [];
-  lines.push(`dreaming plan ${plan.runId} — scope ${plan.scope}`);
+  lines.push(`consolidation plan ${plan.runId} — scope ${plan.scope}`);
   lines.push(`model ${plan.model.id} · algo ${plan.algoVersion} · ${plan.createdAt}`);
 
   lines.push(`sources read (${plan.sources.length}):`);

@@ -16,7 +16,7 @@ Persistent memory for LLM agents that behaves like memory rather than like a pil
 - recall ranked by **relevance, recency and importance**;
 - **decay** of what is never used, and **reinforcement** of what is recalled;
 - an **associative graph** between memories;
-- offline **consolidation** ("dreaming") that distills raw observations into curated notes;
+- offline **consolidation** that distills raw observations into curated notes;
 - **local-first** (works offline, nothing leaves the machine by default), **agent-agnostic**,
   usable across several machines;
 - **selective deletion by scope**: when you stop working with a client, deleting that client's
@@ -49,7 +49,7 @@ These are non-negotiable; most of the code exists to keep them true.
 7. **Auditable forgetting.** Decay moves memories to an archive; it does not delete them.
 8. **Pluggable LLM, local by default.** Generation runs on a local Ollama by default; the
    endpoint is configurable, but a scope is only ever sent off the machine when the user has
-   explicitly allowed it (see [remote opt-in](dreaming-remote-opt-in.md)).
+   explicitly allowed it (see [remote opt-in](consolidation-remote-opt-in.md)).
 9. **Append-only for observed memory.** In a session the agent does not rewrite observed
    memories: it *appends facts*, one immutable file per fact. Only the consolidation owner
    derives curated notes from the stream. This keeps sync conflict-free and gives rollback: a
@@ -60,7 +60,7 @@ These are non-negotiable; most of the code exists to keep them true.
     deletion — a leak. Append-only gives rollback of *quality*, not of *compliance*, so the
     write-time scope gate is hardened separately.
 11. **Observable, explainable, measurable.** Every important decision — what was recalled and
-    what was dropped, why, how a memory decays, what dreaming rewrote — must be reconstructible
+    what was dropped, why, how a memory decays, what consolidation rewrote — must be reconstructible
     from a trace, explainable from its signal breakdown, and evaluated against reproducible
     benchmarks. The system evolves on data, not trial and error.
 
@@ -70,7 +70,7 @@ The `type` field already encodes the boundary:
 
 | Kind | `type` | Truth | Writes | Human edits |
 |---|---|---|---|---|
-| **Observed / learned** | `feedback` | append-only fact stream | the agent appends facts; dreaming derives notes | through re-consolidation, not directly |
+| **Observed / learned** | `feedback` | append-only fact stream | the agent appends facts; consolidation derives notes | through re-consolidation, not directly |
 | **Authored / reference** | `user`, `reference`, `project`, `snapshot` | the note *is* the truth | edited directly (by hand or by the agent, with compare-and-swap) | direct |
 
 The fact stream is for episodic, observed material: high volume, lower confidence, meant to be
@@ -83,7 +83,7 @@ and edited directly; they are not consolidated.
 ~/memory/                    # system of record, agent-agnostic
   personal/                  # scope = folder
     facts/  *.md             # append-only fact stream (immutable, one fact per file)
-    *.md                     # notes: derived (dreaming) + authored
+    *.md                     # notes: derived (consolidation) + authored
   acme/                      # another scope, e.g. a client: a new scope is a new folder
     facts/  *.md
     *.md
@@ -110,7 +110,7 @@ description: one-liner used for recall
 scope: personal
 type: user|feedback|project|reference|snapshot
 created: 2026-06-22T10:00:00
-importance: 7                # 1-10; set by the agent, re-scored by dreaming
+importance: 7                # 1-10; set by the agent, re-scored by consolidation
 links: [other-slug]          # associative graph (+ [[wikilinks]] in the body)
 sources: [slug, ...]         # provenance of derived memories → scope taint
 ---
@@ -132,10 +132,10 @@ backup churn, and conflicts between a hand edit and the owner.
 - **Decay and reinforcement** (after *MemoryBank*): `R = e^(-t/S)`; each recall increases `S`
   and resets `t`, in the local index only — spaced repetition.
 - **Associative graph** (after *A-MEM* / Zettelkasten): `[[links]]` plus the `links` field;
-  dreaming proposes new links.
-- **Consolidation / dreaming**: per scope, never across scopes; derives notes from the fact
+  consolidation proposes new links.
+- **Consolidation**: per scope, never across scopes; derives notes from the fact
   stream, writes higher-level reflections tagged with their `sources`, proposes links,
-  re-scores importance and archives by strength. Details: [Dreaming](dev/dreaming.md).
+  re-scores importance and archives by strength. Details: [Consolidation](dev/consolidation.md).
 - **Secret scanning**: regular expressions plus an entropy heuristic on every write; no LLM.
 
 ## Integration
@@ -162,16 +162,16 @@ ranking.
 | 1 — Retrieval and scoring | Local embeddings, derived SQLite index, two-tier `search`/`get`, lazy reindex on change, decay-on-access | done |
 | 2 — Hook integration | Session-start digest, `.scopemap`, fail-closed write path, owner policy, secret scanner, compare-and-swap updates | done |
 | 3 — Observability, instrumentation, benchmarking | Clock seam, signal breakdown, decision log, `stats`/`explain`/`trace`, reproducible benchmarks | mostly done; CI benchmark gate pending |
-| 4 — Dreaming | Reviewable consolidation plans, manual apply/revert; scheduled runner and archival | in progress |
+| 4 — Consolidation | Reviewable consolidation plans, manual apply/revert; scheduled runner and archival | in progress |
 | 5 — Sync and backup | Per-scope sync between your own machines; per-scope encrypted backups, so deleting a scope can include destroying its backup | planned |
 | 6 — Later | Local MCP server; optional first-person diary stream | planned |
 
-Observability comes **before** dreaming on purpose: dreaming is the most complex subsystem and
+Observability comes **before** consolidation on purpose: consolidation is the most complex subsystem and
 the only one that rewrites curated notes with an LLM. Without instrumentation there is no way
 to know whether a run improves the memory or silently degrades it, and the benchmark has to
 exist before the thing it judges, or it ends up overfitted to it.
 
-### Dreaming compute and the scope boundary
+### Consolidation compute and the scope boundary
 
 Consolidation wants a capable model, and the most capable hardware may not be the machine that
 owns a sensitive scope. The recommended pattern is **stateless inference offload**: the owner

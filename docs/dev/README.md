@@ -9,8 +9,8 @@ For working **on** Mnemosyne rather than with it. Start with [`CONTRIBUTING.md`]
   RRF fusion, and what to measure before changing any of it.
 - [Benchmarks and calibration](benchmarks.md) — the cosine, retrieval and golden-set benchmarks,
   and calibrating the floors for a store.
-- [Dreaming](dreaming.md) — the consolidation pipeline's design, and how it compares to
-  Anthropic's Dreams API. Opting into a remote model: [remote opt-in](../dreaming-remote-opt-in.md).
+- [Consolidation](consolidation.md) — the consolidation pipeline's design, and how it compares to
+  Anthropic's Dreams API. Opting into a remote model: [remote opt-in](../consolidation-remote-opt-in.md).
 - [Releasing](releasing.md) — cutting a version: the release PR, the workflow that tags and
   publishes it, and what to do when it fails.
 - Measured results live in [`docs/benchmarks/`](../benchmarks/).
@@ -31,7 +31,7 @@ In progress: observability, instrumentation and benchmarking. The clock seam, si
 telemetry store, lifecycle instrumentation, the `stats`/`explain`/`trace` surface and the local
 cosine, recency and golden-set benchmarks are in; a benchmark gate in CI is not wired yet.
 
-Next: nightly dreaming/consolidation. Plans can be produced, reviewed and applied by hand
-(`mneme dream apply`); the scheduled runner and archival (*lethe*) are not built.
+Next: nightly consolidation. Plans can be produced, reviewed and applied by hand
+(`mneme consolidate apply`); the scheduled runner and archival (*lethe*) are not built.
 
 **Glossary** — CLI: `mneme` · a single memory: *engram* · the decay → archive subsystem: *lethe*.

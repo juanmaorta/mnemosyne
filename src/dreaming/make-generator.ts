@@ -39,7 +39,7 @@ export function createDreamingGenerator(
   if (endpoint.remote && endpoint.apiKeyEnv !== undefined) {
     apiKey = process.env[endpoint.apiKeyEnv];
     if (apiKey === undefined || apiKey.trim() === "") {
-      throw new Error(`remote dreaming endpoint needs API key env '${endpoint.apiKeyEnv}', but it is unset`);
+      throw new Error(`remote consolidation endpoint needs API key env '${endpoint.apiKeyEnv}', but it is unset`);
     }
   }
 
