@@ -30,6 +30,34 @@ it, back it up. Change tools whenever you like; what your agents learned comes w
 The name: **Mnemosyne**, Titaness of memory, whose spring stood opposite the river Lethe — to
 remember versus to forget. That duality is the whole system.
 
+## What it looks like
+
+A real run, trimmed. In Claude Code, you mention a rule once:
+
+```text
+> Heads up for this repo: we use pnpm, never npm — a stray package-lock.json broke CI
+  last week. Please remember that.
+
+  $ mneme add "In the acme-api repo, always use pnpm, never npm. Why: a stray
+    package-lock.json broke CI. …" --type feedback --slug acme-api-use-pnpm
+
+  Got it: this repo uses pnpm only. I saved the rule to Mnemosyne (acme-api-use-pnpm).
+```
+
+Then, in Codex — another tool, a fresh session, nothing said about pnpm:
+
+```text
+  memory loaded at session start:
+  - [acme-api-use-pnpm] acme-api: use pnpm, never npm (package-lock.json broke CI)
+
+> I need zod in this project. What exact command should I run to add it?
+
+  pnpm add zod
+  This project uses pnpm because npm's package-lock.json previously broke CI.
+```
+
+The same question in Codex with an empty store: `npm install zod`.
+
 ## Who it is for
 
 - You use **Claude Code** (or the Codex CLI, OpenCode, or another terminal agent) and are tired
